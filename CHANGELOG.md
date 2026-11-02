@@ -4,6 +4,11 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – About text *(GitHub)*
+| File | Change |
+|---|---|
+| `index.html` | Removed "OpenBeat ECG is free to use. Recordings stay on this device (browser storage); nothing is uploaded." from Settings → About |
+
 ## 2 Nov 2026 – Strict TypeScript *(GitHub)*
 Why: same strict TypeScript setup as the Portfolio Optimizer project, so mistakes are caught before publishing.
 
