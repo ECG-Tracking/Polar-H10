@@ -4,6 +4,14 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – T-wave criteria and T/R ratio *(GitHub)*
+| File | Change |
+|---|---|
+| `src/ranges.ts` | T-wave amplitude range 100–1000 µV (under 100 µV = flat, over 1000 µV = tall), judged on size so a downward T isn't called flat; T/R ratio at least 0.1 (1/10 of R); new "T wave" entry in the sources |
+| `src/dsp.ts` | New metric: T/R ratio, median of T size ÷ R size per beat |
+| `src/app.ts` | T-wave amplitude tile now shows its range and is flagged outside it; new "T/R ratio" tile |
+| `tests/` | 1 new test (13 in total); T/R ratio checked on the demo and upside-down signals |
+
 ## 2 Nov 2026 – T-wave amplitude *(GitHub)*
 | File | Change |
 |---|---|

@@ -611,6 +611,7 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   qt: number;
   tPositive: number;
   tAmp: number; // µV, median T-wave peak vs the PR baseline (negative = T points down)
+  trRatio: number; // median of |T| / |R| per beat
   jPoint: number;
   st60: number;
   rAmp: number;
@@ -636,6 +637,7 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     qt: median(pick((m) => m.qt)),
     tPositive: tVals.length ? (100 * tVals.filter((v) => v > 0).length) / tVals.length : NaN,
     tAmp: median(tVals),
+    trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.rAmp ? [Math.abs(m.tAmp) / Math.abs(m.rAmp)] : []))),
     jPoint: median(pick((m) => m.jAmp)),
     st60: median(pick((m) => m.st60)),
     rAmp: median(pick((m) => m.rAmp)),

@@ -35,3 +35,14 @@ test('range checks and labels', () => {
   assert.equal(fmtRange(r.pnn50), '≤ 50');
   assert.equal(fmtRange(r.tPositive), '≥ 90');
 });
+
+test('T-wave criteria: 100–1000 µV in size, and at least 1/10 of R', () => {
+  const r = referenceRanges({ age: 40, sex: 'male' });
+  assert.equal(checkRange(r.tAmp, 80), 'low'); // flat
+  assert.equal(checkRange(r.tAmp, 1200), 'high'); // tall
+  assert.equal(checkRange(r.tAmp, Math.abs(-300)), null); // a normal-sized T pointing down is judged on its size
+  assert.equal(checkRange(r.trRatio, 0.08), 'low');
+  assert.equal(checkRange(r.trRatio, 0.25), null);
+  assert.equal(fmtRange(r.tAmp), '100–1000');
+  assert.equal(fmtRange(r.trRatio), '≥ 0.1');
+});

@@ -24,13 +24,14 @@ export const SOURCES: readonly (readonly [string, string])[] = [
   ['RMSSD, SDNN', 'Nunan D. et al. A quantitative systematic review of normal values for short-term heart rate variability. PACE 2010 (RMSSD 19–75 ms, SDNN 32–93 ms). Age adjustment follows Umetani K. et al., JACC 1998.'],
   ['QRS, QTc', 'AHA/ACCF/HRS recommendations for ECG interpretation (Surawicz 2009; Rautaharju 2009): QRS ≥ 120 ms is wide; QTc ≥ 450 ms (men) / ≥ 460 ms (women) is prolonged.'],
   ['J point, ST', 'Fourth Universal Definition of Myocardial Infarction (2018) uses ≥ 100 µV elevation / ≥ 50 µV depression in standard leads; applied loosely here.'],
+  ['T wave', 'Standard ECG teaching: T waves up to about 1.0 mV (1000 µV) in the chest leads; under about 0.1 mV (100 µV) is flat; and at least about 1/8–1/10 of the R wave in the same lead. A chest strap is not a standard lead, so these are guides only.'],
   ['HR recovery', 'Cole C.R. et al., NEJM 1999: a drop of 12 bpm or less in the first minute after exercise is abnormal.'],
   ['Ectopic beats', 'Healthy adults usually have under 1 % ectopic beats on long recordings; flagged beats here also include noise.'],
 ];
 
 export interface ReferenceRanges {
   meanHR: Range; hrvScore: Range; rmssd: Range; sdnn: Range; pnn50: Range; pnn200: Range;
-  eventPct: Range; qrs: Range; qtc: Range; tPositive: Range; jPoint: Range; st60: Range; hrr60: Range;
+  eventPct: Range; qrs: Range; qtc: Range; tPositive: Range; tAmp: Range; trRatio: Range; jPoint: Range; st60: Range; hrr60: Range;
 }
 
 export function referenceRanges(settings: Pick<Settings, 'age' | 'sex'>): ReferenceRanges {
@@ -48,6 +49,8 @@ export function referenceRanges(settings: Pick<Settings, 'age' | 'sex'>): Refere
     qrs: { lo: 60, hi: 120 },
     qtc: { lo: 350, hi: female ? 460 : 450, note: female ? 'women' : 'men' },
     tPositive: { lo: 90, note: 'approximate' },
+    tAmp: { lo: 100, hi: 1000, note: 'size, either direction · approximate' },
+    trRatio: { lo: 0.1, note: 'T at least 1/10 of R · approximate' },
     jPoint: { lo: -50, hi: 200, note: 'approximate' },
     st60: { lo: -50, hi: 200, note: 'approximate' },
     hrr60: { lo: 13 },
