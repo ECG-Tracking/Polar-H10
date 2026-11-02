@@ -81,3 +81,44 @@ export function fmtRange(ref: Range): string {
   if (ref.lo != null) return `≥ ${ref.lo}`;
   return `≤ ${ref.hi}`;
 }
+
+// ---------- Sleep ----------
+
+export const SLEEP_SOURCES: readonly (readonly [string, string])[] = [
+  ['Sleep duration', 'American Academy of Sleep Medicine & Sleep Research Society consensus (Watson et al. 2015): adults should sleep 7 h or more; National Sleep Foundation (Hirshkowitz et al. 2015): 7–9 h recommended for adults.'],
+  ['Sleep stages', 'Ohayon M.M. et al., Sleep 2004 (meta-analysis of normal sleep in healthy adults): deep sleep (N3) roughly 15–25 %, REM roughly 20–25 %, light sleep (N1+N2) about 50–60 %; deep sleep declines with age.'],
+  ['Efficiency, time to fall asleep, awake time', 'Commonly used clinical thresholds (e.g. insomnia research criteria): sleep efficiency of 85 % or more, falling asleep within 30 min, and 30 min or less awake after falling asleep.'],
+  ['Breathing rate', 'Typical resting adult breathing rate is about 12–20 breaths/min; during sleep it is often slightly lower.'],
+  ['Personal ranges', 'Heart rate and HRV during sleep vary a lot between people, so they are compared with your own previous nights (average ± 1 standard deviation, from 3 nights on).'],
+];
+
+export interface SleepRanges {
+  sleepHours: Range; deepPct: Range; lightPct: Range; remPct: Range; awakenings: Range;
+  efficiency: Range; latency: Range; waso: Range; breathing: Range; regularity: Range; continuity: Range;
+}
+
+export function sleepRanges(): SleepRanges {
+  return {
+    sleepHours: { lo: 7, hi: 9 },
+    deepPct: { lo: 15, hi: 30, note: 'approximate' },
+    lightPct: { hi: 60, note: 'approximate' },
+    remPct: { lo: 15, hi: 30, note: 'approximate' },
+    awakenings: { hi: 2, note: 'awake ≥ 2 min' },
+    efficiency: { lo: 85 },
+    latency: { hi: 30 },
+    waso: { hi: 30 },
+    breathing: { lo: 10, hi: 20, note: 'approximate' },
+    regularity: { lo: 70, note: 'approximate' },
+    continuity: { lo: 70, note: 'approximate' },
+  };
+}
+
+/** Your usual range from earlier nights (mean ± 1 SD), or null with fewer than 3 nights. */
+export function personalRange(previous: readonly number[]): Range | null {
+  const v = previous.filter((x) => Number.isFinite(x));
+  if (v.length < 3) return null;
+  const m = v.reduce((s, x) => s + x, 0) / v.length;
+  const sd = Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / (v.length - 1));
+  const half = Math.max(1, sd);
+  return { lo: Math.round(m - half), hi: Math.round(m + half), note: `your last ${v.length} nights` };
+}

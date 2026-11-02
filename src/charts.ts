@@ -389,3 +389,213 @@ export class EcgViewer extends EventTarget {
     }
   }
 }
+
+// ---------- Sleep charts ----------
+
+export type SleepStageKey = 'deep' | 'light' | 'rem' | 'awake';
+
+/** Stage colour tokens (defined in styles.css for light and dark themes). */
+export const STAGE_COLOR_VAR: Readonly<Record<SleepStageKey, string>> = {
+  deep: '--stage-deep', light: '--stage-light', rem: '--stage-rem', awake: '--stage-awake',
+};
+export const STAGE_LABEL: Readonly<Record<SleepStageKey, string>> = {
+  deep: 'Deep sleep', light: 'Light sleep', rem: 'REM sleep', awake: 'Awake',
+};
+const STAGE_ROWS: readonly SleepStageKey[] = ['awake', 'rem', 'light', 'deep']; // top to bottom
+
+export const fmtClock = (epochMs: number): string =>
+  new Date(epochMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** Sleep stages over the night as blocks on four rows, with a hover readout. */
+export class Hypnogram {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly tip: HTMLDivElement;
+  private stages: readonly (SleepStageKey | null)[] = [];
+  private startMs = 0;
+  private epochS = 30;
+  private hover: number | null = null;
+
+  constructor(wrap: HTMLElement) {
+    const canvas = wrap.querySelector('canvas');
+    if (!canvas) throw new Error('hypnogram has no canvas');
+    this.canvas = canvas;
+    this.tip = document.createElement('div');
+    this.tip.className = 'tip';
+    wrap.appendChild(this.tip);
+    canvas.addEventListener('pointermove', (e) => this.move(e));
+    canvas.addEventListener('pointerleave', () => { this.hover = null; this.tip.style.display = 'none'; this.draw(); });
+    new ResizeObserver(() => this.draw()).observe(canvas);
+  }
+
+  set(stages: readonly (SleepStageKey | null)[], startMs: number, epochS: number): void {
+    this.stages = stages; this.startMs = startMs; this.epochS = epochS; this.hover = null; this.draw();
+  }
+
+  private geometry(w: number, h: number): { l: number; r: number; t: number; rowH: number; pw: number } {
+    const l = 78, r = 8, t = 6, b = 26;
+    return { l, r, t, rowH: (h - t - b) / STAGE_ROWS.length, pw: w - l - r };
+  }
+
+  draw(): void {
+    if (!this.stages.length || !this.canvas.clientWidth) return;
+    const surface = setup(this.canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    const g = this.geometry(w, h);
+    const n = this.stages.length;
+    const X = (e: number): number => g.l + (e / n) * g.pw;
+    ctx.font = '11px system-ui, sans-serif';
+    // row labels and guides
+    STAGE_ROWS.forEach((s, row) => {
+      const y = g.t + row * g.rowH;
+      ctx.fillStyle = css('--ink-2'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText(STAGE_LABEL[s].replace(' sleep', ''), g.l - 8, y + g.rowH / 2);
+      ctx.strokeStyle = css('--chart-grid'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(g.l, Math.round(y + g.rowH) + 0.5); ctx.lineTo(g.l + g.pw, Math.round(y + g.rowH) + 0.5); ctx.stroke();
+    });
+    // blocks, one per run of the same stage, with a 1 px gap between runs
+    for (let e = 0; e < n;) {
+      const s = this.stages[e] ?? null;
+      let end = e + 1;
+      while (end < n && (this.stages[end] ?? null) === s) end++;
+      if (s) {
+        const row = STAGE_ROWS.indexOf(s);
+        const x0 = X(e), x1 = X(end);
+        ctx.fillStyle = css(STAGE_COLOR_VAR[s]);
+        const inset = g.rowH * 0.12;
+        ctx.beginPath();
+        ctx.roundRect(x0 + 0.5, g.t + row * g.rowH + inset, Math.max(1, x1 - x0 - 1), g.rowH - 2 * inset, 3);
+        ctx.fill();
+      }
+      e = end;
+    }
+    // time axis: whole hours
+    ctx.fillStyle = css('--muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    const totalMs = n * this.epochS * 1000;
+    const firstHour = Math.ceil(this.startMs / 3600000) * 3600000;
+    const stepH = g.pw / (totalMs / 3600000) < 45 ? 2 : 1;
+    for (let tMs = firstHour; tMs <= this.startMs + totalMs; tMs += stepH * 3600000) {
+      const x = g.l + ((tMs - this.startMs) / totalMs) * g.pw;
+      ctx.fillText(fmtClock(tMs), x, h - 20);
+    }
+    if (this.hover !== null) {
+      const x = X(this.hover + 0.5);
+      ctx.strokeStyle = css('--ink-2'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, g.t); ctx.lineTo(Math.round(x) + 0.5, g.t + 4 * g.rowH); ctx.stroke();
+    }
+  }
+
+  private move(e: PointerEvent): void {
+    if (!this.stages.length) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const g = this.geometry(rect.width, rect.height);
+    const n = this.stages.length;
+    const idx = Math.floor(((e.clientX - rect.left - g.l) / g.pw) * n);
+    if (idx < 0 || idx >= n) { this.hover = null; this.tip.style.display = 'none'; this.draw(); return; }
+    // whole run under the pointer
+    const s = this.stages[idx] ?? null;
+    let a = idx, b = idx + 1;
+    while (a > 0 && (this.stages[a - 1] ?? null) === s) a--;
+    while (b < n && (this.stages[b] ?? null) === s) b++;
+    this.hover = idx;
+    this.draw();
+    const from = this.startMs + a * this.epochS * 1000, to = this.startMs + b * this.epochS * 1000;
+    const mins = Math.round(((b - a) * this.epochS) / 60);
+    this.tip.innerHTML = `<b>${s ? STAGE_LABEL[s] : 'No data'}</b> · ${fmtClock(from)}–${fmtClock(to)} · ${mins} min`;
+    this.tip.style.display = 'block';
+    this.tip.style.left = `${Math.min(rect.width - this.tip.offsetWidth - 4, Math.max(4, e.clientX - rect.left + 10))}px`;
+    this.tip.style.top = '4px';
+  }
+}
+
+/** Ring of stage shares with a 2 px gap between segments; labels are shown next to it in HTML. */
+export function drawDonut(canvas: HTMLCanvasElement, parts: readonly { key: SleepStageKey; value: number }[]): void {
+  const surface = setup(canvas);
+  if (!surface) return;
+  const { ctx, w, h } = surface;
+  const total = parts.reduce((s, p) => s + p.value, 0);
+  const r = Math.min(w, h) / 2 - 4, cx = w / 2, cy = h / 2, thick = Math.max(10, r * 0.28);
+  if (r <= thick) return; // not laid out yet (hidden)
+  if (!total) {
+    ctx.strokeStyle = css('--chart-grid'); ctx.lineWidth = thick;
+    ctx.beginPath(); ctx.arc(cx, cy, r - thick / 2, 0, 2 * Math.PI); ctx.stroke();
+    return;
+  }
+  const gap = 2 / (r - thick / 2); // 2 px of arc
+  let a = -Math.PI / 2;
+  for (const p of parts) {
+    if (!p.value) continue;
+    const sweep = (p.value / total) * 2 * Math.PI;
+    ctx.strokeStyle = css(STAGE_COLOR_VAR[p.key]); ctx.lineWidth = thick; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.arc(cx, cy, r - thick / 2, a + gap / 2, a + Math.max(gap, sweep - gap / 2)); ctx.stroke();
+    a += sweep;
+  }
+}
+
+/** Simple vertical bars with value labels and a hover readout. */
+export class Bars {
+  private readonly canvas: HTMLCanvasElement;
+  private readonly tip: HTMLDivElement;
+  private items: readonly { label: string; value: number; title: string; highlight?: boolean }[] = [];
+  private hover = -1;
+
+  constructor(wrap: HTMLElement) {
+    const canvas = wrap.querySelector('canvas');
+    if (!canvas) throw new Error('bar chart has no canvas');
+    this.canvas = canvas;
+    this.tip = document.createElement('div');
+    this.tip.className = 'tip';
+    wrap.appendChild(this.tip);
+    canvas.addEventListener('pointermove', (e) => this.move(e));
+    canvas.addEventListener('pointerleave', () => { this.hover = -1; this.tip.style.display = 'none'; this.draw(); });
+    new ResizeObserver(() => this.draw()).observe(canvas);
+  }
+
+  set(items: readonly { label: string; value: number; title: string; highlight?: boolean }[]): void {
+    this.items = items; this.hover = -1; this.draw();
+  }
+
+  private slot(w: number): number { return (w - 16) / Math.max(1, this.items.length); }
+
+  draw(): void {
+    if (!this.canvas.clientWidth) return;
+    const surface = setup(this.canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    const top = 18, bottom = 22, ph = h - top - bottom;
+    const max = Math.max(1, ...this.items.map((i) => i.value));
+    const slot = this.slot(w), bw = Math.min(28, slot * 0.55);
+    ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.strokeStyle = css('--chart-grid'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(8, top + ph + 0.5); ctx.lineTo(w - 8, top + ph + 0.5); ctx.stroke();
+    this.items.forEach((it, i) => {
+      const x = 8 + slot * (i + 0.5);
+      const bh = (it.value / max) * ph;
+      ctx.fillStyle = it.highlight ? css('--series-1') : css('--muted');
+      ctx.globalAlpha = this.hover === -1 || this.hover === i ? 1 : 0.6;
+      if (bh > 0) {
+        ctx.beginPath();
+        ctx.roundRect(x - bw / 2, top + ph - bh, bw, bh, [4, 4, 0, 0]);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = css('--ink-2'); ctx.textBaseline = 'bottom';
+      ctx.fillText(String(it.value), x, top + ph - bh - 3);
+      ctx.fillStyle = css('--muted'); ctx.textBaseline = 'top';
+      ctx.fillText(it.label, x, top + ph + 6);
+    });
+  }
+
+  private move(e: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const i = Math.floor((e.clientX - rect.left - 8) / this.slot(rect.width));
+    const it = this.items[i];
+    if (!it) { this.hover = -1; this.tip.style.display = 'none'; this.draw(); return; }
+    this.hover = i;
+    this.draw();
+    this.tip.innerHTML = it.title;
+    this.tip.style.display = 'block';
+    this.tip.style.left = `${Math.min(rect.width - this.tip.offsetWidth - 4, Math.max(4, e.clientX - rect.left + 10))}px`;
+    this.tip.style.top = '4px';
+  }
+}

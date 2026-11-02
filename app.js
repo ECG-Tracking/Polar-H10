@@ -16,6 +16,8 @@
   var PMD_DATA = "fb005c82-02e7-f387-1cad-8acd2d8df0c8";
   var START_ECG = new Uint8Array([2, 0, 0, 1, 130, 0, 1, 1, 14, 0]);
   var STOP_ECG = new Uint8Array([3, 0]);
+  var START_ACC = new Uint8Array([2, 2, 0, 1, 25, 0, 1, 1, 16, 0, 2, 1, 8, 0]);
+  var STOP_ACC = new Uint8Array([3, 2]);
   var PMD_ERRORS = {
     1: "invalid op code",
     2: "invalid measurement type",
@@ -32,6 +34,7 @@
     13: "sensor is charging"
   };
   var ECG_FS = 130;
+  var ACC_FS = 25;
   function bluetoothAvailable() {
     return typeof navigator !== "undefined" && !!navigator.bluetooth;
   }
@@ -44,13 +47,17 @@
       this.device = null;
       this.name = "";
       this.ecgOk = false;
+      this.accOk = false;
+      this.wanted = { ecg: true, acc: false };
       this.control = null;
       this.ecgPackets = 0;
+      this.accPackets = 0;
       this.reply = null;
     }
-    /** Connects and starts streaming. `log` receives progress lines. */
+    /** Asks the user to choose the strap, connects and starts streaming. `log` receives progress lines. */
     async connect(log = () => {
-    }) {
+    }, streams = {}) {
+      this.wanted = { ecg: streams.ecg ?? true, acc: streams.acc ?? false };
       log("Waiting for you to choose the strap and click Pair\u2026");
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: "Polar H10" }],
@@ -62,8 +69,21 @@
       device.addEventListener("gattserverdisconnected", () => {
         this.dispatchEvent(new Event("disconnect"));
       });
-      const gatt = device.gatt;
+      return this.open(log);
+    }
+    /** Reconnects to the same strap without asking again (e.g. after it dropped out overnight). */
+    async reconnect(log = () => {
+    }) {
+      if (!this.device) throw new Error("no strap chosen yet");
+      return this.open(log);
+    }
+    async open(log) {
+      const gatt = this.device?.gatt;
       if (!gatt) throw new Error("this device has no Bluetooth services");
+      this.ecgPackets = 0;
+      this.accPackets = 0;
+      this.ecgOk = false;
+      this.accOk = false;
       let server;
       for (let attempt = 1; ; attempt++) {
         try {
@@ -103,18 +123,39 @@
       } catch {
         log("Battery level not available");
       }
+      let ecgFailure = "";
       try {
-        await this.startEcg(server, log);
-        this.ecgOk = true;
-        return { ecg: true };
+        await this.openPmd(server);
+        if (this.wanted.ecg) {
+          try {
+            await this.startStream("ECG", START_ECG, STOP_ECG, () => this.ecgPackets, log);
+            this.ecgOk = true;
+          } catch (err) {
+            ecgFailure = errorMessage(err);
+            log(`ECG stream failed: ${ecgFailure}`);
+          }
+        }
+        if (this.wanted.acc) {
+          try {
+            await this.startStream("Motion", START_ACC, STOP_ACC, () => this.accPackets, log);
+            this.accOk = true;
+          } catch (err) {
+            log(`Motion stream failed: ${errorMessage(err)}`);
+          }
+        }
       } catch (err) {
-        log(`ECG stream failed: ${errorMessage(err)}`);
-        log("Continuing with heart rate only");
-        return { ecg: false, reason: errorMessage(err) };
+        ecgFailure = errorMessage(err);
+        log(`Polar data service unavailable: ${ecgFailure}`);
       }
+      if (this.wanted.ecg && !this.ecgOk) {
+        log("Continuing with heart rate only");
+        return { ecg: false, reason: ecgFailure || "ECG did not start" };
+      }
+      if (!this.wanted.ecg) return { ecg: false, reason: "not requested" };
+      return { ecg: true };
     }
-    async startEcg(server, log) {
-      log("Starting ECG stream\u2026");
+    /** Subscribes to the PMD control point and data characteristics. */
+    async openPmd(server) {
       const pmd = await server.getPrimaryService(PMD_SERVICE);
       const control = await pmd.getCharacteristic(PMD_CONTROL);
       this.control = control;
@@ -129,16 +170,21 @@
         if (dv) this.onPmd(dv);
       });
       await data.startNotifications();
-      await this.command(control, STOP_ECG, 1500).catch(() => null);
-      const reply = await this.command(control, START_ECG, 3e3);
+    }
+    async startStream(label, start, stop, packets, log) {
+      const control = this.control;
+      if (!control) throw new Error("Polar data service not open");
+      log(`Starting ${label.toLowerCase()} stream\u2026`);
+      await this.command(control, stop, 1500).catch(() => null);
+      const reply = await this.command(control, start, 3e3);
       if (!reply) {
-        log("No reply to the start command; waiting for data\u2026");
+        log(`No reply to the ${label.toLowerCase()} start command; waiting for data\u2026`);
       } else if (reply.status !== 0 && reply.status !== 6) {
         throw new Error(`H10 refused: ${PMD_ERRORS[reply.status] ?? `code ${reply.status}`}`);
       }
-      for (let i = 0; i < 25 && !this.ecgPackets; i++) await sleep(200);
-      if (!this.ecgPackets) throw new Error("no ECG data received (is the strap worn with wet electrodes?)");
-      log("ECG streaming");
+      for (let i = 0; i < 25 && !packets(); i++) await sleep(200);
+      if (!packets()) throw new Error(`no ${label.toLowerCase()} data received (is the strap worn with wet electrodes?)`);
+      log(`${label} streaming`);
     }
     /** Writes a control point command and resolves with its reply, or null on timeout. */
     async command(control, bytes, timeoutMs) {
@@ -152,10 +198,17 @@
       this.reply = null;
       return reply;
     }
+    get connected() {
+      return this.device?.gatt?.connected ?? false;
+    }
     async disconnect() {
       const gatt = this.device?.gatt;
+      this.wanted = { ecg: false, acc: false };
       try {
-        if (this.control && gatt?.connected) await this.control.writeValueWithResponse(STOP_ECG);
+        if (this.control && gatt?.connected) {
+          if (this.ecgOk) await this.control.writeValueWithResponse(STOP_ECG);
+          if (this.accOk) await this.control.writeValueWithResponse(STOP_ACC);
+        }
       } catch {
       }
       if (gatt?.connected) gatt.disconnect();
@@ -183,18 +236,32 @@
       this.dispatchEvent(new CustomEvent("hr", { detail: { hr, rr } }));
     }
     onPmd(dv) {
-      if (dv.byteLength < 10 || dv.getUint8(0) !== 0 || dv.getUint8(9) !== 0) return;
+      if (dv.byteLength < 10) return;
+      const type = dv.getUint8(0), frame = dv.getUint8(9);
+      if (type === 0 && frame === 0) this.onEcg(dv);
+      else if (type === 2 && frame <= 2) this.onAcc(dv, frame + 1);
+    }
+    onEcg(dv) {
       this.ecgPackets++;
       const n = Math.floor((dv.byteLength - 10) / 3);
       const samples = new Int32Array(n);
-      for (let k = 0, o = 10; k < n; k++, o += 3) {
-        let v = dv.getUint8(o) | dv.getUint8(o + 1) << 8 | dv.getUint8(o + 2) << 16;
-        if (v & 8388608) v -= 16777216;
-        samples[k] = v;
-      }
+      for (let k = 0, o = 10; k < n; k++, o += 3) samples[k] = readSigned(dv, o, 3);
       this.dispatchEvent(new CustomEvent("ecg", { detail: { samples } }));
     }
+    onAcc(dv, bytes) {
+      this.accPackets++;
+      const n = Math.floor((dv.byteLength - 10) / (3 * bytes));
+      const samples = new Int16Array(n * 3);
+      for (let k = 0, o = 10; k < n * 3; k++, o += bytes) samples[k] = Math.max(-32768, Math.min(32767, readSigned(dv, o, bytes)));
+      this.dispatchEvent(new CustomEvent("acc", { detail: { samples } }));
+    }
   };
+  function readSigned(dv, o, bytes) {
+    let v = 0;
+    for (let b = 0; b < bytes; b++) v |= dv.getUint8(o + b) << 8 * b;
+    const sign = 1 << 8 * bytes - 1;
+    return v & sign ? v - 2 * sign : v;
+  }
 
   // src/sim.ts
   var NORMAL = [
@@ -1283,6 +1350,242 @@
       }
     }
   };
+  var STAGE_COLOR_VAR = {
+    deep: "--stage-deep",
+    light: "--stage-light",
+    rem: "--stage-rem",
+    awake: "--stage-awake"
+  };
+  var STAGE_LABEL = {
+    deep: "Deep sleep",
+    light: "Light sleep",
+    rem: "REM sleep",
+    awake: "Awake"
+  };
+  var STAGE_ROWS = ["awake", "rem", "light", "deep"];
+  var fmtClock = (epochMs) => new Date(epochMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  var Hypnogram = class {
+    constructor(wrap) {
+      this.stages = [];
+      this.startMs = 0;
+      this.epochS = 30;
+      this.hover = null;
+      const canvas = wrap.querySelector("canvas");
+      if (!canvas) throw new Error("hypnogram has no canvas");
+      this.canvas = canvas;
+      this.tip = document.createElement("div");
+      this.tip.className = "tip";
+      wrap.appendChild(this.tip);
+      canvas.addEventListener("pointermove", (e) => this.move(e));
+      canvas.addEventListener("pointerleave", () => {
+        this.hover = null;
+        this.tip.style.display = "none";
+        this.draw();
+      });
+      new ResizeObserver(() => this.draw()).observe(canvas);
+    }
+    set(stages, startMs, epochS) {
+      this.stages = stages;
+      this.startMs = startMs;
+      this.epochS = epochS;
+      this.hover = null;
+      this.draw();
+    }
+    geometry(w, h) {
+      const l = 78, r = 8, t = 6, b = 26;
+      return { l, r, t, rowH: (h - t - b) / STAGE_ROWS.length, pw: w - l - r };
+    }
+    draw() {
+      if (!this.stages.length || !this.canvas.clientWidth) return;
+      const surface = setup(this.canvas);
+      if (!surface) return;
+      const { ctx, w, h } = surface;
+      const g = this.geometry(w, h);
+      const n = this.stages.length;
+      const X = (e) => g.l + e / n * g.pw;
+      ctx.font = "11px system-ui, sans-serif";
+      STAGE_ROWS.forEach((s, row) => {
+        const y = g.t + row * g.rowH;
+        ctx.fillStyle = css("--ink-2");
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        ctx.fillText(STAGE_LABEL[s].replace(" sleep", ""), g.l - 8, y + g.rowH / 2);
+        ctx.strokeStyle = css("--chart-grid");
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(g.l, Math.round(y + g.rowH) + 0.5);
+        ctx.lineTo(g.l + g.pw, Math.round(y + g.rowH) + 0.5);
+        ctx.stroke();
+      });
+      for (let e = 0; e < n; ) {
+        const s = this.stages[e] ?? null;
+        let end = e + 1;
+        while (end < n && (this.stages[end] ?? null) === s) end++;
+        if (s) {
+          const row = STAGE_ROWS.indexOf(s);
+          const x0 = X(e), x1 = X(end);
+          ctx.fillStyle = css(STAGE_COLOR_VAR[s]);
+          const inset = g.rowH * 0.12;
+          ctx.beginPath();
+          ctx.roundRect(x0 + 0.5, g.t + row * g.rowH + inset, Math.max(1, x1 - x0 - 1), g.rowH - 2 * inset, 3);
+          ctx.fill();
+        }
+        e = end;
+      }
+      ctx.fillStyle = css("--muted");
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      const totalMs = n * this.epochS * 1e3;
+      const firstHour = Math.ceil(this.startMs / 36e5) * 36e5;
+      const stepH = g.pw / (totalMs / 36e5) < 45 ? 2 : 1;
+      for (let tMs = firstHour; tMs <= this.startMs + totalMs; tMs += stepH * 36e5) {
+        const x = g.l + (tMs - this.startMs) / totalMs * g.pw;
+        ctx.fillText(fmtClock(tMs), x, h - 20);
+      }
+      if (this.hover !== null) {
+        const x = X(this.hover + 0.5);
+        ctx.strokeStyle = css("--ink-2");
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(Math.round(x) + 0.5, g.t);
+        ctx.lineTo(Math.round(x) + 0.5, g.t + 4 * g.rowH);
+        ctx.stroke();
+      }
+    }
+    move(e) {
+      if (!this.stages.length) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const g = this.geometry(rect.width, rect.height);
+      const n = this.stages.length;
+      const idx = Math.floor((e.clientX - rect.left - g.l) / g.pw * n);
+      if (idx < 0 || idx >= n) {
+        this.hover = null;
+        this.tip.style.display = "none";
+        this.draw();
+        return;
+      }
+      const s = this.stages[idx] ?? null;
+      let a = idx, b = idx + 1;
+      while (a > 0 && (this.stages[a - 1] ?? null) === s) a--;
+      while (b < n && (this.stages[b] ?? null) === s) b++;
+      this.hover = idx;
+      this.draw();
+      const from = this.startMs + a * this.epochS * 1e3, to = this.startMs + b * this.epochS * 1e3;
+      const mins = Math.round((b - a) * this.epochS / 60);
+      this.tip.innerHTML = `<b>${s ? STAGE_LABEL[s] : "No data"}</b> \xB7 ${fmtClock(from)}\u2013${fmtClock(to)} \xB7 ${mins} min`;
+      this.tip.style.display = "block";
+      this.tip.style.left = `${Math.min(rect.width - this.tip.offsetWidth - 4, Math.max(4, e.clientX - rect.left + 10))}px`;
+      this.tip.style.top = "4px";
+    }
+  };
+  function drawDonut(canvas, parts) {
+    const surface = setup(canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    const total2 = parts.reduce((s, p) => s + p.value, 0);
+    const r = Math.min(w, h) / 2 - 4, cx = w / 2, cy = h / 2, thick = Math.max(10, r * 0.28);
+    if (r <= thick) return;
+    if (!total2) {
+      ctx.strokeStyle = css("--chart-grid");
+      ctx.lineWidth = thick;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - thick / 2, 0, 2 * Math.PI);
+      ctx.stroke();
+      return;
+    }
+    const gap = 2 / (r - thick / 2);
+    let a = -Math.PI / 2;
+    for (const p of parts) {
+      if (!p.value) continue;
+      const sweep = p.value / total2 * 2 * Math.PI;
+      ctx.strokeStyle = css(STAGE_COLOR_VAR[p.key]);
+      ctx.lineWidth = thick;
+      ctx.lineCap = "butt";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - thick / 2, a + gap / 2, a + Math.max(gap, sweep - gap / 2));
+      ctx.stroke();
+      a += sweep;
+    }
+  }
+  var Bars = class {
+    constructor(wrap) {
+      this.items = [];
+      this.hover = -1;
+      const canvas = wrap.querySelector("canvas");
+      if (!canvas) throw new Error("bar chart has no canvas");
+      this.canvas = canvas;
+      this.tip = document.createElement("div");
+      this.tip.className = "tip";
+      wrap.appendChild(this.tip);
+      canvas.addEventListener("pointermove", (e) => this.move(e));
+      canvas.addEventListener("pointerleave", () => {
+        this.hover = -1;
+        this.tip.style.display = "none";
+        this.draw();
+      });
+      new ResizeObserver(() => this.draw()).observe(canvas);
+    }
+    set(items) {
+      this.items = items;
+      this.hover = -1;
+      this.draw();
+    }
+    slot(w) {
+      return (w - 16) / Math.max(1, this.items.length);
+    }
+    draw() {
+      if (!this.canvas.clientWidth) return;
+      const surface = setup(this.canvas);
+      if (!surface) return;
+      const { ctx, w, h } = surface;
+      const top = 18, bottom = 22, ph = h - top - bottom;
+      const max = Math.max(1, ...this.items.map((i) => i.value));
+      const slot = this.slot(w), bw = Math.min(28, slot * 0.55);
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.strokeStyle = css("--chart-grid");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(8, top + ph + 0.5);
+      ctx.lineTo(w - 8, top + ph + 0.5);
+      ctx.stroke();
+      this.items.forEach((it, i) => {
+        const x = 8 + slot * (i + 0.5);
+        const bh = it.value / max * ph;
+        ctx.fillStyle = it.highlight ? css("--series-1") : css("--muted");
+        ctx.globalAlpha = this.hover === -1 || this.hover === i ? 1 : 0.6;
+        if (bh > 0) {
+          ctx.beginPath();
+          ctx.roundRect(x - bw / 2, top + ph - bh, bw, bh, [4, 4, 0, 0]);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = css("--ink-2");
+        ctx.textBaseline = "bottom";
+        ctx.fillText(String(it.value), x, top + ph - bh - 3);
+        ctx.fillStyle = css("--muted");
+        ctx.textBaseline = "top";
+        ctx.fillText(it.label, x, top + ph + 6);
+      });
+    }
+    move(e) {
+      const rect = this.canvas.getBoundingClientRect();
+      const i = Math.floor((e.clientX - rect.left - 8) / this.slot(rect.width));
+      const it = this.items[i];
+      if (!it) {
+        this.hover = -1;
+        this.tip.style.display = "none";
+        this.draw();
+        return;
+      }
+      this.hover = i;
+      this.draw();
+      this.tip.innerHTML = it.title;
+      this.tip.style.display = "block";
+      this.tip.style.left = `${Math.min(rect.width - this.tip.offsetWidth - 4, Math.max(4, e.clientX - rect.left + 10))}px`;
+      this.tip.style.top = "4px";
+    }
+  };
 
   // src/edf.ts
   var pad = (s, n) => String(s).slice(0, n).padEnd(n, " ");
@@ -1370,7 +1673,7 @@
     const dmin = field(8).map(Number), dmax = field(8).map(Number);
     field(80);
     const spr = field(8).map(Number);
-    const at2 = (a, i) => a[i] ?? 0;
+    const at3 = (a, i) => a[i] ?? 0;
     const recSamples = spr.reduce((a, b) => a + b, 0);
     if (!recSamples) throw new Error("EDF file has no samples");
     if (records < 0 || !Number.isFinite(records)) records = Math.floor((bytes.length - headerBytes) / (2 * recSamples));
@@ -1380,8 +1683,8 @@
     if (ecgIdx < 0) throw new Error("No signal found");
     const unit = (dims[ecgIdx] ?? "").toLowerCase();
     const toUv = unit === "mv" ? 1e3 : unit === "v" ? 1e6 : 1;
-    const gain = (at2(pmax, ecgIdx) - at2(pmin, ecgIdx)) / (at2(dmax, ecgIdx) - at2(dmin, ecgIdx)) * toUv;
-    const n = at2(spr, ecgIdx);
+    const gain = (at3(pmax, ecgIdx) - at3(pmin, ecgIdx)) / (at3(dmax, ecgIdx) - at3(dmin, ecgIdx)) * toUv;
+    const n = at3(spr, ecgIdx);
     const samples = new Float32Array(records * n);
     const view = new DataView(buffer);
     const events = [];
@@ -1389,7 +1692,7 @@
     let acc = 0;
     for (let i = 0; i < ns; i++) {
       offsets.push(acc);
-      acc += at2(spr, i);
+      acc += at3(spr, i);
     }
     for (let r = 0; r < records; r++) {
       const base = headerBytes + r * recSamples * 2;
@@ -1398,12 +1701,12 @@
         break;
       }
       for (let i = 0; i < n; i++) {
-        const dig = view.getInt16(base + 2 * (at2(offsets, ecgIdx) + i), true);
-        samples[r * n + i] = (dig - at2(dmin, ecgIdx)) * gain + at2(pmin, ecgIdx) * toUv;
+        const dig = view.getInt16(base + 2 * (at3(offsets, ecgIdx) + i), true);
+        samples[r * n + i] = (dig - at3(dmin, ecgIdx)) * gain + at3(pmin, ecgIdx) * toUv;
       }
       if (annIdx >= 0) {
-        const from = base + 2 * at2(offsets, annIdx);
-        const raw = bytes.subarray(from, from + 2 * at2(spr, annIdx));
+        const from = base + 2 * at3(offsets, annIdx);
+        const raw = bytes.subarray(from, from + 2 * at3(spr, annIdx));
         for (const tal of dec.decode(raw).split("\0")) {
           const parts = tal.split("");
           if (parts.length < 3) continue;
@@ -1454,11 +1757,12 @@
   var dbPromise = null;
   function open() {
     dbPromise ?? (dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, 1);
+      const req = indexedDB.open(DB_NAME, 2);
       req.onupgradeneeded = () => {
         const db = req.result;
-        db.createObjectStore("sessions", { keyPath: "id" });
-        db.createObjectStore("signals", { keyPath: "id" });
+        for (const name of ["sessions", "signals", "sleeps", "sleepSignals"]) {
+          if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: "id" });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -1499,6 +1803,34 @@
     await tx(["sessions", "signals"], "readwrite", (t) => {
       t.objectStore("sessions").delete(id);
       t.objectStore("signals").delete(id);
+    });
+  }
+  async function saveSleep(session, signals) {
+    await tx(["sleeps", "sleepSignals"], "readwrite", (t) => {
+      t.objectStore("sleeps").put(session);
+      t.objectStore("sleepSignals").put({ id: session.id, ...signals });
+    });
+  }
+  async function updateSleep(session) {
+    await tx(["sleeps"], "readwrite", (t) => {
+      t.objectStore("sleeps").put(session);
+    });
+  }
+  async function listSleeps(user) {
+    const all = await tx(["sleeps"], "readonly", (t) => t.objectStore("sleeps").getAll());
+    return (all ?? []).filter((s) => s.user === user).sort((a, b) => b.start - a.start);
+  }
+  async function loadSleep(id) {
+    const [session, rec2] = await Promise.all([
+      tx(["sleeps"], "readonly", (t) => t.objectStore("sleeps").get(id)),
+      tx(["sleepSignals"], "readonly", (t) => t.objectStore("sleepSignals").get(id))
+    ]);
+    return { session, signals: rec2 ? { rrT: rec2.rrT, rr: rec2.rr, acc: rec2.acc, accFs: rec2.accFs } : void 0 };
+  }
+  async function deleteSleep(id) {
+    await tx(["sleeps", "sleepSignals"], "readwrite", (t) => {
+      t.objectStore("sleeps").delete(id);
+      t.objectStore("sleepSignals").delete(id);
     });
   }
   function settingsKey(user) {
@@ -1627,8 +1959,38 @@
     if (ref.lo != null) return `\u2265 ${ref.lo}`;
     return `\u2264 ${ref.hi}`;
   }
+  var SLEEP_SOURCES = [
+    ["Sleep duration", "American Academy of Sleep Medicine & Sleep Research Society consensus (Watson et al. 2015): adults should sleep 7 h or more; National Sleep Foundation (Hirshkowitz et al. 2015): 7\u20139 h recommended for adults."],
+    ["Sleep stages", "Ohayon M.M. et al., Sleep 2004 (meta-analysis of normal sleep in healthy adults): deep sleep (N3) roughly 15\u201325 %, REM roughly 20\u201325 %, light sleep (N1+N2) about 50\u201360 %; deep sleep declines with age."],
+    ["Efficiency, time to fall asleep, awake time", "Commonly used clinical thresholds (e.g. insomnia research criteria): sleep efficiency of 85 % or more, falling asleep within 30 min, and 30 min or less awake after falling asleep."],
+    ["Breathing rate", "Typical resting adult breathing rate is about 12\u201320 breaths/min; during sleep it is often slightly lower."],
+    ["Personal ranges", "Heart rate and HRV during sleep vary a lot between people, so they are compared with your own previous nights (average \xB1 1 standard deviation, from 3 nights on)."]
+  ];
+  function sleepRanges() {
+    return {
+      sleepHours: { lo: 7, hi: 9 },
+      deepPct: { lo: 15, hi: 30, note: "approximate" },
+      lightPct: { hi: 60, note: "approximate" },
+      remPct: { lo: 15, hi: 30, note: "approximate" },
+      awakenings: { hi: 2, note: "awake \u2265 2 min" },
+      efficiency: { lo: 85 },
+      latency: { hi: 30 },
+      waso: { hi: 30 },
+      breathing: { lo: 10, hi: 20, note: "approximate" },
+      regularity: { lo: 70, note: "approximate" },
+      continuity: { lo: 70, note: "approximate" }
+    };
+  }
+  function personalRange(previous) {
+    const v = previous.filter((x) => Number.isFinite(x));
+    if (v.length < 3) return null;
+    const m = v.reduce((s, x) => s + x, 0) / v.length;
+    const sd = Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / (v.length - 1));
+    const half = Math.max(1, sd);
+    return { lo: Math.round(m - half), hi: Math.round(m + half), note: `your last ${v.length} nights` };
+  }
 
-  // src/app.ts
+  // src/ui.ts
   function byId(id, type) {
     const el = document.getElementById(id);
     if (!(el instanceof type)) throw new Error(`#${id} is missing or not a ${type.name}`);
@@ -1644,17 +2006,905 @@
     if (text) el.textContent = text;
     return el;
   }
+  var fmt = (v, d = 0) => v == null || !Number.isFinite(v) ? "--" : v.toFixed(d);
+  function fmtHM(minutes) {
+    if (!Number.isFinite(minutes)) return "--";
+    const m = Math.round(minutes);
+    return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
+  }
+  function metricTile(k, v, unit, hint, ref, outliers2) {
+    const el = make("div", "metric");
+    const value = make("div", "v", v);
+    if (unit && v !== "--") value.appendChild(make("small", "", unit));
+    el.append(make("div", "k", k), value, make("div", "h", hint));
+    if (ref && "range" in ref) {
+      const refUnit = ref.display ? "%" : unit.trim();
+      const rangeText = ref.rangeText ?? `${fmtRange(ref.range)}${refUnit ? ` ${refUnit}` : ""}`;
+      el.appendChild(make("div", "ref", `${ref.label ?? "Ref"} ${rangeText}${ref.range.note ? ` \xB7 ${ref.range.note}` : ""}`));
+      const status = checkRange(ref.range, ref.value);
+      if (status) {
+        el.classList.add("out");
+        const label = status === "high" ? ref.range.highLabel : ref.range.lowLabel;
+        el.appendChild(make("div", "flag", `${status === "high" ? "\u25B2" : "\u25BC"} ${label ?? (status === "high" ? "Above range" : "Below range")}`));
+        outliers2.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ""}`, range: rangeText, status });
+      } else if (ref.okLabel && ref.value != null && Number.isFinite(ref.value)) {
+        el.appendChild(make("div", "flag ok", `\u2713 ${ref.okLabel}`));
+      }
+    } else if (ref) {
+      el.appendChild(make("div", "ref", ref.skipped));
+    }
+    return el;
+  }
+  function renderOutliers(box, outliers2, notes = []) {
+    box.replaceChildren();
+    box.className = `flags ${outliers2.length ? "has" : "none"}`;
+    box.appendChild(make("div", "flags-head", outliers2.length ? `${outliers2.length} value${outliers2.length > 1 ? "s" : ""} outside the reference range` : "\u2713 All values within reference ranges"));
+    for (const o of outliers2) {
+      const row = make("div", "flags-row");
+      row.append(
+        make("span", "", `${o.status === "high" ? "\u25B2" : "\u25BC"} ${o.name}`),
+        make("span", "", o.value),
+        make("span", "", `ref ${o.range}`)
+      );
+      box.appendChild(row);
+    }
+    for (const n of notes) box.appendChild(make("div", "flags-note", n));
+  }
+  function download(blob, name) {
+    const a = make("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2e3);
+  }
+
+  // src/sleep.ts
+  var EPOCH_S = 30;
+  var ACC_MISSING = -32768;
+  var at2 = (a, i) => a[i] ?? 0;
+  var mean2 = (a) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
+  var std2 = (a) => {
+    if (a.length < 2) return NaN;
+    const m = mean2(a);
+    return Math.sqrt(a.reduce((s, v) => s + (v - m) ** 2, 0) / (a.length - 1));
+  };
+  var finite2 = (v) => v != null && Number.isFinite(v);
+  var clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function percentile(a, p) {
+    if (!a.length) return NaN;
+    const s = [...a].sort((x, y) => x - y);
+    return at2(s, Math.min(s.length - 1, Math.floor(p * s.length)));
+  }
+  function breathingBand(x, fs) {
+    const y = new Float64Array(x.length);
+    const run = (from, to, reverse) => {
+      const hp = new Biquad("highpass", 0.1, fs), lp = new Biquad("lowpass", 0.7, fs);
+      for (let k = 0; k < from.length; k++) {
+        const i = reverse ? from.length - 1 - k : k;
+        to[i] = lp.process(hp.process(at2(from, i)));
+      }
+    };
+    run(x, y, false);
+    run(y, y, true);
+    return y;
+  }
+  function accFeatures(data, nE) {
+    const fs = data.accFs;
+    const n = Math.floor(data.acc.length / 3);
+    const per = EPOCH_S * fs;
+    const axes = [new Float64Array(n), new Float64Array(n), new Float64Array(n)];
+    const valid = new Uint8Array(n);
+    const mag = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = at2(data.acc, 3 * i), y = at2(data.acc, 3 * i + 1), z = at2(data.acc, 3 * i + 2);
+      if (x === ACC_MISSING || y === ACC_MISSING || z === ACC_MISSING) continue;
+      valid[i] = 1;
+      axes[0][i] = x;
+      axes[1][i] = y;
+      axes[2][i] = z;
+      mag[i] = Math.hypot(x, y, z);
+    }
+    const win = Math.max(1, Math.round(fs));
+    const activity = [];
+    const posture = [];
+    for (let e = 0; e < nE; e++) {
+      const a = e * per, b = Math.min(n, a + per);
+      let sum = 0, cnt = 0, gx = 0, gy = 0, gz = 0;
+      for (let i = a; i < b; i++) {
+        if (!valid[i]) continue;
+        let m = 0, c = 0;
+        for (let j = Math.max(a, i - win); j <= Math.min(b - 1, i + win); j++) if (valid[j]) {
+          m += at2(mag, j);
+          c++;
+        }
+        sum += Math.abs(at2(mag, i) - m / c);
+        cnt++;
+        gx += at2(axes[0], i);
+        gy += at2(axes[1], i);
+        gz += at2(axes[2], i);
+      }
+      if (cnt < per / 2) {
+        activity.push(null);
+        posture.push(null);
+        continue;
+      }
+      activity.push(sum / cnt);
+      const len = Math.hypot(gx, gy, gz) || 1;
+      posture.push([gx / len, gy / len, gz / len]);
+    }
+    const bands = axes.map((ax) => breathingBand(ax, fs));
+    const breathing = [];
+    const breathCv = [];
+    for (let e = 0; e < nE; e++) {
+      const mid = (e + 0.5) * per;
+      const a = Math.max(0, Math.round(mid - 30 * fs)), b = Math.min(n, Math.round(mid + 30 * fs));
+      let okSamples = 0;
+      for (let i = a; i < b; i++) okSamples += at2(valid, i);
+      if (b - a < 40 * fs || okSamples < 0.9 * (b - a)) {
+        breathing.push(null);
+        breathCv.push(null);
+        continue;
+      }
+      let best = bands[0] ?? new Float64Array(n), bestVar = -1;
+      for (const band of bands) {
+        let s2 = 0;
+        for (let i = a; i < b; i++) s2 += at2(band, i) ** 2;
+        if (s2 > bestVar) {
+          bestVar = s2;
+          best = band;
+        }
+      }
+      const sd = Math.sqrt(bestVar / (b - a));
+      const hi = 0.3 * sd, lo = -0.3 * sd;
+      const crossings = [];
+      let armed = false;
+      for (let i = a; i < b; i++) {
+        const v = at2(best, i);
+        if (v < lo) armed = true;
+        else if (armed && v > hi) {
+          crossings.push(i / fs);
+          armed = false;
+        }
+      }
+      const intervals = [];
+      for (let k = 1; k < crossings.length; k++) intervals.push(at2(crossings, k) - at2(crossings, k - 1));
+      const m = mean2(intervals);
+      const rate = 60 / m;
+      if (intervals.length < 4 || !(rate >= 5 && rate <= 35)) {
+        breathing.push(null);
+        breathCv.push(null);
+        continue;
+      }
+      breathing.push(rate);
+      breathCv.push(std2(intervals) / m);
+    }
+    return { activity, posture, breathing, breathCv };
+  }
+  function heartFeatures(data, nE) {
+    const n = data.rr.length;
+    const keep = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const v = at2(data.rr, i);
+      if (v < 300 || v > 2e3) continue;
+      const ctx = [];
+      for (let j = Math.max(0, i - 5); j <= Math.min(n - 1, i + 5); j++) if (j !== i) ctx.push(at2(data.rr, j));
+      const med = median(ctx);
+      if (!(Math.abs(v - med) <= 0.2 * med)) continue;
+      keep[i] = 1;
+    }
+    const byEpoch = Array.from({ length: nE }, () => []);
+    const diffsByEpoch = Array.from({ length: nE }, () => []);
+    for (let i = 0; i < n; i++) {
+      if (!keep[i]) continue;
+      const t = at2(data.rrT, i), e = Math.floor(t / EPOCH_S);
+      if (e < 0 || e >= nE) continue;
+      byEpoch[e]?.push(at2(data.rr, i));
+      if (i > 0 && keep[i - 1] && Math.abs(t - at2(data.rrT, i - 1) - at2(data.rr, i) / 1e3) < 0.05) {
+        diffsByEpoch[e]?.push(at2(data.rr, i) - at2(data.rr, i - 1));
+      }
+    }
+    const hr = byEpoch.map((v) => v.length >= 10 ? 6e4 / mean2(v) : null);
+    const rmssd = [];
+    const hrVar = [];
+    for (let e = 0; e < nE; e++) {
+      const d = [];
+      for (let k = Math.max(0, e - 5); k <= Math.min(nE - 1, e + 4); k++) d.push(...diffsByEpoch[k] ?? []);
+      rmssd.push(d.length >= 60 ? Math.sqrt(mean2(d.map((v) => v * v))) : null);
+      const w = [];
+      for (let k = Math.max(0, e - 2); k <= Math.min(nE - 1, e + 2); k++) {
+        const v = hr[k];
+        if (finite2(v)) w.push(v);
+      }
+      hrVar.push(w.length >= 3 ? std2(w) : null);
+    }
+    return { hr, rmssd, hrVar };
+  }
+  function zScores(values, mask) {
+    const pool = values.filter((v, i) => finite2(v) && (mask[i] ?? false));
+    const m = mean2(pool), s = std2(pool) || 1;
+    return values.map((v) => finite2(v) ? (v - m) / s : null);
+  }
+  function modeFilter(a, half) {
+    return a.map((v, i) => {
+      const counts = /* @__PURE__ */ new Map();
+      for (let k = Math.max(0, i - half); k <= Math.min(a.length - 1, i + half); k++) {
+        const x = a[k];
+        counts.set(x, (counts.get(x) ?? 0) + 1);
+      }
+      let best = v, bc = counts.get(v) ?? 0;
+      for (const [x, c] of counts) if (c > bc) {
+        best = x;
+        bc = c;
+      }
+      return best;
+    });
+  }
+  function runs(a) {
+    const out = [];
+    a.forEach((v, i) => {
+      const last = out[out.length - 1];
+      if (last && last.value === v) last.to = i + 1;
+      else out.push({ value: v, from: i, to: i + 1 });
+    });
+    return out;
+  }
+  function sleepScore(m) {
+    const hours = m.sleepMin / 60;
+    let score = 100;
+    if (hours < 7) score -= Math.min(40, (7 - hours) * 10);
+    if (hours > 9) score -= Math.min(10, (hours - 9) * 5);
+    if (m.efficiency < 85) score -= Math.min(20, 85 - m.efficiency);
+    if (m.deepPct < 15) score -= Math.min(10, 15 - m.deepPct);
+    if (m.remPct < 15) score -= Math.min(10, 15 - m.remPct);
+    if (m.awakenings > 1) score -= Math.min(15, (m.awakenings - 1) * 3);
+    return Math.round(clamp(score, 0, 100));
+  }
+  var SCORE_EXPLANATION = "Starts at 100. Minus 10 per hour of sleep under 7 h (max 40) and 5 per hour over 9 h; minus 1 per % of sleep efficiency under 85 % (max 20); minus 1 per % of deep sleep under 15 % and of REM under 15 % (max 10 each); minus 3 per awakening after the first (max 15).";
+  function analyzeSleep(data) {
+    const nE = Math.max(1, Math.floor(data.durationS / EPOCH_S));
+    const acc = accFeatures(data, nE);
+    const heart = heartFeatures(data, nE);
+    const acts = acc.activity.filter(finite2);
+    const actThr = Math.max(8, 2.5 * median(acts));
+    const hrs = heart.hr.filter(finite2);
+    const hrBase = percentile(hrs, 0.2);
+    const hasData = acc.activity.map((a, e) => a !== null || heart.hr[e] !== null);
+    const rawWake = acc.activity.map((a, e) => {
+      const h = heart.hr[e];
+      const prev = acc.posture[e - 1], cur = acc.posture[e];
+      const turned = prev && cur ? Math.acos(clamp(prev[0] * cur[0] + prev[1] * cur[1] + prev[2] * cur[2], -1, 1)) > 20 * Math.PI / 180 : false;
+      const moving = a !== null && a > actThr;
+      const hrHigh = finite2(h) && h > hrBase + 12 && a !== null && a > 0.5 * actThr;
+      return moving || turned || hrHigh;
+    });
+    const wake = rawWake.map((_, e) => {
+      let c = 0;
+      for (let k = e - 1; k <= e + 1; k++) if (rawWake[k]) c++;
+      return c >= 2;
+    });
+    const asleep = (e) => (hasData[e] ?? false) && !(wake[e] ?? true);
+    let onset = -1;
+    for (let e = 0; e + 20 <= nE && onset < 0; e++) {
+      let ok = true;
+      for (let k = e; k < e + 20; k++) if (!asleep(k)) {
+        ok = false;
+        break;
+      }
+      if (ok) onset = e;
+    }
+    let wakeIdx = -1;
+    if (onset >= 0) {
+      for (let e = nE - 1; e >= onset + 10 && wakeIdx < 0; e--) {
+        let ok = true;
+        for (let k = e - 9; k <= e; k++) if (!asleep(k)) {
+          ok = false;
+          break;
+        }
+        if (ok) wakeIdx = e + 1;
+      }
+      if (wakeIdx < 0) wakeIdx = onset + 20;
+    }
+    const inPeriod = (e) => onset >= 0 && e >= onset && e < wakeIdx;
+    const sleepMask = Array.from({ length: nE }, (_, e) => inPeriod(e) && asleep(e));
+    const zHR = zScores(heart.hr, sleepMask);
+    const zVar = zScores(heart.hrVar, sleepMask);
+    const zRm = zScores(heart.rmssd, sleepMask);
+    const zCv = zScores(acc.breathCv, sleepMask);
+    const v = (a, e) => a[e] ?? 0;
+    let stages = Array.from({ length: nE }, (_, e) => {
+      if (!hasData[e]) return "nodata";
+      if (!inPeriod(e) || !asleep(e)) return "awake";
+      const deep = -v(zHR, e) - v(zCv, e) + 0.5 * v(zRm, e) - 0.5 * v(zVar, e);
+      const rem = v(zHR, e) + v(zVar, e) + v(zCv, e) - 0.3 * v(zRm, e);
+      const minutesAsleep = (e - onset) * EPOCH_S / 60;
+      if (deep > 1.2) return "deep";
+      if (rem > 1.2 && minutesAsleep > 50) return "rem";
+      return "light";
+    });
+    const smoothed = modeFilter(stages, 3);
+    stages = stages.map((s, e) => s === "awake" || s === "nodata" ? s : smoothed[e] === "awake" || smoothed[e] === "nodata" ? s : smoothed[e] ?? s);
+    const count = (s, inside = true) => stages.filter((x, e) => x === s && (!inside || inPeriod(e))).length;
+    const toMin = (epochs) => epochs * EPOCH_S / 60;
+    const deepE = count("deep"), lightE = count("light"), remE = count("rem");
+    const sleepE = deepE + lightE + remE;
+    const awakeE = count("awake");
+    const awakeRuns = runs(stages.map((s, e) => inPeriod(e) ? s : "out")).filter((r) => r.value === "awake");
+    const awakenings = awakeRuns.filter((r) => r.to - r.from >= 4).length;
+    const asleepHR = heart.hr.filter((h, e) => finite2(h) && (sleepMask[e] ?? false));
+    const asleepRm = heart.rmssd.filter((h, e) => finite2(h) && (sleepMask[e] ?? false));
+    const asleepBr = acc.breathing.filter((h, e) => finite2(h) && (sleepMask[e] ?? false));
+    const asleepCv = acc.breathCv.filter((h, e) => finite2(h) && (sleepMask[e] ?? false));
+    const deepRuns = runs(stages).filter((r) => r.value === "deep");
+    const deepInLongRuns = deepRuns.filter((r) => r.to - r.from >= 20).reduce((s, r) => s + r.to - r.from, 0);
+    const timeInBedE = nE;
+    const pct = (part) => sleepE ? 100 * part / sleepE : 0;
+    const partial = {
+      timeInBedMin: toMin(timeInBedE),
+      sleepMin: toMin(sleepE),
+      deepMin: toMin(deepE),
+      lightMin: toMin(lightE),
+      remMin: toMin(remE),
+      awakeMin: toMin(awakeE),
+      latencyMin: onset >= 0 ? toMin(onset) : NaN,
+      efficiency: timeInBedE ? 100 * sleepE / timeInBedE : 0,
+      deepPct: pct(deepE),
+      lightPct: pct(lightE),
+      remPct: pct(remE),
+      awakenings,
+      avgHR: mean2(asleepHR),
+      minHR: asleepHR.length ? Math.min(...asleepHR) : NaN,
+      avgHrv: mean2(asleepRm),
+      breathingRate: mean2(asleepBr),
+      breathingRegularity: asleepCv.length ? Math.round(clamp(100 * (1 - median(asleepCv) / 0.5), 0, 100)) : NaN,
+      deepContinuity: deepE ? Math.round(100 * deepInLongRuns / deepE) : NaN,
+      onsetS: onset >= 0 ? onset * EPOCH_S : NaN,
+      wakeS: wakeIdx >= 0 ? wakeIdx * EPOCH_S : NaN,
+      coverage: 100 * hasData.filter(Boolean).length / nE
+    };
+    const metrics = { ...partial, score: sleepE ? sleepScore(partial) : 0 };
+    return { stages, hr: heart.hr, breathing: acc.breathing, activity: acc.activity, metrics };
+  }
+  var SleepRecorder = class {
+    // seconds of the last beat
+    constructor(accFs) {
+      this.accFs = accFs;
+      this.start = Date.now();
+      this.rrT = [];
+      this.rr = [];
+      this.accChunks = [];
+      this.accCursor = 0;
+      // samples written so far (per axis)
+      this.beatClock = 0;
+    }
+    now() {
+      return (Date.now() - this.start) / 1e3;
+    }
+    addRR(intervals) {
+      const t = this.now();
+      const total2 = intervals.reduce((s, v) => s + v, 0) / 1e3;
+      if (t - this.beatClock > 5 || this.rr.length === 0) this.beatClock = t - total2;
+      for (const v of intervals) {
+        this.beatClock += v / 1e3;
+        this.rrT.push(this.beatClock);
+        this.rr.push(v);
+      }
+    }
+    addAcc(samples) {
+      const n = samples.length / 3;
+      const arrived = Math.round(this.now() * this.accFs) - n;
+      if (arrived - this.accCursor > 2 * this.accFs) {
+        const gap = new Int16Array(3 * (arrived - this.accCursor)).fill(ACC_MISSING);
+        this.accChunks.push(gap);
+        this.accCursor = arrived;
+      }
+      this.accChunks.push(samples);
+      this.accCursor += n;
+    }
+    get elapsedS() {
+      return this.now();
+    }
+    get beats() {
+      return this.rr.length;
+    }
+    /** Everything recorded so far, as stored and analysed. */
+    data() {
+      const durationS = this.now();
+      const total2 = Math.max(this.accCursor, Math.round(durationS * this.accFs));
+      const acc = new Int16Array(3 * total2).fill(ACC_MISSING);
+      let o = 0;
+      for (const c of this.accChunks) {
+        acc.set(c.subarray(0, Math.min(c.length, acc.length - o)), o);
+        o += c.length;
+      }
+      return { durationS, rrT: Float64Array.from(this.rrT), rr: Float32Array.from(this.rr), acc, accFs: this.accFs };
+    }
+    /** Recent values for the live screen. */
+    recent(seconds) {
+      const since = this.now() - seconds;
+      const rr = [];
+      for (let i = this.rrT.length - 1; i >= 0 && (this.rrT[i] ?? 0) >= since; i--) rr.push(this.rr[i] ?? 0);
+      const last = this.accChunks[this.accChunks.length - 1];
+      let moving = null;
+      if (last && last.length >= 30) {
+        const mags = [];
+        for (let i = 0; i + 2 < last.length; i += 3) mags.push(Math.hypot(last[i] ?? 0, last[i + 1] ?? 0, last[i + 2] ?? 0));
+        moving = std2(mags) > 15;
+      }
+      return { hr: rr.length >= 3 ? 6e4 / mean2(rr) : null, moving };
+    }
+  };
+
+  // src/sleepsim.ts
+  var PARAMS = {
+    awake: { hr: 68, rsa: 25, noise: 30, breath: 15, breathCv: 0.2, move: 40 },
+    light: { hr: 58, rsa: 35, noise: 12, breath: 14, breathCv: 0.07, move: 0 },
+    deep: { hr: 53, rsa: 45, noise: 5, breath: 13, breathCv: 0.03, move: 0 },
+    rem: { hr: 62, rsa: 20, noise: 28, breath: 16.5, breathCv: 0.2, move: 0 }
+  };
+  function simulateNight(seed = 1, fs = ACC_FS) {
+    let s = seed >>> 0 || 1;
+    const rand = () => {
+      s ^= s << 13;
+      s ^= s >>> 17;
+      s ^= s << 5;
+      s >>>= 0;
+      return s / 4294967296;
+    };
+    const gauss2 = () => Math.sqrt(-2 * Math.log(rand() + 1e-12)) * Math.cos(2 * Math.PI * rand());
+    const plan = [["awake", 14]];
+    const deepByCycle = [38, 26, 12, 4, 0];
+    const remByCycle = [8, 16, 22, 28, 30];
+    deepByCycle.forEach((deep, c) => {
+      plan.push(["light", 22 + Math.round(rand() * 8)]);
+      if (deep) plan.push(["deep", deep]);
+      plan.push(["light", 16 + Math.round(rand() * 6)]);
+      plan.push(["rem", remByCycle[c] ?? 20]);
+      if (c === 1 || c === 3) plan.push(["awake", 3 + Math.round(rand() * 3)]);
+    });
+    plan.push(["awake", 8]);
+    const truth = [];
+    for (const [stage, minutes] of plan) for (let k = 0; k < minutes * 60 / EPOCH_S; k++) truth.push(stage);
+    const durationS = truth.length * EPOCH_S;
+    const hrOffset = (rand() - 0.5) * 8;
+    const stageAt = (t) => truth[Math.min(truth.length - 1, Math.floor(t / EPOCH_S))] ?? "awake";
+    const n = Math.round(durationS * fs);
+    const breathPhase = new Float64Array(n);
+    let phase = 0, breathRate = PARAMS.awake.breath;
+    for (let i = 0; i < n; i++) {
+      const p = PARAMS[stageAt(i / fs)];
+      const before = phase;
+      phase += 2 * Math.PI * breathRate / 60 / fs;
+      if (Math.floor(phase / (2 * Math.PI)) !== Math.floor(before / (2 * Math.PI))) {
+        breathRate = Math.max(6, p.breath * (1 + p.breathCv * gauss2()));
+      }
+      breathPhase[i] = phase;
+    }
+    const rrT = [], rr = [];
+    for (let t = 0.8; t < durationS; ) {
+      const p = PARAMS[stageAt(t)];
+      const drift = -3 * (t / durationS);
+      const ph = breathPhase[Math.min(n - 1, Math.floor(t * fs))] ?? 0;
+      const v = 6e4 / (p.hr + hrOffset + drift) + p.rsa * Math.sin(ph) + p.noise * gauss2();
+      t += v / 1e3;
+      rrT.push(t);
+      rr.push(v);
+    }
+    const postures = [[0, -980, -200], [300, -900, -250], [-300, -900, -250], [0, -950, 300]];
+    const acc = new Int16Array(3 * n);
+    let posture = postures[0] ?? [0, -1e3, 0];
+    let lastStage = "awake";
+    let burst = 0;
+    for (let i = 0; i < n; i++) {
+      const stage = stageAt(i / fs);
+      if (stage !== lastStage && (stage === "light" || lastStage === "awake") && rand() < 0.5) {
+        posture = postures[Math.floor(rand() * postures.length)] ?? posture;
+        burst = Math.round(8 * fs);
+      }
+      lastStage = stage;
+      const p = PARAMS[stage];
+      const chest = 9 * Math.sin(breathPhase[i] ?? 0);
+      const moving = burst > 0 || p.move > 0 && rand() < 0.02 ? 60 : 0;
+      if (burst > 0) burst--;
+      for (let a = 0; a < 3; a++) {
+        const g = posture[a] ?? 0;
+        const motion = moving ? moving * gauss2() : 0;
+        acc[3 * i + a] = Math.round(g + (a === 2 ? chest : chest * 0.3) + motion + 2 * gauss2() + (p.move ? p.move * 0.3 * gauss2() : 0));
+      }
+    }
+    return { data: { durationS, rrT: Float64Array.from(rrT), rr: Float32Array.from(rr), acc, accFs: fs }, truth };
+  }
+
+  // src/sleepui.ts
+  var MIN_SAVE_S = 10 * 60;
+  function initSleep(deps) {
+    let polar = null;
+    let recorder = null;
+    let recUser = deps.user();
+    let tick2 = null;
+    let wakeLock2 = null;
+    let reconnecting = false;
+    let gaps = 0;
+    const log = (line) => {
+      const el = $("sleepLog");
+      el.hidden = false;
+      el.textContent += `${(/* @__PURE__ */ new Date()).toLocaleTimeString([], { hour12: false })}  ${line}
+`;
+      el.scrollTop = el.scrollHeight;
+    };
+    const status = (text, state) => {
+      $("sleepStatus").textContent = text;
+      $("sleepDot").className = `dot ${state}`;
+    };
+    function refreshUser() {
+      $("sleepUser").textContent = deps.userLabel(recorder ? recUser : deps.user());
+    }
+    function syncButtons() {
+      const connected = polar?.connected ?? false;
+      $button("btnSleepConnect").hidden = connected;
+      $button("btnSleepDemo").hidden = recorder !== null;
+      $button("btnSleepDisconnect").hidden = !connected || recorder !== null;
+      $("sleepPairHint").hidden = connected || $button("btnSleepConnect").disabled;
+      const start = $button("btnSleepStart");
+      start.disabled = !recorder && !(connected && polar?.accOk);
+      start.textContent = recorder ? "Stop \u2013 I\u2019m awake" : "Start sleep recording";
+      start.classList.toggle("recording", recorder !== null);
+      $button("btnSleepDim").disabled = recorder === null;
+    }
+    async function connect() {
+      if (deps.ecgConnected()) {
+        status("The strap is in use on ECG live \u2013 disconnect it there first", "");
+        return;
+      }
+      const p = new PolarH10();
+      p.addEventListener("hr", (e) => {
+        const d = e.detail;
+        if (d.rr.length) recorder?.addRR(d.rr);
+        if (!recorder) $("sleepHR").textContent = String(d.hr);
+      });
+      p.addEventListener("acc", (e) => recorder?.addAcc(e.detail.samples));
+      p.addEventListener("battery", (e) => {
+        const lvl = e.detail.level;
+        $("sleepBattery").textContent = `Battery ${lvl}%${lvl < 50 ? " \u2013 charge it before a full night" : ""}`;
+      });
+      p.addEventListener("disconnect", () => void onDisconnect());
+      $("sleepLog").textContent = "";
+      status("Connecting\u2026", "busy");
+      try {
+        await p.connect(log, { ecg: false, acc: true });
+        polar = p;
+        if (p.accOk) status(`${p.name} \u2013 heart beats and movement`, "on");
+        else status(`${p.name} \u2013 movement unavailable, sleep can't be analysed`, "busy");
+      } catch (err) {
+        const cancelled = errorName(err) === "NotFoundError";
+        log(cancelled ? "No strap chosen (the list was closed or cancelled)" : `Error: ${errorMessage(err)}`);
+        status(cancelled ? "No device selected" : `Connection failed: ${errorMessage(err)}`, "");
+        void p.disconnect();
+      }
+      syncButtons();
+    }
+    async function onDisconnect() {
+      if (!recorder) {
+        status("Sensor disconnected", "");
+        polar = null;
+        syncButtons();
+        return;
+      }
+      if (reconnecting || !polar) return;
+      reconnecting = true;
+      gaps++;
+      $("sleepGaps").textContent = `${gaps} gap${gaps > 1 ? "s" : ""} (reconnected)`;
+      while (recorder && polar && !polar.connected) {
+        status("Strap disconnected \u2013 reconnecting\u2026", "busy");
+        try {
+          await polar.reconnect(log);
+          status(`${polar.name} \u2013 heart beats and movement`, "on");
+        } catch (err) {
+          log(`Reconnect failed: ${errorMessage(err)}`);
+          await sleep(15e3);
+        }
+      }
+      reconnecting = false;
+    }
+    async function disconnect() {
+      const p = polar;
+      polar = null;
+      await p?.disconnect();
+      status("Not connected", "");
+      $("sleepBattery").textContent = "";
+      syncButtons();
+    }
+    async function requestWakeLock2() {
+      try {
+        wakeLock2 = "wakeLock" in navigator ? await navigator.wakeLock.request("screen") : null;
+      } catch {
+      }
+    }
+    async function startRecording2() {
+      recorder = new SleepRecorder(ACC_FS);
+      recUser = deps.user();
+      gaps = 0;
+      $("sleepGaps").textContent = "no gaps";
+      $("sleepSince").textContent = `since ${fmtClock(recorder.start)}`;
+      await requestWakeLock2();
+      tick2 = setInterval(updateLive, 2e3);
+      updateLive();
+      refreshUser();
+      syncButtons();
+      deps.recordingChanged();
+    }
+    function updateLive() {
+      const r = recorder;
+      if (!r) return;
+      $("sleepElapsed").textContent = fmtTime(r.elapsedS);
+      $("sleepDimClock").textContent = fmtTime(r.elapsedS);
+      $("sleepBeats").textContent = String(r.beats);
+      const recent = r.recent(10);
+      $("sleepHR").textContent = recent.hr ? String(Math.round(recent.hr)) : "--";
+      $("sleepMove").textContent = recent.moving === null ? "--" : recent.moving ? "Moving" : "Still";
+    }
+    async function stopRecording2() {
+      const r = recorder;
+      if (!r) return;
+      recorder = null;
+      if (tick2) clearInterval(tick2);
+      tick2 = null;
+      try {
+        await wakeLock2?.release();
+      } catch {
+      }
+      wakeLock2 = null;
+      $("sleepDim").hidden = true;
+      $("sleepSince").textContent = "not recording";
+      syncButtons();
+      deps.recordingChanged();
+      refreshUser();
+      const data = r.data();
+      if (data.durationS < MIN_SAVE_S) {
+        $("sleepElapsed").textContent = "Too short";
+        $("sleepSince").textContent = "recordings under 10 min aren\u2019t saved";
+        return;
+      }
+      const session = { id: `n${r.start}`, user: recUser, start: r.start, durationS: data.durationS, source: "polar", summary: null };
+      await saveSleep(session, data);
+      await openReport2(session.id);
+    }
+    async function demoNight() {
+      const seed = Date.now() & 65535;
+      const { data } = simulateNight(seed);
+      const bed = /* @__PURE__ */ new Date();
+      bed.setDate(bed.getDate() - 1);
+      bed.setHours(23, 20 + seed % 25, 0, 0);
+      const session = { id: `n${bed.getTime()}-${seed}`, user: deps.user(), start: bed.getTime(), durationS: data.durationS, source: "demo", summary: null };
+      await saveSleep(session, data);
+      await openReport2(session.id);
+    }
+    async function renderHistory2() {
+      const user = deps.user();
+      $("sleepHistoryUser").textContent = `\xB7 ${deps.userLabel(user)}`;
+      let nights = [];
+      try {
+        nights = await listSleeps(user);
+      } catch {
+      }
+      const list = $("sleepList");
+      list.replaceChildren();
+      $("sleepEmpty").hidden = nights.length > 0;
+      for (const n of nights) {
+        const s = n.summary;
+        const li = make("li");
+        li.append(
+          make("span", "when", `Night of ${new Date(n.start).toLocaleDateString([], { dateStyle: "medium" })}`),
+          make("span", "dur", s ? fmtHM(s.sleepMin) : fmtTime(n.durationS)),
+          make("span", "stats", s ? `Score ${s.score} \xB7 ${s.awakenings} awakening${s.awakenings === 1 ? "" : "s"} \xB7 HR ${fmt(s.avgHR)} \xB7 HRV ${fmt(s.avgHrv)} ms` : "Open to analyse"),
+          make("span", "muted", [`${fmtClock(n.start)}\u2013${fmtClock(n.start + n.durationS * 1e3)}`, n.source === "demo" ? "demo" : ""].filter(Boolean).join(" \xB7 "))
+        );
+        li.addEventListener("click", () => void openReport2(n.id));
+        list.appendChild(li);
+      }
+    }
+    const hypno = new Hypnogram(document.querySelector("#view-sleepReport .chart.hypno") ?? $("sleepBody"));
+    const bars = new Bars(document.querySelector("#view-sleepReport .chart.bars") ?? $("sleepBody"));
+    const [hrChartEl, brChartEl] = [...document.querySelectorAll("#view-sleepReport .grid2:not(.sleep-summary) .chart")];
+    if (!hrChartEl || !brChartEl) throw new Error("sleep report needs two charts");
+    const hrPlot2 = new Plot(hrChartEl);
+    const brPlot = new Plot(brChartEl);
+    let current2 = null;
+    let donutParts = [];
+    const stageKey = (s) => s === "nodata" ? null : s;
+    async function openReport2(id) {
+      deps.showSleepView("sleepReport");
+      const busy = $("sleepBusy"), body = $("sleepBody");
+      busy.hidden = false;
+      busy.textContent = "Analysing the night\u2026";
+      body.hidden = true;
+      await new Promise((r) => setTimeout(r, 30));
+      const { session, signals } = await loadSleep(id);
+      if (!session || !signals) {
+        busy.textContent = "Recording not found.";
+        return;
+      }
+      const data = { durationS: session.durationS, ...signals };
+      const analysis = analyzeSleep(data);
+      const m = analysis.metrics;
+      session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
+      updateSleep(session).catch(() => {
+      });
+      current2 = { session, data, analysis };
+      const earlier = (await listSleeps(session.user)).filter((n) => n.start < session.start);
+      renderReport2(session, analysis, earlier);
+      busy.hidden = true;
+      body.hidden = false;
+      hypno.draw();
+      bars.draw();
+      hrPlot2.draw();
+      brPlot.draw();
+      drawDonut($canvas("sleepDonut"), donutParts);
+    }
+    function renderReport2(session, a, earlier) {
+      const m = a.metrics;
+      const start = session.start;
+      const night = new Date(start);
+      $("sleepMeta").textContent = [
+        deps.userLabel(session.user),
+        `Night of ${night.toLocaleDateString([], { dateStyle: "full" })}`,
+        session.source === "demo" ? "Demo night" : "Polar H10",
+        m.coverage < 95 ? `Data for ${fmt(m.coverage)} % of the night (strap dropped out)` : ""
+      ].filter(Boolean).join(" \xB7 ");
+      $("sleepDuration").textContent = m.sleepMin ? fmtHM(m.sleepMin) : "No sleep detected";
+      hypno.set(a.stages.map(stageKey), start, EPOCH_S);
+      $("sleepBed").textContent = fmtClock(start);
+      $("sleepOnset").textContent = Number.isFinite(m.onsetS) ? fmtClock(start + m.onsetS * 1e3) : "--";
+      $("sleepWake").textContent = Number.isFinite(m.wakeS) ? fmtClock(start + m.wakeS * 1e3) : "--";
+      const keys = ["deep", "light", "rem", "awake"];
+      $("sleepLegend").replaceChildren(...keys.map((k) => {
+        const item = make("span");
+        const sw = make("span", "swatch");
+        sw.style.background = `var(${STAGE_COLOR_VAR[k]})`;
+        item.append(sw, STAGE_LABEL[k]);
+        return item;
+      }));
+      $("sleepScore").textContent = m.sleepMin ? String(m.score) : "--";
+      $("sleepScoreWord").textContent = !m.sleepMin ? "" : m.score >= 85 ? "Very good night" : m.score >= 70 ? "Good night" : m.score >= 55 ? "Fair night" : "Poor night";
+      $("sleepScoreHow").textContent = SCORE_EXPLANATION;
+      const week = [...earlier.slice(0, 6).reverse(), session];
+      const dayLabel = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "numeric" });
+      bars.set(week.map((n) => {
+        const v = n.id === session.id ? m.awakenings : n.summary?.awakenings ?? 0;
+        return { label: dayLabel(n.start), value: v, title: `${dayLabel(n.start)} \xB7 <b>${v} time${v === 1 ? "" : "s"}</b>`, highlight: n.id === session.id };
+      }));
+      $("sleepBarsRange").textContent = week.length > 1 ? `(${dayLabel(week[0]?.start ?? start)}\u2013${dayLabel(start)})` : "";
+      const parts = [
+        { key: "deep", value: m.deepMin, pct: m.deepPct },
+        { key: "light", value: m.lightMin, pct: m.lightPct },
+        { key: "rem", value: m.remMin, pct: m.remPct }
+      ];
+      donutParts = parts;
+      $("sleepStageList").replaceChildren(...[...parts, { key: "awake", value: m.awakeMin, pct: NaN }].map((p) => {
+        const li = make("li");
+        const name = make("span", "dot-label");
+        const sw = make("span", "swatch");
+        sw.style.background = `var(${STAGE_COLOR_VAR[p.key]})`;
+        name.append(sw, p.key === "awake" ? "Awake after falling asleep" : STAGE_LABEL[p.key]);
+        li.append(name, make("span", "", fmtHM(p.value)), make("span", "pct", Number.isFinite(p.pct) ? `${fmt(p.pct)} %` : ""));
+        return li;
+      }));
+      const R = sleepRanges();
+      const outliers2 = [];
+      const tile = (k, v, unit, hint, ref) => metricTile(k, v, unit, hint, ref, outliers2);
+      const normal = (range) => ({ ...range, okLabel: "Normal" });
+      const personal = (values, value, unit) => {
+        const range = personalRange(values);
+        if (!range) return { skipped: `Personal range after 3 nights (${Math.min(values.length, 3)}/3 so far)` };
+        return { range, value, label: "Personal range", rangeText: `${range.lo}\u2013${range.hi} ${unit}`, okLabel: "Within range" };
+      };
+      const prev = (f) => earlier.flatMap((n) => n.summary ? [f(n.summary)] : []);
+      $("sleepTiles").replaceChildren(
+        tile("Night sleep", fmtHM(m.sleepMin), "", "deep + light + REM", normal({ range: R.sleepHours, value: m.sleepMin / 60, rangeText: "7\u20139 h" })),
+        tile("Times woke up", String(m.awakenings), "times", "", normal({ range: R.awakenings, value: m.awakenings, rangeText: "0\u20132 times" })),
+        tile("Deep sleep", fmt(m.deepPct), "%", fmtHM(m.deepMin), normal({ range: R.deepPct, value: m.deepPct })),
+        tile("Light sleep", fmt(m.lightPct), "%", fmtHM(m.lightMin), normal({ range: R.lightPct, value: m.lightPct })),
+        tile("REM sleep", fmt(m.remPct), "%", fmtHM(m.remMin), normal({ range: R.remPct, value: m.remPct })),
+        tile("Avg heart rate", fmt(m.avgHR), "bpm", `lowest ${fmt(m.minHR)} bpm`, personal(prev((s) => s.avgHR), m.avgHR, "bpm")),
+        tile("Avg HRV", fmt(m.avgHrv), "ms", "RMSSD while asleep", personal(prev((s) => s.avgHrv), m.avgHrv, "ms")),
+        tile("Breathing rate", fmt(m.breathingRate, 1), "/min", "while asleep", normal({ range: R.breathing, value: m.breathingRate })),
+        tile("Breathing regularity", fmt(m.breathingRegularity), "points", "steady breathing scores higher", normal({ range: R.regularity, value: m.breathingRegularity, rangeText: "70\u2013100 points" })),
+        tile("Deep sleep continuity", fmt(m.deepContinuity), "points", "deep sleep in spells of 10 min or more", normal({ range: R.continuity, value: m.deepContinuity, rangeText: "70\u2013100 points" })),
+        tile("Sleep efficiency", fmt(m.efficiency), "%", `of ${fmtHM(m.timeInBedMin)} in bed`, normal({ range: R.efficiency, value: m.efficiency })),
+        tile("Time to fall asleep", fmt(m.latencyMin), "min", "", normal({ range: R.latency, value: m.latencyMin })),
+        tile("Awake after falling asleep", fmt(m.awakeMin), "min", "", normal({ range: R.waso, value: m.awakeMin })),
+        tile("Avg SpO\u2082", "--", "", "not measured: the Polar H10 has no blood-oxygen sensor")
+      );
+      renderOutliers($("sleepFlags"), outliers2, ["Sleep stages are estimates; see \u201CAbout these results\u201D below."]);
+      const toPoints = (series) => {
+        const pts = [];
+        const stride = Math.max(1, Math.ceil(series.length / 600));
+        for (let e = 0; e < series.length; e += stride) pts.push([start + e * EPOCH_S * 1e3, series[e] ?? null]);
+        return pts;
+      };
+      hrPlot2.set({ type: "line", points: toPoints(a.hr), xFmt: fmtClock, yLabel: "bpm", tooltip: (p) => `${fmtClock(p[0])} \xB7 <b>${Math.round(p[1])} bpm</b>` });
+      brPlot.set({ type: "line", points: toPoints(a.breathing), xFmt: fmtClock, yLabel: "/min", tooltip: (p) => `${fmtClock(p[0])} \xB7 <b>${p[1].toFixed(1)} breaths/min</b>` });
+      $("sleepSources").replaceChildren(...SLEEP_SOURCES.map(([what, text]) => {
+        const li = make("li");
+        li.append(make("b", "", `${what}: `), text);
+        return li;
+      }));
+    }
+    function fileStem2(session) {
+      const d = new Date(session.start);
+      const p = (v) => String(v).padStart(2, "0");
+      return `sleep_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+    }
+    $button("btnSleepConnect").addEventListener("click", () => void connect());
+    $button("btnSleepDisconnect").addEventListener("click", () => void disconnect());
+    $button("btnSleepDemo").addEventListener("click", () => void demoNight());
+    $button("btnSleepStart").addEventListener("click", () => void (recorder ? stopRecording2() : startRecording2()));
+    $button("btnSleepDim").addEventListener("click", () => {
+      $("sleepDim").hidden = false;
+    });
+    $("sleepDim").addEventListener("click", () => {
+      $("sleepDim").hidden = true;
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && recorder && !wakeLock2) void requestWakeLock2();
+    });
+    $button("btnSleepBack").addEventListener("click", () => deps.showSleepView("sleepHistory"));
+    $button("btnSleepPrint").addEventListener("click", () => window.print());
+    $button("btnSleepDelete").addEventListener("click", () => {
+      void (async () => {
+        if (!current2 || !window.confirm("Delete this night permanently?")) return;
+        await deleteSleep(current2.session.id);
+        current2 = null;
+        deps.showSleepView("sleepHistory");
+      })();
+    });
+    $button("btnSleepCsv").addEventListener("click", () => {
+      if (!current2) return;
+      const { session, analysis: a } = current2;
+      const r = (v, d = 1) => v == null || !Number.isFinite(v) ? "" : v.toFixed(d);
+      const rows = [["time", "stage", "hr_bpm", "breathing_per_min", "movement_mg"]];
+      a.stages.forEach((s, e) => rows.push([new Date(session.start + e * EPOCH_S * 1e3).toISOString(), s, r(a.hr[e]), r(a.breathing[e]), r(a.activity[e])]));
+      download(new Blob([rows.map((x) => x.join(",")).join("\n")], { type: "text/csv" }), `${fileStem2(session)}_epochs.csv`);
+    });
+    $button("btnSleepJson").addEventListener("click", () => {
+      if (!current2) return;
+      const { session, analysis } = current2;
+      const out = { app: "OpenBeat ECG", sleep: { ...session }, metrics: analysis.metrics, ranges: sleepRanges(), epochS: EPOCH_S, stages: analysis.stages };
+      download(new Blob([JSON.stringify(out, null, 2)], { type: "application/json" }), `${fileStem2(session)}_sleep.json`);
+    });
+    if (!bluetoothAvailable() || !window.isSecureContext) {
+      $button("btnSleepConnect").disabled = true;
+      const note = $("sleepNote");
+      note.hidden = false;
+      note.textContent = "This browser can\u2019t connect to the strap (use Chrome or Edge, or Bluefy on iPhone). Demo night still works.";
+    }
+    refreshUser();
+    syncButtons();
+    return {
+      renderHistory: renderHistory2,
+      isRecording: () => recorder !== null,
+      isConnected: () => polar?.connected ?? false,
+      refreshUser
+    };
+  }
+
+  // src/app.ts
   var FS = ECG_FS;
+  var outliers = [];
+  var metric = (k, v, unit, hint = "", ref) => metricTile(k, v, unit, hint, ref, outliers);
   var RING_S = 60;
   var SPLIT_S = 4 * 3600;
   var currentUser = loadCurrentUser();
   var settings = loadSettings(currentUser);
-  var isView = (v) => v === "live" || v === "history" || v === "report" || v === "settings";
+  var VIEWS = ["live", "history", "report", "sleep", "sleepHistory", "sleepReport", "settings"];
+  var isView = (v) => VIEWS.includes(v);
+  var sleepUI = null;
   function show(view) {
     for (const v of document.querySelectorAll(".view")) v.classList.toggle("active", v.id === `view-${view}`);
-    const tab = view === "report" ? "history" : view;
+    const tab = view === "report" ? "history" : view === "sleepReport" ? "sleepHistory" : view;
     for (const b of document.querySelectorAll(".tabs button")) b.setAttribute("aria-selected", String(b.dataset["view"] === tab));
     if (view === "history") void renderHistory();
+    if (view === "sleepHistory") void sleepUI?.renderHistory();
+    if (view === "sleep") sleepUI?.refreshUser();
     window.scrollTo(0, 0);
   }
   for (const b of document.querySelectorAll(".tabs button")) {
@@ -1745,6 +2995,10 @@
   }
   $button("btnConnect").addEventListener("click", () => void connectPolar());
   async function connectPolar() {
+    if (sleepUI?.isConnected()) {
+      setStatus("The strap is in use on Sleep monitor \u2013 disconnect it there first", "");
+      return;
+    }
     const polar = new PolarH10();
     polar.addEventListener("ecg", (e) => onSamples(e.detail.samples));
     polar.addEventListener("hr", (e) => {
@@ -2032,28 +3286,6 @@
   viewerPos.addEventListener("input", () => viewer.goTo(Number(viewerPos.value) / 1e3 * (viewer.duration - viewer.span)));
   $button("zoomIn").addEventListener("click", () => viewer.zoom(1 / 1.5));
   $button("zoomOut").addEventListener("click", () => viewer.zoom(1.5));
-  var fmt = (v, d = 0) => v == null || !Number.isFinite(v) ? "--" : v.toFixed(d);
-  var outliers = [];
-  function metric(k, v, unit, hint = "", ref) {
-    const el = make("div", "metric");
-    const value = make("div", "v", v);
-    if (unit && v !== "--") value.appendChild(make("small", "", unit));
-    el.append(make("div", "k", k), value, make("div", "h", hint));
-    if (ref && "range" in ref) {
-      const refUnit = ref.display ? "%" : unit.trim();
-      el.appendChild(make("div", "ref", `Ref ${fmtRange(ref.range)}${refUnit ? ` ${refUnit}` : ""}${ref.range.note ? ` \xB7 ${ref.range.note}` : ""}`));
-      const status = checkRange(ref.range, ref.value);
-      if (status) {
-        el.classList.add("out");
-        const label = status === "high" ? ref.range.highLabel : ref.range.lowLabel;
-        el.appendChild(make("div", "flag", `${status === "high" ? "\u25B2" : "\u25BC"} ${label ?? (status === "high" ? "Above range" : "Below range")}`));
-        outliers.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ""}`, range: fmtRange(ref.range), status });
-      }
-    } else if (ref) {
-      el.appendChild(make("div", "ref", ref.skipped));
-    }
-    return el;
-  }
   async function openReport(id) {
     show("report");
     const busy = $("reportBusy"), body = $("reportBody");
@@ -2136,26 +3368,13 @@
       ),
       metric("Highest HR", maxSeen ? fmt(maxSeen) : "--", "bpm", `max HR setting ${settings.hrMax}`)
     );
-    renderOutliers(exercise);
+    renderOutliers2(exercise);
     renderZones(m.zones);
     renderCharts(analysis, m, maxSeen);
     renderEvents(events);
   }
-  function renderOutliers(exercise) {
-    const box = $("reportFlags");
-    box.replaceChildren();
-    box.className = `flags ${outliers.length ? "has" : "none"}`;
-    box.appendChild(make("div", "flags-head", outliers.length ? `${outliers.length} value${outliers.length > 1 ? "s" : ""} outside the reference range` : "\u2713 All values within reference ranges"));
-    for (const o of outliers) {
-      const row = make("div", "flags-row");
-      row.append(
-        make("span", "", `${o.status === "high" ? "\u25B2" : "\u25BC"} ${o.name}`),
-        make("span", "", o.value),
-        make("span", "", `ref ${o.range}`)
-      );
-      box.appendChild(row);
-    }
-    if (exercise) box.appendChild(make("div", "flags-note", "Exercise recording: resting ranges for heart rate and HRV are not applied."));
+  function renderOutliers2(exercise) {
+    renderOutliers($("reportFlags"), outliers, exercise ? ["Exercise recording: resting ranges for heart rate and HRV are not applied."] : []);
   }
   var ZONE_NAMES = ["Below 50 %", "Z1 50\u201360 %", "Z2 60\u201370 %", "Z3 70\u201380 %", "Z4 80\u201390 %", "Z5 90\u2013100 %"];
   function renderZones(zones) {
@@ -2258,13 +3477,6 @@
     const p = (v) => String(v).padStart(2, "0");
     return `ecg_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
   }
-  function download(blob, name) {
-    const a = make("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2e3);
-  }
   $button("btnExportEdf").addEventListener("click", () => {
     if (!current) return;
     const { session, samples, events } = current;
@@ -2358,15 +3570,16 @@
     }
   }
   function syncUserSelect() {
+    const recording = rec !== null || (sleepUI?.isRecording() ?? false);
     for (const sel of userSelects) {
-      sel.disabled = rec !== null;
-      sel.title = rec ? "Stop the recording to switch user" : "";
+      sel.disabled = recording;
+      sel.title = recording ? "Stop the recording to switch user" : "";
     }
   }
   for (const sel of userSelects) {
     sel.addEventListener("change", () => {
       const next = Number(sel.value);
-      if (rec || !isUserNumber(next) || next === currentUser) {
+      if (rec || sleepUI?.isRecording() || !isUserNumber(next) || next === currentUser) {
         sel.value = String(currentUser);
         return;
       }
@@ -2378,9 +3591,19 @@
       current = null;
       if ($("view-report").classList.contains("active")) show("history");
       else if ($("view-history").classList.contains("active")) void renderHistory();
+      else if ($("view-sleepReport").classList.contains("active")) show("sleepHistory");
+      else if ($("view-sleepHistory").classList.contains("active")) void sleepUI?.renderHistory();
+      sleepUI?.refreshUser();
     });
   }
   renderUserOptions();
+  sleepUI = initSleep({
+    user: () => currentUser,
+    userLabel,
+    showSleepView: show,
+    ecgConnected: () => source?.kind === "polar",
+    recordingChanged: syncUserSelect
+  });
   $("refSources").replaceChildren(...SOURCES.map(([what, text]) => {
     const li = make("li");
     li.append(make("b", "", `${what}: `), text);

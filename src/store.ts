@@ -54,11 +54,13 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    // version 2 adds sleep recordings; existing ECG recordings are kept as they are
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const db = req.result;
-      db.createObjectStore('sessions', { keyPath: 'id' });
-      db.createObjectStore('signals', { keyPath: 'id' });
+      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals']) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -66,7 +68,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-type StoreName = 'sessions' | 'signals';
+type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -107,6 +109,68 @@ export async function deleteSession(id: string): Promise<void> {
   await tx(['sessions', 'signals'], 'readwrite', (t) => {
     t.objectStore('sessions').delete(id);
     t.objectStore('signals').delete(id);
+  });
+}
+
+// ---------- Sleep recordings ----------
+
+export interface SleepSummary {
+  sleepMin: number;
+  score: number;
+  awakenings: number;
+  avgHR: number;
+  avgHrv: number;
+  breathingRate: number;
+}
+
+export interface SleepSession {
+  id: string;
+  user: UserNumber;
+  start: number; // epoch ms (bed time)
+  durationS: number;
+  source: 'polar' | 'demo';
+  summary: SleepSummary | null;
+}
+
+interface SleepSignalRecord {
+  id: string;
+  rrT: Float64Array;
+  rr: Float32Array;
+  acc: Int16Array;
+  accFs: number;
+}
+
+export interface SleepSignals { rrT: Float64Array; rr: Float32Array; acc: Int16Array; accFs: number }
+
+export async function saveSleep(session: SleepSession, signals: SleepSignals): Promise<void> {
+  await tx(['sleeps', 'sleepSignals'], 'readwrite', (t) => {
+    t.objectStore('sleeps').put(session);
+    t.objectStore('sleepSignals').put({ id: session.id, ...signals } satisfies SleepSignalRecord);
+  });
+}
+
+export async function updateSleep(session: SleepSession): Promise<void> {
+  await tx(['sleeps'], 'readwrite', (t) => { t.objectStore('sleeps').put(session); });
+}
+
+/** One user's nights, newest first. */
+export async function listSleeps(user: UserNumber): Promise<SleepSession[]> {
+  const all = await tx<SleepSession[]>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').getAll());
+  return (all ?? []).filter((s) => s.user === user).sort((a, b) => b.start - a.start);
+}
+
+export async function loadSleep(id: string): Promise<{ session: SleepSession | undefined; signals: SleepSignals | undefined }> {
+  const [session, rec] = await Promise.all([
+    tx<SleepSession | undefined>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').get(id)),
+    tx<SleepSignalRecord | undefined>(['sleepSignals'], 'readonly', (t) => t.objectStore('sleepSignals').get(id)),
+  ]);
+  return { session, signals: rec ? { rrT: rec.rrT, rr: rec.rr, acc: rec.acc, accFs: rec.accFs } : undefined };
+}
+
+export async function deleteSleep(id: string): Promise<void> {
+  await tx(['sleeps', 'sleepSignals'], 'readwrite', (t) => {
+    t.objectStore('sleeps').delete(id);
+    t.objectStore('sleepSignals').delete(id);
   });
 }
 

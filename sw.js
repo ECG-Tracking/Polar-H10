@@ -1,5 +1,5 @@
 // Offline cache: network first for freshness, cache as fallback.
-const CACHE = 'openbeat-v7';
+const CACHE = 'openbeat-v8';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'app.js',

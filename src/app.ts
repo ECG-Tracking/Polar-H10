@@ -5,31 +5,16 @@ import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent } fro
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
-import { referenceRanges, checkRange, fmtRange, SOURCES, type Range, type RangeStatus, type ReferenceRanges } from './ranges';
+import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
+import { byId, $, $button, $input, $canvas, make, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
-
-// ---------- DOM helpers ----------
-
-/** Element by id, checked to be of the expected type; a missing element is a bug in index.html. */
-function byId<T extends HTMLElement>(id: string, type: new () => T): T {
-  const el = document.getElementById(id);
-  if (!(el instanceof type)) throw new Error(`#${id} is missing or not a ${type.name}`);
-  return el;
-}
-const $ = (id: string): HTMLElement => byId(id, HTMLElement);
-const $button = (id: string): HTMLButtonElement => byId(id, HTMLButtonElement);
-const $input = (id: string): HTMLInputElement => byId(id, HTMLInputElement);
-const $canvas = (id: string): HTMLCanvasElement => byId(id, HTMLCanvasElement);
-
-/** New element with an optional class and text. */
-function make<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  if (className) el.className = className;
-  if (text) el.textContent = text;
-  return el;
-}
+import { initSleep } from './sleepui';
 
 const FS = ECG_FS;
+
+let outliers: Outlier[] = [];
+const metric = (k: string, v: string, unit: string, hint = '', ref?: MetricRef | null): HTMLDivElement => metricTile(k, v, unit, hint, ref, outliers);
+
 const RING_S = 60;
 const SPLIT_S = 4 * 3600; // start a new file every 4 h
 
@@ -38,14 +23,18 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'settings';
-const isView = (v: string | undefined): v is View => v === 'live' || v === 'history' || v === 'report' || v === 'settings';
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'settings';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'settings'];
+const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
+let sleepUI: ReturnType<typeof initSleep> | null = null;
 
 function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
-  const tab = view === 'report' ? 'history' : view;
+  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
   if (view === 'history') void renderHistory();
+  if (view === 'sleepHistory') void sleepUI?.renderHistory();
+  if (view === 'sleep') sleepUI?.refreshUser();
   window.scrollTo(0, 0);
 }
 for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) {
@@ -150,6 +139,10 @@ function btLog(line: string): void {
 $button('btnConnect').addEventListener('click', () => void connectPolar());
 
 async function connectPolar(): Promise<void> {
+  if (sleepUI?.isConnected()) {
+    setStatus('The strap is in use on Sleep monitor – disconnect it there first', '');
+    return;
+  }
   const polar = new PolarH10();
   polar.addEventListener('ecg', (e) => onSamples((e as CustomEvent<EcgDetail>).detail.samples));
   polar.addEventListener('hr', (e) => { deviceHR = (e as CustomEvent<HrDetail>).detail.hr; });
@@ -452,37 +445,6 @@ viewerPos.addEventListener('input', () => viewer.goTo((Number(viewerPos.value) /
 $button('zoomIn').addEventListener('click', () => viewer.zoom(1 / 1.5));
 $button('zoomOut').addEventListener('click', () => viewer.zoom(1.5));
 
-const fmt = (v: number | null | undefined, d = 0): string => (v == null || !Number.isFinite(v) ? '--' : v.toFixed(d));
-
-interface Outlier { name: string; value: string; range: string; status: RangeStatus }
-let outliers: Outlier[] = [];
-
-/** How a metric relates to its reference range. */
-type MetricRef =
-  | { range: Range; value: number | null | undefined; display?: string }
-  | { skipped: string };
-
-/** A report tile; a value outside its reference range is flagged and listed in the outliers summary. */
-function metric(k: string, v: string, unit: string, hint = '', ref?: MetricRef | null): HTMLDivElement {
-  const el = make('div', 'metric');
-  const value = make('div', 'v', v);
-  if (unit && v !== '--') value.appendChild(make('small', '', unit));
-  el.append(make('div', 'k', k), value, make('div', 'h', hint));
-  if (ref && 'range' in ref) {
-    const refUnit = ref.display ? '%' : unit.trim();
-    el.appendChild(make('div', 'ref', `Ref ${fmtRange(ref.range)}${refUnit ? ` ${refUnit}` : ''}${ref.range.note ? ` · ${ref.range.note}` : ''}`));
-    const status = checkRange(ref.range, ref.value);
-    if (status) {
-      el.classList.add('out');
-      const label = status === 'high' ? ref.range.highLabel : ref.range.lowLabel;
-      el.appendChild(make('div', 'flag', `${status === 'high' ? '▲' : '▼'} ${label ?? (status === 'high' ? 'Above range' : 'Below range')}`));
-      outliers.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ''}`, range: fmtRange(ref.range), status });
-    }
-  } else if (ref) {
-    el.appendChild(make('div', 'ref', ref.skipped));
-  }
-  return el;
-}
 
 async function openReport(id: string): Promise<void> {
   show('report');
@@ -573,22 +535,7 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
 }
 
 function renderOutliers(exercise: boolean): void {
-  const box = $('reportFlags');
-  box.replaceChildren();
-  box.className = `flags ${outliers.length ? 'has' : 'none'}`;
-  box.appendChild(make('div', 'flags-head', outliers.length
-    ? `${outliers.length} value${outliers.length > 1 ? 's' : ''} outside the reference range`
-    : '✓ All values within reference ranges'));
-  for (const o of outliers) {
-    const row = make('div', 'flags-row');
-    row.append(
-      make('span', '', `${o.status === 'high' ? '▲' : '▼'} ${o.name}`),
-      make('span', '', o.value),
-      make('span', '', `ref ${o.range}`),
-    );
-    box.appendChild(row);
-  }
-  if (exercise) box.appendChild(make('div', 'flags-note', 'Exercise recording: resting ranges for heart rate and HRV are not applied.'));
+  renderOutlierBox($('reportFlags'), outliers, exercise ? ['Exercise recording: resting ranges for heart rate and HRV are not applied.'] : []);
 }
 
 const ZONE_NAMES = ['Below 50 %', 'Z1 50–60 %', 'Z2 60–70 %', 'Z3 70–80 %', 'Z4 80–90 %', 'Z5 90–100 %'] as const;
@@ -693,13 +640,6 @@ function fileStem(session: Session): string {
   return `ecg_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
 }
 
-function download(blob: Blob, name: string): void {
-  const a = make('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
 
 $button('btnExportEdf').addEventListener('click', () => {
   if (!current) return;
@@ -798,16 +738,17 @@ function renderUserOptions(): void {
 
 /** Switching user is blocked while recording, so a recording can't change owner halfway. */
 function syncUserSelect(): void {
+  const recording = rec !== null || (sleepUI?.isRecording() ?? false);
   for (const sel of userSelects) {
-    sel.disabled = rec !== null;
-    sel.title = rec ? 'Stop the recording to switch user' : '';
+    sel.disabled = recording;
+    sel.title = recording ? 'Stop the recording to switch user' : '';
   }
 }
 
 for (const sel of userSelects) {
   sel.addEventListener('change', () => {
     const next = Number(sel.value);
-    if (rec || !store.isUserNumber(next) || next === currentUser) { sel.value = String(currentUser); return; }
+    if (rec || sleepUI?.isRecording() || !store.isUserNumber(next) || next === currentUser) { sel.value = String(currentUser); return; }
     currentUser = next;
     store.saveCurrentUser(next);
     settings = store.loadSettings(next);
@@ -816,9 +757,20 @@ for (const sel of userSelects) {
     current = null;
     if ($('view-report').classList.contains('active')) show('history');
     else if ($('view-history').classList.contains('active')) void renderHistory();
+    else if ($('view-sleepReport').classList.contains('active')) show('sleepHistory');
+    else if ($('view-sleepHistory').classList.contains('active')) void sleepUI?.renderHistory();
+    sleepUI?.refreshUser();
   });
 }
 renderUserOptions();
+
+sleepUI = initSleep({
+  user: () => currentUser,
+  userLabel,
+  showSleepView: show,
+  ecgConnected: () => source?.kind === 'polar',
+  recordingChanged: syncUserSelect,
+});
 
 // ---------- Reference sources ----------
 

@@ -1,4 +1,4 @@
-// Polar H10 over Web Bluetooth: standard Heart Rate service + Polar PMD raw ECG stream.
+// Polar H10 over Web Bluetooth: standard Heart Rate service + Polar PMD raw ECG and accelerometer streams.
 
 import { errorMessage, sleep } from './util';
 
@@ -9,6 +9,9 @@ const PMD_DATA = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
 // Start ECG: op 0x02, type 0x00 (ECG), setting 0x00 (rate) = 130 Hz, setting 0x01 (resolution) = 14 bit
 const START_ECG = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01, 0x0e, 0x00]);
 const STOP_ECG = new Uint8Array([0x03, 0x00]);
+// Start accelerometer: type 0x02, rate 25 Hz, resolution 16 bit, range 8 g (samples in mG)
+const START_ACC = new Uint8Array([0x02, 0x02, 0x00, 0x01, 0x19, 0x00, 0x01, 0x01, 0x10, 0x00, 0x02, 0x01, 0x08, 0x00]);
+const STOP_ACC = new Uint8Array([0x03, 0x02]);
 
 // PMD control point error codes
 const PMD_ERRORS: Readonly<Record<number, string>> = {
@@ -19,13 +22,18 @@ const PMD_ERRORS: Readonly<Record<number, string>> = {
 };
 
 export const ECG_FS = 130;
+export const ACC_FS = 25;
 
 export interface EcgDetail { samples: Int32Array } // µV
+export interface AccDetail { samples: Int16Array } // x, y, z interleaved, mG
 export interface HrDetail { hr: number; rr: number[] } // rr in ms
 export interface BatteryDetail { level: number }
 export type ConnectResult = { ecg: true } | { ecg: false; reason: string };
 type Log = (line: string) => void;
 interface ControlReply { op: number; status: number }
+
+/** Which streams a connection should run. Heart rate is always on. */
+export interface StreamOptions { ecg?: boolean; acc?: boolean }
 
 export function bluetoothAvailable(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth;
@@ -39,6 +47,7 @@ function eventValue(e: Event): DataView | undefined {
 /**
  * Events:
  *  'ecg'        CustomEvent<EcgDetail>
+ *  'acc'        CustomEvent<AccDetail>
  *  'hr'         CustomEvent<HrDetail>
  *  'battery'    CustomEvent<BatteryDetail>
  *  'disconnect'
@@ -47,12 +56,16 @@ export class PolarH10 extends EventTarget {
   device: BluetoothDevice | null = null;
   name = '';
   ecgOk = false;
+  accOk = false;
+  private wanted: Required<StreamOptions> = { ecg: true, acc: false };
   private control: BluetoothRemoteGATTCharacteristic | null = null;
   private ecgPackets = 0;
+  private accPackets = 0;
   private reply: ((r: ControlReply | null) => void) | null = null;
 
-  /** Connects and starts streaming. `log` receives progress lines. */
-  async connect(log: Log = () => {}): Promise<ConnectResult> {
+  /** Asks the user to choose the strap, connects and starts streaming. `log` receives progress lines. */
+  async connect(log: Log = () => {}, streams: StreamOptions = {}): Promise<ConnectResult> {
+    this.wanted = { ecg: streams.ecg ?? true, acc: streams.acc ?? false };
     log('Waiting for you to choose the strap and click Pair…');
     const device = await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: 'Polar H10' }],
@@ -64,8 +77,22 @@ export class PolarH10 extends EventTarget {
     device.addEventListener('gattserverdisconnected', () => {
       this.dispatchEvent(new Event('disconnect'));
     });
-    const gatt = device.gatt;
+    return this.open(log);
+  }
+
+  /** Reconnects to the same strap without asking again (e.g. after it dropped out overnight). */
+  async reconnect(log: Log = () => {}): Promise<ConnectResult> {
+    if (!this.device) throw new Error('no strap chosen yet');
+    return this.open(log);
+  }
+
+  private async open(log: Log): Promise<ConnectResult> {
+    const gatt = this.device?.gatt;
     if (!gatt) throw new Error('this device has no Bluetooth services');
+    this.ecgPackets = 0;
+    this.accPackets = 0;
+    this.ecgOk = false;
+    this.accOk = false;
 
     let server: BluetoothRemoteGATTServer;
     for (let attempt = 1; ; attempt++) {
@@ -108,19 +135,40 @@ export class PolarH10 extends EventTarget {
       log('Battery level not available');
     }
 
+    let ecgFailure = '';
     try {
-      await this.startEcg(server, log);
-      this.ecgOk = true;
-      return { ecg: true };
+      await this.openPmd(server);
+      if (this.wanted.ecg) {
+        try {
+          await this.startStream('ECG', START_ECG, STOP_ECG, () => this.ecgPackets, log);
+          this.ecgOk = true;
+        } catch (err) {
+          ecgFailure = errorMessage(err);
+          log(`ECG stream failed: ${ecgFailure}`);
+        }
+      }
+      if (this.wanted.acc) {
+        try {
+          await this.startStream('Motion', START_ACC, STOP_ACC, () => this.accPackets, log);
+          this.accOk = true;
+        } catch (err) {
+          log(`Motion stream failed: ${errorMessage(err)}`);
+        }
+      }
     } catch (err) {
-      log(`ECG stream failed: ${errorMessage(err)}`);
-      log('Continuing with heart rate only');
-      return { ecg: false, reason: errorMessage(err) };
+      ecgFailure = errorMessage(err);
+      log(`Polar data service unavailable: ${ecgFailure}`);
     }
+    if (this.wanted.ecg && !this.ecgOk) {
+      log('Continuing with heart rate only');
+      return { ecg: false, reason: ecgFailure || 'ECG did not start' };
+    }
+    if (!this.wanted.ecg) return { ecg: false, reason: 'not requested' };
+    return { ecg: true };
   }
 
-  private async startEcg(server: BluetoothRemoteGATTServer, log: Log): Promise<void> {
-    log('Starting ECG stream…');
+  /** Subscribes to the PMD control point and data characteristics. */
+  private async openPmd(server: BluetoothRemoteGATTServer): Promise<void> {
     const pmd = await server.getPrimaryService(PMD_SERVICE);
     const control = await pmd.getCharacteristic(PMD_CONTROL);
     this.control = control;
@@ -136,18 +184,23 @@ export class PolarH10 extends EventTarget {
       if (dv) this.onPmd(dv);
     });
     await data.startNotifications();
+  }
 
+  private async startStream(label: string, start: Uint8Array, stop: Uint8Array, packets: () => number, log: Log): Promise<void> {
+    const control = this.control;
+    if (!control) throw new Error('Polar data service not open');
+    log(`Starting ${label.toLowerCase()} stream…`);
     // a stream left running by an earlier session makes the start command fail
-    await this.command(control, STOP_ECG, 1500).catch(() => null);
-    const reply = await this.command(control, START_ECG, 3000);
+    await this.command(control, stop, 1500).catch(() => null);
+    const reply = await this.command(control, start, 3000);
     if (!reply) {
-      log('No reply to the start command; waiting for data…');
+      log(`No reply to the ${label.toLowerCase()} start command; waiting for data…`);
     } else if (reply.status !== 0 && reply.status !== 6) {
       throw new Error(`H10 refused: ${PMD_ERRORS[reply.status] ?? `code ${reply.status}`}`);
     }
-    for (let i = 0; i < 25 && !this.ecgPackets; i++) await sleep(200);
-    if (!this.ecgPackets) throw new Error('no ECG data received (is the strap worn with wet electrodes?)');
-    log('ECG streaming');
+    for (let i = 0; i < 25 && !packets(); i++) await sleep(200);
+    if (!packets()) throw new Error(`no ${label.toLowerCase()} data received (is the strap worn with wet electrodes?)`);
+    log(`${label} streaming`);
   }
 
   /** Writes a control point command and resolves with its reply, or null on timeout. */
@@ -164,10 +217,18 @@ export class PolarH10 extends EventTarget {
     return reply;
   }
 
+  get connected(): boolean {
+    return this.device?.gatt?.connected ?? false;
+  }
+
   async disconnect(): Promise<void> {
     const gatt = this.device?.gatt;
+    this.wanted = { ecg: false, acc: false };
     try {
-      if (this.control && gatt?.connected) await this.control.writeValueWithResponse(STOP_ECG);
+      if (this.control && gatt?.connected) {
+        if (this.ecgOk) await this.control.writeValueWithResponse(STOP_ECG);
+        if (this.accOk) await this.control.writeValueWithResponse(STOP_ACC);
+      }
     } catch {
       // device may already be gone
     }
@@ -194,16 +255,34 @@ export class PolarH10 extends EventTarget {
   }
 
   private onPmd(dv: DataView): void {
-    // [0] measurement type, [1..8] timestamp (ns), [9] frame type, then 3-byte signed LE samples (µV)
-    if (dv.byteLength < 10 || dv.getUint8(0) !== 0x00 || dv.getUint8(9) !== 0x00) return;
+    // [0] measurement type, [1..8] timestamp (ns), [9] frame type, then little-endian signed samples
+    if (dv.byteLength < 10) return;
+    const type = dv.getUint8(0), frame = dv.getUint8(9);
+    if (type === 0x00 && frame === 0x00) this.onEcg(dv);
+    else if (type === 0x02 && frame <= 0x02) this.onAcc(dv, frame + 1); // frame 0/1/2 = 1/2/3 bytes per axis
+  }
+
+  private onEcg(dv: DataView): void {
     this.ecgPackets++;
     const n = Math.floor((dv.byteLength - 10) / 3);
     const samples = new Int32Array(n);
-    for (let k = 0, o = 10; k < n; k++, o += 3) {
-      let v = dv.getUint8(o) | (dv.getUint8(o + 1) << 8) | (dv.getUint8(o + 2) << 16);
-      if (v & 0x800000) v -= 0x1000000;
-      samples[k] = v;
-    }
+    for (let k = 0, o = 10; k < n; k++, o += 3) samples[k] = readSigned(dv, o, 3);
     this.dispatchEvent(new CustomEvent<EcgDetail>('ecg', { detail: { samples } }));
   }
+
+  private onAcc(dv: DataView, bytes: number): void {
+    this.accPackets++;
+    const n = Math.floor((dv.byteLength - 10) / (3 * bytes));
+    const samples = new Int16Array(n * 3);
+    for (let k = 0, o = 10; k < n * 3; k++, o += bytes) samples[k] = Math.max(-32768, Math.min(32767, readSigned(dv, o, bytes)));
+    this.dispatchEvent(new CustomEvent<AccDetail>('acc', { detail: { samples } }));
+  }
+}
+
+/** Little-endian signed integer of 1–3 bytes. */
+function readSigned(dv: DataView, o: number, bytes: number): number {
+  let v = 0;
+  for (let b = 0; b < bytes; b++) v |= dv.getUint8(o + b) << (8 * b);
+  const sign = 1 << (8 * bytes - 1);
+  return v & sign ? v - 2 * sign : v;
 }

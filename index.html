@@ -18,8 +18,10 @@
       <span>OpenBeat ECG</span>
     </div>
     <nav class="tabs" role="tablist">
-      <button role="tab" data-view="live" aria-selected="true">Live</button>
-      <button role="tab" data-view="history">History</button>
+      <button role="tab" data-view="live" aria-selected="true">ECG live</button>
+      <button role="tab" data-view="history">ECG history</button>
+      <button role="tab" data-view="sleep">Sleep monitor</button>
+      <button role="tab" data-view="sleepHistory">Sleep history</button>
       <button role="tab" data-view="settings">Settings</button>
     </nav>
   </header>
@@ -136,6 +138,123 @@
       </div>
     </section>
 
+    <!-- SLEEP MONITOR -->
+    <section id="view-sleep" class="view">
+      <div class="card connect">
+        <div class="user-pick">
+          <span>User</span>
+          <strong id="sleepUser"></strong>
+          <span class="muted">Change user on the ECG live or Settings screen.</span>
+        </div>
+        <div class="status">
+          <span class="dot" id="sleepDot"></span>
+          <span id="sleepStatus">Not connected</span>
+          <span class="muted" id="sleepBattery"></span>
+        </div>
+        <div class="row wrap">
+          <button class="primary" id="btnSleepConnect">Connect Polar H10</button>
+          <button id="btnSleepDemo">Demo night</button>
+          <button id="btnSleepDisconnect" hidden>Disconnect</button>
+        </div>
+        <p class="note" id="sleepPairHint">Chrome will show a list. Click your Polar H10, then click <b>Pair</b>, even if it already says “Paired”.</p>
+        <p class="note" id="sleepNote" hidden></p>
+        <pre class="log" id="sleepLog" hidden aria-label="Sleep connection log"></pre>
+      </div>
+
+      <div class="tiles four">
+        <div class="tile hero"><div class="label">Time in bed</div><div class="value" id="sleepElapsed">0:00</div><div class="sub" id="sleepSince">not recording</div></div>
+        <div class="tile"><div class="label">Heart rate</div><div class="value"><span id="sleepHR">--</span><small>bpm</small></div></div>
+        <div class="tile"><div class="label">Movement</div><div class="value" id="sleepMove">--</div><div class="sub">last few seconds</div></div>
+        <div class="tile"><div class="label">Beats recorded</div><div class="value" id="sleepBeats">0</div><div class="sub" id="sleepGaps">no gaps</div></div>
+      </div>
+
+      <div class="card controls">
+        <div class="row">
+          <button class="primary big" id="btnSleepStart" disabled>Start sleep recording</button>
+          <button class="big" id="btnSleepDim" disabled>Dim screen</button>
+        </div>
+        <p class="note">Recording records heart beats and chest movement. The sleep report (stages, breathing, HRV and score) is calculated when you stop.</p>
+      </div>
+
+      <div class="card">
+        <h3>For a good overnight recording</h3>
+        <ul class="tips">
+          <li>Wet the strap electrodes and wear the strap snugly with the Polar logo upright.</li>
+          <li>Keep the phone next to the bed, <b>plugged into a charger</b>, with this page open. The screen stays on; use <b>Dim screen</b> to darken it.</li>
+          <li>Don't switch apps or lock the phone: browsers stop Bluetooth for pages in the background. If the strap drops out, the app reconnects on its own and marks the gap.</li>
+          <li>Tap <b>Stop</b> when you get up. Recordings shorter than 10 minutes aren't saved.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- SLEEP HISTORY -->
+    <section id="view-sleepHistory" class="view">
+      <h2>Sleep history <span class="muted" id="sleepHistoryUser"></span></h2>
+      <ul class="sessions" id="sleepList"></ul>
+      <p class="muted" id="sleepEmpty">No nights recorded for this user yet. Use Sleep monitor, or try a Demo night there.</p>
+    </section>
+
+    <!-- SLEEP REPORT -->
+    <section id="view-sleepReport" class="view">
+      <div class="row between wrap no-print">
+        <button id="btnSleepBack">← Sleep history</button>
+        <div class="row wrap">
+          <button id="btnSleepCsv">Epochs CSV</button>
+          <button id="btnSleepJson">JSON</button>
+          <button id="btnSleepPrint">Print / PDF</button>
+          <button class="danger" id="btnSleepDelete">Delete</button>
+        </div>
+      </div>
+      <div id="sleepBusy" class="busy" hidden>Analysing the night…</div>
+      <div id="sleepBody">
+        <p class="muted" id="sleepMeta"></p>
+        <div class="sleep-hero">
+          <div class="muted">Night sleep</div>
+          <div class="big-duration" id="sleepDuration"></div>
+        </div>
+        <figure class="chart hypno" aria-label="Sleep stages through the night">
+          <canvas></canvas>
+        </figure>
+        <div class="row between sleep-times">
+          <span>Bed time <b id="sleepBed"></b></span>
+          <span>Fell asleep <b id="sleepOnset"></b></span>
+          <span>Woke up <b id="sleepWake"></b></span>
+        </div>
+        <div class="legend" id="sleepLegend"></div>
+
+        <div class="grid2 sleep-summary">
+          <div class="card score-card">
+            <div class="score"><span id="sleepScore">--</span><small>points</small></div>
+            <div class="muted" id="sleepScoreWord"></div>
+            <details class="howto"><summary>How the score works</summary><p id="sleepScoreHow"></p></details>
+          </div>
+          <figure class="chart bars" aria-label="Times woke up, last 7 nights">
+            <figcaption>Times woke up <span class="muted" id="sleepBarsRange"></span></figcaption>
+            <canvas></canvas>
+          </figure>
+        </div>
+
+        <div class="card donut-card">
+          <canvas id="sleepDonut" width="160" height="160" aria-label="Share of each sleep stage"></canvas>
+          <ul class="stage-list" id="sleepStageList"></ul>
+        </div>
+
+        <div id="sleepFlags" class="flags" role="status"></div>
+        <div class="metrics sleep-metrics" id="sleepTiles"></div>
+
+        <div class="grid2">
+          <figure class="chart"><figcaption>Heart rate through the night</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption>Breathing rate through the night</figcaption><canvas></canvas></figure>
+        </div>
+
+        <details class="card sources">
+          <summary>About these results</summary>
+          <p class="muted">Asleep/awake, breathing, heart rate and HRV are measured from the strap. Sleep stages (deep, light, REM) are <b>estimated</b> from heart rate, HRV, breathing regularity and stillness; such estimates typically agree with a laboratory sleep study about 60–75 % of the time, so treat them as a guide. Blood oxygen (SpO₂) isn't available because the Polar H10 has no optical sensor.</p>
+          <ul id="sleepSources"></ul>
+        </details>
+      </div>
+    </section>
+
     <!-- SETTINGS -->
     <section id="view-settings" class="view">
       <h2>Settings</h2>
@@ -208,6 +327,11 @@
       </div>
     </section>
   </main>
+
+  <div id="sleepDim" class="dim-overlay" hidden role="button" tabindex="0" aria-label="Tap to brighten the screen">
+    <div id="sleepDimClock"></div>
+    <div class="muted">Recording · tap to brighten</div>
+  </div>
 
   <footer class="disclaimer">
     <p>Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</p>
