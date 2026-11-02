@@ -4,6 +4,13 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link always loads the latest version *(GitHub)*
+Why: the phone kept using the previous D2 Link for up to 10 minutes after publishing (browser cache).
+
+| File | Change |
+|---|---|
+| `scripts/build.mjs`, `src/app.ts` | The app loads `d2link.js?v=<version>`, with the version taken from the file's content, so each published D2 Link is fetched fresh |
+
 ## 3 Nov 2026 – D2 Link: login reply fix *(GitHub)*
 Why: on a Huawei phone the watch connected and sent its pairing code, then D2 Link couldn't read the watch's first login reply.
 

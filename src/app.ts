@@ -45,6 +45,7 @@ function show(view: View): void {
 
 // ---------- D2 Link (a separate, open-source script, loaded on first use) ----------
 
+declare const __D2_VERSION__: string; // set by scripts/build.mjs
 let d2: { refresh: () => void } | null = null;
 let d2Loading: Promise<void> | null = null;
 
@@ -52,7 +53,7 @@ async function openD2(): Promise<void> {
   if (d2) { d2.refresh(); return; }
   d2Loading ??= new Promise<void>((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = 'd2link.js';
+    s.src = `d2link.js?v=${__D2_VERSION__}`; // a new version is never taken from a cache
     s.onload = () => resolve();
     s.onerror = () => { d2Loading = null; reject(new Error('could not load d2link.js')); };
     document.head.appendChild(s);
