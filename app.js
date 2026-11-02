@@ -1564,7 +1564,7 @@
     ["RMSSD, SDNN", "Nunan D. et al. A quantitative systematic review of normal values for short-term heart rate variability. PACE 2010 (RMSSD 19\u201375 ms, SDNN 32\u201393 ms). Age adjustment follows Umetani K. et al., JACC 1998."],
     ["QRS, QTc", "AHA/ACCF/HRS recommendations for ECG interpretation (Surawicz 2009; Rautaharju 2009): QRS \u2265 120 ms is wide; QTc \u2265 450 ms (men) / \u2265 460 ms (women) is prolonged."],
     ["J point, ST", "Fourth Universal Definition of Myocardial Infarction (2018) uses \u2265 100 \xB5V elevation / \u2265 50 \xB5V depression in standard leads; applied loosely here."],
-    ["T wave", "Standard ECG teaching: T waves up to about 1.0 mV (1000 \xB5V) in the chest leads; under about 0.1 mV (100 \xB5V) is flat; and at least about 1/8\u20131/10 of the R wave in the same lead. A chest strap is not a standard lead, so these are guides only."],
+    ["T wave", "Standard ECG teaching: T waves up to about 1.0 mV (1000 \xB5V) in the chest leads; under about 0.1 mV (100 \xB5V) is flat; the T-wave amplitude range applies to upright T waves, so a T wave pointing down is below it; and at least about 1/8\u20131/10 of the R wave in the same lead. A T/R ratio between about 0.1 and 0.75 is usual; \u2264 0.1 suggests a flattened T wave and \u2265 0.75 a possibly peaked one (shape is not assessed). A chest strap is not a standard lead, so these are guides only."],
     ["HR recovery", "Cole C.R. et al., NEJM 1999: a drop of 12 bpm or less in the first minute after exercise is abnormal."],
     ["Ectopic beats", "Healthy adults usually have under 1 % ectopic beats on long recordings; flagged beats here also include noise."]
   ];
@@ -1583,8 +1583,15 @@
       qrs: { lo: 60, hi: 120 },
       qtc: { lo: 350, hi: female ? 460 : 450, note: female ? "women" : "men" },
       tPositive: { lo: 90, note: "approximate" },
-      tAmp: { lo: 100, hi: 1e3, note: "size, either direction \xB7 approximate" },
-      trRatio: { lo: 0.1, note: "T at least 1/10 of R \xB7 approximate" },
+      tAmp: { lo: 100, hi: 1e3, note: "upright T \xB7 approximate" },
+      trRatio: {
+        lo: 0.1,
+        hi: 0.75,
+        edgesFlagged: true,
+        note: "\u2264 0.1 flattened, \u2265 0.75 peaked \xB7 approximate",
+        lowLabel: "Possibly flattened",
+        highLabel: "Possibly peaked"
+      },
       jPoint: { lo: -50, hi: 200, note: "approximate" },
       st60: { lo: -50, hi: 200, note: "approximate" },
       hrr60: { lo: 13 }
@@ -1592,8 +1599,9 @@
   }
   function checkRange(ref, v) {
     if (!ref || v == null || !Number.isFinite(v)) return null;
-    if (ref.lo != null && v < ref.lo) return "low";
-    if (ref.hi != null && v > ref.hi) return "high";
+    const edge = ref.edgesFlagged === true;
+    if (ref.lo != null && (edge ? v <= ref.lo : v < ref.lo)) return "low";
+    if (ref.hi != null && (edge ? v >= ref.hi : v > ref.hi)) return "high";
     return null;
   }
   function fmtRange(ref) {
@@ -2019,8 +2027,9 @@
       const status = checkRange(ref.range, ref.value);
       if (status) {
         el.classList.add("out");
-        el.appendChild(make("div", "flag", status === "high" ? "\u25B2 Above range" : "\u25BC Below range"));
-        outliers.push({ name: k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ""}`, range: fmtRange(ref.range), status });
+        const label = status === "high" ? ref.range.highLabel : ref.range.lowLabel;
+        el.appendChild(make("div", "flag", `${status === "high" ? "\u25B2" : "\u25BC"} ${label ?? (status === "high" ? "Above range" : "Below range")}`));
+        outliers.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ""}`, range: fmtRange(ref.range), status });
       }
     } else if (ref) {
       el.appendChild(make("div", "ref", ref.skipped));
@@ -2088,7 +2097,7 @@
       metric("QT", fmt(m.qt), "ms", "median"),
       metric("QTc", fmt(m.qtc), "ms", `${qtcName}, median`, ref("qtc", m.qtc)),
       metric("T wave positive", fmt(m.tPositive), "%", "", ref("tPositive", m.tPositive)),
-      metric("T-wave amplitude", fmt(m.tAmp), "\xB5V", "median, vs PR baseline", { range: R.tAmp, value: Math.abs(m.tAmp) }),
+      metric("T-wave amplitude", fmt(m.tAmp), "\xB5V", "median, vs PR baseline", ref("tAmp", m.tAmp)),
       metric("T/R ratio", fmt(m.trRatio, 2), "", "T size \xF7 R size, median", ref("trRatio", m.trRatio)),
       metric("J point", fmt(m.jPoint), "\xB5V", "vs PR baseline", ref("jPoint", m.jPoint)),
       metric("ST at J+60 ms", fmt(m.st60), "\xB5V", "", ref("st60", m.st60)),

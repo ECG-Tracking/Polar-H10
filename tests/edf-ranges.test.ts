@@ -36,13 +36,21 @@ test('range checks and labels', () => {
   assert.equal(fmtRange(r.tPositive), '≥ 90');
 });
 
-test('T-wave criteria: 100–1000 µV in size, and at least 1/10 of R', () => {
+test('T-wave criteria: upright 100–1000 µV, and at least 1/10 of R', () => {
   const r = referenceRanges({ age: 40, sex: 'male' });
   assert.equal(checkRange(r.tAmp, 80), 'low'); // flat
   assert.equal(checkRange(r.tAmp, 1200), 'high'); // tall
-  assert.equal(checkRange(r.tAmp, Math.abs(-300)), null); // a normal-sized T pointing down is judged on its size
+  assert.equal(checkRange(r.tAmp, 300), null);
+  assert.equal(checkRange(r.tAmp, -300), 'low'); // only upright T waves are in range
   assert.equal(checkRange(r.trRatio, 0.08), 'low');
+  assert.equal(checkRange(r.trRatio, 0.1), 'low'); // ≤ 0.1: possibly flattened
   assert.equal(checkRange(r.trRatio, 0.25), null);
+  assert.equal(checkRange(r.trRatio, 0.74), null);
+  assert.equal(checkRange(r.trRatio, 0.75), 'high'); // ≥ 0.75: possibly peaked
+  assert.equal(checkRange(r.trRatio, 1.2), 'high');
+  assert.equal(r.trRatio.lowLabel, 'Possibly flattened');
+  assert.equal(r.trRatio.highLabel, 'Possibly peaked');
+  assert.equal(checkRange(r.qrs, 120), null); // other ranges keep their limits inside the normal range
   assert.equal(fmtRange(r.tAmp), '100–1000');
-  assert.equal(fmtRange(r.trRatio), '≥ 0.1');
+  assert.equal(fmtRange(r.trRatio), '0.1–0.75');
 });

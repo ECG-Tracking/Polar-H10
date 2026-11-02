@@ -5,7 +5,15 @@ import type { Settings } from './store';
 
 /** At least one bound is set. `rest` = only meaningful for resting recordings. */
 export type Range =
-  ({ lo: number; hi?: number } | { lo?: number; hi: number }) & { rest?: boolean; note?: string };
+  ({ lo: number; hi?: number } | { lo?: number; hi: number }) & {
+    rest?: boolean;
+    note?: string;
+    /** Values exactly on a limit are flagged too (warnings given as "≤ lo" / "≥ hi"). */
+    edgesFlagged?: boolean;
+    /** Flag text instead of "Below range" / "Above range". */
+    lowLabel?: string;
+    highLabel?: string;
+  };
 
 export type RangeStatus = 'low' | 'high';
 
@@ -24,7 +32,7 @@ export const SOURCES: readonly (readonly [string, string])[] = [
   ['RMSSD, SDNN', 'Nunan D. et al. A quantitative systematic review of normal values for short-term heart rate variability. PACE 2010 (RMSSD 19–75 ms, SDNN 32–93 ms). Age adjustment follows Umetani K. et al., JACC 1998.'],
   ['QRS, QTc', 'AHA/ACCF/HRS recommendations for ECG interpretation (Surawicz 2009; Rautaharju 2009): QRS ≥ 120 ms is wide; QTc ≥ 450 ms (men) / ≥ 460 ms (women) is prolonged.'],
   ['J point, ST', 'Fourth Universal Definition of Myocardial Infarction (2018) uses ≥ 100 µV elevation / ≥ 50 µV depression in standard leads; applied loosely here.'],
-  ['T wave', 'Standard ECG teaching: T waves up to about 1.0 mV (1000 µV) in the chest leads; under about 0.1 mV (100 µV) is flat; and at least about 1/8–1/10 of the R wave in the same lead. A chest strap is not a standard lead, so these are guides only.'],
+  ['T wave', 'Standard ECG teaching: T waves up to about 1.0 mV (1000 µV) in the chest leads; under about 0.1 mV (100 µV) is flat; the T-wave amplitude range applies to upright T waves, so a T wave pointing down is below it; and at least about 1/8–1/10 of the R wave in the same lead. A T/R ratio between about 0.1 and 0.75 is usual; ≤ 0.1 suggests a flattened T wave and ≥ 0.75 a possibly peaked one (shape is not assessed). A chest strap is not a standard lead, so these are guides only.'],
   ['HR recovery', 'Cole C.R. et al., NEJM 1999: a drop of 12 bpm or less in the first minute after exercise is abnormal.'],
   ['Ectopic beats', 'Healthy adults usually have under 1 % ectopic beats on long recordings; flagged beats here also include noise.'],
 ];
@@ -49,8 +57,11 @@ export function referenceRanges(settings: Pick<Settings, 'age' | 'sex'>): Refere
     qrs: { lo: 60, hi: 120 },
     qtc: { lo: 350, hi: female ? 460 : 450, note: female ? 'women' : 'men' },
     tPositive: { lo: 90, note: 'approximate' },
-    tAmp: { lo: 100, hi: 1000, note: 'size, either direction · approximate' },
-    trRatio: { lo: 0.1, note: 'T at least 1/10 of R · approximate' },
+    tAmp: { lo: 100, hi: 1000, note: 'upright T · approximate' },
+    trRatio: {
+      lo: 0.1, hi: 0.75, edgesFlagged: true, note: '≤ 0.1 flattened, ≥ 0.75 peaked · approximate',
+      lowLabel: 'Possibly flattened', highLabel: 'Possibly peaked',
+    },
     jPoint: { lo: -50, hi: 200, note: 'approximate' },
     st60: { lo: -50, hi: 200, note: 'approximate' },
     hrr60: { lo: 13 },
@@ -59,8 +70,9 @@ export function referenceRanges(settings: Pick<Settings, 'age' | 'sex'>): Refere
 
 export function checkRange(ref: Range | undefined, v: number | null | undefined): RangeStatus | null {
   if (!ref || v == null || !Number.isFinite(v)) return null;
-  if (ref.lo != null && v < ref.lo) return 'low';
-  if (ref.hi != null && v > ref.hi) return 'high';
+  const edge = ref.edgesFlagged === true;
+  if (ref.lo != null && (edge ? v <= ref.lo : v < ref.lo)) return 'low';
+  if (ref.hi != null && (edge ? v >= ref.hi : v > ref.hi)) return 'high';
   return null;
 }
 

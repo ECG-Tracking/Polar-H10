@@ -474,8 +474,9 @@ function metric(k: string, v: string, unit: string, hint = '', ref?: MetricRef |
     const status = checkRange(ref.range, ref.value);
     if (status) {
       el.classList.add('out');
-      el.appendChild(make('div', 'flag', status === 'high' ? '▲ Above range' : '▼ Below range'));
-      outliers.push({ name: k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ''}`, range: fmtRange(ref.range), status });
+      const label = status === 'high' ? ref.range.highLabel : ref.range.lowLabel;
+      el.appendChild(make('div', 'flag', `${status === 'high' ? '▲' : '▼'} ${label ?? (status === 'high' ? 'Above range' : 'Below range')}`));
+      outliers.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: ref.display ?? `${v}${unit ? ` ${unit.trim()}` : ''}`, range: fmtRange(ref.range), status });
     }
   } else if (ref) {
     el.appendChild(make('div', 'ref', ref.skipped));
@@ -547,7 +548,7 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     metric('QT', fmt(m.qt), 'ms', 'median'),
     metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
-    metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', { range: R.tAmp, value: Math.abs(m.tAmp) }),
+    metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
     metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R size, median', ref('trRatio', m.trRatio)),
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),

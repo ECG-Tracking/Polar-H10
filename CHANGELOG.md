@@ -4,6 +4,19 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – T/R ratio warnings *(GitHub)*
+| File | Change |
+|---|---|
+| `src/ranges.ts` | T/R ratio normal between 0.1 and 0.75; ≤ 0.1 flagged "Possibly flattened", ≥ 0.75 flagged "Possibly peaked" (values exactly on a limit are flagged); sources updated |
+| `src/app.ts` | Flags can carry their own wording; the outliers summary names the warning, e.g. "T/R ratio (possibly peaked)" |
+| `tests/edf-ranges.test.ts` | Checks both warnings and the exact limits |
+
+## 2 Nov 2026 – T-wave amplitude: upright only *(GitHub)*
+| File | Change |
+|---|---|
+| `src/app.ts`, `src/ranges.ts` | The 100–1000 µV range now applies to upright T waves only: a T wave pointing down is below the range and flagged (previously judged on size in either direction) |
+| `tests/edf-ranges.test.ts` | A downward T wave (−300 µV) is now expected to be flagged |
+
 ## 2 Nov 2026 – T-wave criteria and T/R ratio *(GitHub)*
 | File | Change |
 |---|---|
