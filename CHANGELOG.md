@@ -4,6 +4,13 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: second way to connect *(GitHub)*
+Why: on a Mac, Chrome found the watch but its own Bluetooth connection timed out ("SDP query timeout").
+
+| File | Change |
+|---|---|
+| `src/d2/serial.ts`, `src/d2/ui.ts` | New "Use the computer’s serial port" button: choose the port macOS made for the watch (cu.HUAWEIWATCHD2-…), which skips Chrome's own Bluetooth look-up; the log shows which port was chosen; clearer messages when a port can't be opened or the watch doesn't answer on it |
+
 ## 3 Nov 2026 – D2 Link *(GitHub)*
 Why: download sleep from a Huawei Watch D2 straight into the app, shown like Huawei Health's sleep report.
 

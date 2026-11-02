@@ -23,12 +23,26 @@ const serial = (): SerialLike | null => (navigator as unknown as { serial?: Seri
 
 export const serialAvailable = (): boolean => serial() !== null;
 
-/** Asks the user to choose the watch (it must already be paired in the computer's Bluetooth settings) and opens it. */
-export async function openWatch(): Promise<Transport> {
+/**
+ * Asks the user to choose the watch (it must already be paired in the computer's Bluetooth settings) and opens it.
+ * 'bluetooth': Chrome connects to the watch's Huawei service itself. 'system': any serial port, including the one the
+ * computer made for the watch (on a Mac /dev/cu.HUAWEIWATCHD2-…), for when Chrome's own connection times out.
+ */
+export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log: (line: string) => void = () => {}): Promise<Transport> {
   const s = serial();
   if (!s) throw new Error('This browser cannot reach classic Bluetooth. Use Chrome (version 117 or later) on a computer.');
-  const port = await s.requestPort({ filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] });
-  await port.open({ baudRate: 115200 }); // the rate is ignored for Bluetooth
+  const port = await s.requestPort(mode === 'bluetooth'
+    ? { filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] }
+    : { allowedBluetoothServiceClassIds: [D2_SERVICE] });
+  const id = port.getInfo().bluetoothServiceClassId;
+  log(`Chosen port: ${id ? `Bluetooth service ${id}` : 'a serial port of this computer'}`);
+  try {
+    await port.open({ baudRate: 115200 }); // the rate is ignored for Bluetooth
+  } catch (e) {
+    throw new Error(mode === 'bluetooth'
+      ? `Chrome could not open the watch’s connection (${e instanceof Error ? e.message : String(e)}). Try “Use the computer’s serial port” instead.`
+      : `This serial port could not be opened (${e instanceof Error ? e.message : String(e)}).`);
+  }
   const writer = port.writable?.getWriter();
   const reader = port.readable?.getReader();
   if (!writer || !reader) throw new Error('The watch connection could not be opened.');

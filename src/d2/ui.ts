@@ -175,6 +175,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome (version 117 or later) on a computer; phones, Safari and Firefox can’t connect to a Huawei Watch D2.');
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
+  const btnSystem = button('Use the computer’s serial port');
+  btnSystem.title = 'If Chrome can’t open the watch: choose the port the computer made for it (on a Mac “cu.HUAWEIWATCHD2-…”)';
   const btnDemo = button('Demo nights');
   const btnForget = button('Forget pairing');
   const days = el('select');
@@ -184,7 +186,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const daysLabel = el('label', 'd2-days', 'Download ');
   daysLabel.appendChild(days);
   const actions = el('div', 'row wrap');
-  actions.append(btnGo, daysLabel, btnDemo, btnForget);
+  actions.append(btnGo, daysLabel, btnSystem, btnDemo, btnForget);
   const progress = el('p', 'note');
   const logBox = el('details', 'd2-log');
   logBox.appendChild(el('summary', '', 'Connection log'));
@@ -219,6 +221,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const paired = store.loadPairing() != null;
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
     btnGo.disabled = busy || !serialAvailable();
+    btnSystem.disabled = busy || !serialAvailable();
     btnForget.hidden = !paired;
     btnForget.disabled = busy;
     btnDemo.disabled = busy;
@@ -242,14 +245,14 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   // ---------- download ----------
-  btnGo.addEventListener('click', () => void (async () => {
+  const download = (mode: 'bluetooth' | 'system'): void => void (async () => {
     syncButtons(true);
     progress.textContent = '';
     setStatus('Choose the watch in Chrome’s list…', 'busy');
     let link: D2Link | null = null;
     try {
-      const t = await openWatch();
-      log('Connected to the watch’s Bluetooth serial service.');
+      const t = await openWatch(mode, log);
+      log(mode === 'bluetooth' ? 'Connected to the watch’s Bluetooth serial service.' : 'Serial port opened.');
       setStatus('Connected – logging in…', 'busy');
       link = new D2Link(t, log);
       const kept = await link.connect(store.loadPairing());
@@ -269,15 +272,19 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     } catch (e) {
       const msg = e instanceof DOMException && e.name === 'NotFoundError' ? 'No watch was chosen.' : e instanceof Error ? e.message : String(e);
       log(`Stopped: ${msg}`);
-      setStatus(e instanceof WatchError || e instanceof DOMException ? msg : `Something went wrong: ${msg}`, '');
+      setStatus(msg, '');
       progress.textContent = e instanceof DOMException && e.name === 'NotFoundError'
         ? 'If the watch isn’t in the list, pair it in the computer’s Bluetooth settings first (see “Before you start”).'
-        : '';
+        : mode === 'system' && e instanceof WatchError && /first message/.test(msg)
+          ? 'The port opened but the watch didn’t answer on it: it is probably not the watch’s Huawei data channel.'
+          : '';
     } finally {
       await link?.close();
       syncButtons(false);
     }
-  })());
+  })();
+  btnGo.addEventListener('click', () => download('bluetooth'));
+  btnSystem.addEventListener('click', () => download('system'));
 
   btnForget.addEventListener('click', () => {
     if (!window.confirm('Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded nights are kept.')) return;

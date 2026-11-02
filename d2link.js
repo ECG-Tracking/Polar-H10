@@ -732,11 +732,18 @@
   var D2_SERVICE = "82ff3820-8411-400c-b85a-55bdb32cf060";
   var serial = () => navigator.serial ?? null;
   var serialAvailable = () => serial() !== null;
-  async function openWatch() {
+  async function openWatch(mode = "bluetooth", log = () => {
+  }) {
     const s = serial();
     if (!s) throw new Error("This browser cannot reach classic Bluetooth. Use Chrome (version 117 or later) on a computer.");
-    const port = await s.requestPort({ filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] });
-    await port.open({ baudRate: 115200 });
+    const port = await s.requestPort(mode === "bluetooth" ? { filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] } : { allowedBluetoothServiceClassIds: [D2_SERVICE] });
+    const id = port.getInfo().bluetoothServiceClassId;
+    log(`Chosen port: ${id ? `Bluetooth service ${id}` : "a serial port of this computer"}`);
+    try {
+      await port.open({ baudRate: 115200 });
+    } catch (e) {
+      throw new Error(mode === "bluetooth" ? `Chrome could not open the watch\u2019s connection (${e instanceof Error ? e.message : String(e)}). Try \u201CUse the computer\u2019s serial port\u201D instead.` : `This serial port could not be opened (${e instanceof Error ? e.message : String(e)}).`);
+    }
     const writer = port.writable?.getWriter();
     const reader = port.readable?.getReader();
     if (!writer || !reader) throw new Error("The watch connection could not be opened.");
@@ -1064,6 +1071,8 @@
     const noSerial = el("p", "d2-warn", "This browser can\u2019t reach the watch. Use Chrome (version 117 or later) on a computer; phones, Safari and Firefox can\u2019t connect to a Huawei Watch D2.");
     noSerial.hidden = serialAvailable();
     const btnGo = button("Pair & download sleep", "primary big");
+    const btnSystem = button("Use the computer\u2019s serial port");
+    btnSystem.title = "If Chrome can\u2019t open the watch: choose the port the computer made for it (on a Mac \u201Ccu.HUAWEIWATCHD2-\u2026\u201D)";
     const btnDemo = button("Demo nights");
     const btnForget = button("Forget pairing");
     const days = el("select");
@@ -1076,7 +1085,7 @@
     const daysLabel = el("label", "d2-days", "Download ");
     daysLabel.appendChild(days);
     const actions = el("div", "row wrap");
-    actions.append(btnGo, daysLabel, btnDemo, btnForget);
+    actions.append(btnGo, daysLabel, btnSystem, btnDemo, btnForget);
     const progress = el("p", "note");
     const logBox = el("details", "d2-log");
     logBox.appendChild(el("summary", "", "Connection log"));
@@ -1112,6 +1121,7 @@
       const paired = loadPairing() != null;
       btnGo.textContent = paired ? "Download sleep" : "Pair & download sleep";
       btnGo.disabled = busy || !serialAvailable();
+      btnSystem.disabled = busy || !serialAvailable();
       btnForget.hidden = !paired;
       btnForget.disabled = busy;
       btnDemo.disabled = busy;
@@ -1132,14 +1142,14 @@
         return li;
       }));
     }
-    btnGo.addEventListener("click", () => void (async () => {
+    const download = (mode) => void (async () => {
       syncButtons(true);
       progress.textContent = "";
       setStatus("Choose the watch in Chrome\u2019s list\u2026", "busy");
       let link = null;
       try {
-        const t = await openWatch();
-        log("Connected to the watch\u2019s Bluetooth serial service.");
+        const t = await openWatch(mode, log);
+        log(mode === "bluetooth" ? "Connected to the watch\u2019s Bluetooth serial service." : "Serial port opened.");
         setStatus("Connected \u2013 logging in\u2026", "busy");
         link = new D2Link(t, log);
         const kept = await link.connect(loadPairing());
@@ -1161,13 +1171,15 @@
       } catch (e) {
         const msg = e instanceof DOMException && e.name === "NotFoundError" ? "No watch was chosen." : e instanceof Error ? e.message : String(e);
         log(`Stopped: ${msg}`);
-        setStatus(e instanceof WatchError || e instanceof DOMException ? msg : `Something went wrong: ${msg}`, "");
-        progress.textContent = e instanceof DOMException && e.name === "NotFoundError" ? "If the watch isn\u2019t in the list, pair it in the computer\u2019s Bluetooth settings first (see \u201CBefore you start\u201D)." : "";
+        setStatus(msg, "");
+        progress.textContent = e instanceof DOMException && e.name === "NotFoundError" ? "If the watch isn\u2019t in the list, pair it in the computer\u2019s Bluetooth settings first (see \u201CBefore you start\u201D)." : mode === "system" && e instanceof WatchError && /first message/.test(msg) ? "The port opened but the watch didn\u2019t answer on it: it is probably not the watch\u2019s Huawei data channel." : "";
       } finally {
         await link?.close();
         syncButtons(false);
       }
-    })());
+    })();
+    btnGo.addEventListener("click", () => download("bluetooth"));
+    btnSystem.addEventListener("click", () => download("system"));
     btnForget.addEventListener("click", () => {
       if (!window.confirm("Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded nights are kept.")) return;
       savePairing(null);
