@@ -4,6 +4,15 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Faster publishing *(GitHub)*
+Why: checks now run before you're asked to publish, so publishing happens straight away once you agree.
+
+| File | Change |
+|---|---|
+| `scripts/stamp.mjs` | New: records a fingerprint of the files to be uploaded when the checks pass (docs excluded) |
+| `package.json` | `npm run check` saves that fingerprint when everything passes |
+| `publish.command` | Skips the checks if they already passed for exactly these files; any code change makes it check again |
+
 ## 2 Nov 2026 – About text *(GitHub)*
 | File | Change |
 |---|---|

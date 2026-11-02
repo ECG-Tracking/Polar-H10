@@ -7,7 +7,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
     "test": "node scripts/test.mjs",
-    "check": "npm run typecheck && npm run build && npm test"
+    "check": "npm run typecheck && npm run build && npm test && node scripts/stamp.mjs write"
   },
   "devDependencies": {
     "@types/node": "^18.19.39",
