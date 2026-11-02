@@ -1,5 +1,6 @@
 // Offline cache: network first for freshness, cache as fallback.
-const CACHE = 'openbeat-v10';
+// Requests ask the server whether a file changed (cache: 'no-cache'), so a new version is used as soon as it is published.
+const CACHE = 'openbeat-v11';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'app.js', 'd2link.js',
@@ -17,7 +18,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    // by URL: a page navigation's own Request can't be given new options
+    fetch(e.request.url, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));

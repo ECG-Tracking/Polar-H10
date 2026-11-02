@@ -4,6 +4,13 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – New versions load straight away *(GitHub)*
+Why: phones kept using the previous app and D2 Link for up to 10 minutes after publishing (GitHub's browser cache).
+
+| File | Change |
+|---|---|
+| `sw.js` | The offline helper asks the server whether each file changed before using a saved copy (unchanged files aren't downloaded again); offline cache v11 |
+
 ## 3 Nov 2026 – D2 Link: tolerant login reading *(GitHub)*
 Why: the watch's first login reply (805 bytes in field 0x01) was not accepted as JSON by the browser.
 
