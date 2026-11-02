@@ -174,8 +174,8 @@ export class D2Link {
   private async hiChain(op: 1 | 2, selfId: Uint8Array, key: Uint8Array): Promise<{ authToken: Uint8Array | null; sessionKey: Uint8Array; randSelf: Uint8Array; randPeer: Uint8Array }> {
     const requestId = Date.now();
     const seed = randomBytes(32), randSelf = randomBytes(16);
-    const send = async (step: number, payload: Record<string, unknown>, value: Record<string, unknown> = {}): Promise<Tlv> => {
-      const json = hiChainJson(op, step, requestId, selfId, payload, value);
+    const send = async (step: number, payload: Record<string, unknown>, value: Record<string, unknown> = {}, messageStep = step): Promise<Tlv> => {
+      const json = hiChainJson(op, messageStep, requestId, selfId, payload, value);
       const tlv = new Tlv().putString(0x01, json).putByte(0x02, op).put(0x03, u64(requestId));
       const wait = op === 1 && step === 1 ? 60000 : 10000;
       return this.request({ service: DEVICE_CONFIG, command: 0x28, tlv, encrypt: false }, wait, `login step ${step}`);
@@ -210,7 +210,8 @@ export class D2Link {
     // step 4: confirm the result
     const nonce = randomBytes(12);
     const encResult = await aesGcmEncrypt(ZERO4, sessionKey, nonce, utf8('hichain_iso_result'));
-    const r4 = await send(4, { nonce: hex(nonce), encResult: hex(encResult), operationCode: op });
+    // when logging in (operation 2) step 3 is skipped, but the message keeps step 3's number (0x13), as in Gadgetbridge
+    const r4 = await send(4, { nonce: hex(nonce), encResult: hex(encResult), operationCode: op }, {}, op === 2 ? 3 : 4);
     if (r4.has(0x04) && r4.byte(0x04) === 0) {
       const p = hiChainPayload(r4);
       if (typeof p['errorCode'] === 'number' && p['errorCode'] !== 0) throw new WatchError(`The watch ended the login with error ${p['errorCode']}.`);

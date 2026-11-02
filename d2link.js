@@ -570,8 +570,8 @@
     async hiChain(op, selfId, key) {
       const requestId = Date.now();
       const seed = randomBytes(32), randSelf = randomBytes(16);
-      const send = async (step, payload, value = {}) => {
-        const json = hiChainJson(op, step, requestId, selfId, payload, value);
+      const send = async (step, payload, value = {}, messageStep = step) => {
+        const json = hiChainJson(op, messageStep, requestId, selfId, payload, value);
         const tlv = new Tlv().putString(1, json).putByte(2, op).put(3, u64(requestId));
         const wait = op === 1 && step === 1 ? 6e4 : 1e4;
         return this.request({ service: DEVICE_CONFIG, command: 40, tlv, encrypt: false }, wait, `login step ${step}`);
@@ -598,7 +598,7 @@
       }
       const nonce = randomBytes(12);
       const encResult = await aesGcmEncrypt(ZERO4, sessionKey, nonce, utf8("hichain_iso_result"));
-      const r4 = await send(4, { nonce: hex(nonce), encResult: hex(encResult), operationCode: op });
+      const r4 = await send(4, { nonce: hex(nonce), encResult: hex(encResult), operationCode: op }, {}, op === 2 ? 3 : 4);
       if (r4.has(4) && r4.byte(4) === 0) {
         const p = hiChainPayload(r4);
         if (typeof p["errorCode"] === "number" && p["errorCode"] !== 0) throw new WatchError(`The watch ended the login with error ${p["errorCode"]}.`);

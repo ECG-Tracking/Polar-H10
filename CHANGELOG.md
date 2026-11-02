@@ -4,6 +4,14 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: last login message number *(GitHub)*
+Why: with a saved pairing the watch didn't answer the last login message.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | When logging in, the last message is numbered 0x13 (step 3's number, since step 3 is skipped), as Gadgetbridge does, instead of 0x14 |
+| `tests/d2fake.ts`, `tests/d2.test.ts` | The fake watch now ignores messages with the wrong number, like a real watch; tests check the numbers for pairing (1–4) and logging in (0x11–0x13) |
+
 ## 3 Nov 2026 – D2 Link: login step after pairing *(GitHub)*
 Why: the watch accepted the pairing, then D2 Link wrongly took the next (classic) login reply for Huawei's newer "PAKE" login.
 

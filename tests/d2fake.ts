@@ -82,9 +82,14 @@ export class FakeWatch {
   }
 
   private async hiChain(t: Tlv): Promise<void> {
-    const v = JSON.parse(t.string(1)) as { payload: Record<string, unknown> };
+    const v = JSON.parse(t.string(1)) as { payload: Record<string, unknown>; message: number };
     const pl = v.payload;
     const op = t.byte(2);
+    // the numbers a real watch expects (Gadgetbridge): pairing 1, 2, 3, 4; logging in 0x11, 0x12, then 0x13 for the last message
+    const step = typeof pl['seed'] === 'string' ? 1 : typeof pl['token'] === 'string' ? 2 : typeof pl['encData'] === 'string' ? 3 : 4;
+    const expected = op === 2 ? 0x10 | Math.min(step, 3) : step;
+    this.log.push(`hichain op ${op} message 0x${v.message.toString(16)}`);
+    if (v.message !== expected) return; // a real watch doesn't answer a message with the wrong number
     const msg = (payload: Record<string, unknown>): Promise<void> => this.reply(1, 0x28, new Tlv().putString(1, JSON.stringify({ payload })).putByte(4, 0), false);
     if (typeof pl['seed'] === 'string') { // step 1
       const key = op === 1 ? await sha256(utf8(hex(this.pin))) : this.authToken;

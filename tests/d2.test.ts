@@ -124,6 +124,8 @@ for (const deviceSupportType of [4, 3]) {
     const w2 = new FakeWatch({ deviceSupportType, sleepFile: file, ...(w.authToken ? { knownToken: w.authToken } : {}) });
     const again = await connectFake(w2, first.kept);
     assert.ok(!w2.log.includes('1:44'), 'no pairing code requested');
+    assert.deepEqual(w2.log.filter((l) => l.startsWith('hichain')), ['hichain op 2 message 0x11', 'hichain op 2 message 0x12', 'hichain op 2 message 0x13']);
+    assert.deepEqual(w.log.filter((l) => l.startsWith('hichain op 1')), ['hichain op 1 message 0x1', 'hichain op 1 message 0x2', 'hichain op 1 message 0x3', 'hichain op 1 message 0x4']);
     assert.equal(again.kept.authId, first.kept.authId);
     assert.equal(parseSleepFile(await again.link.downloadSleep(0, bed + 86400))[0]?.summary.sleepScore, 82);
   });
