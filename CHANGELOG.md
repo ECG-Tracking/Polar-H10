@@ -4,6 +4,17 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Reference ranges and copyright (not yet published)
+| File | Change |
+|---|---|
+| `js/ranges.js` | New: reference ranges for HR, HRV (age-adjusted), pNN50/200, events, QRS, QTc (by sex), T waves, J point, ST, R amplitude, HR recovery, with published sources |
+| `js/app.js` | Each report value shows its range; values outside it get a "▲ Above / ▼ Below range" flag; outliers summary at the top of the report; resting ranges skipped for exercise recordings; ranges and outliers included in the JSON export; copyright year |
+| `index.html` | Outliers box, "About the reference ranges" panel with sources; copyright line in the footer of every screen; "free and open" → "free to use" |
+| `styles.css` | Styling for range lines, flags, outliers box, sources panel and copyright |
+| `js/sim.js` | Demo signal works for long requests (used in testing) |
+| `sw.js` | Offline cache v4, includes `js/ranges.js` |
+| `README.md` | Copyright line |
+
 ## 2 Nov 2026 – Moved to the ecg-tracking account (not yet published)
 - App uploaded to github.com/ecg-tracking/Polar-H10 through the browser; live at https://ecg-tracking.github.io/Polar-H10/
 - `publish.command` now uploads to this new repository (user `ecg-tracking`)

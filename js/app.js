@@ -4,6 +4,7 @@ import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS } from './ds
 import { Plot, LiveTrace, EcgViewer, fmtTime } from './charts.js';
 import { writeEdf, readEdf } from './edf.js';
 import * as store from './store.js';
+import { referenceRanges, checkRange, fmtRange, SOURCES } from './ranges.js';
 
 const $ = (id) => document.getElementById(id);
 const FS = ECG_FS;
@@ -367,7 +368,10 @@ $('zoomIn').addEventListener('click', () => viewer.zoom(1 / 1.5));
 $('zoomOut').addEventListener('click', () => viewer.zoom(1.5));
 
 const fmt = (v, d = 0) => (v == null || !Number.isFinite(v) ? '--' : v.toFixed(d));
-function metric(k, v, unit, hint) {
+let outliers = [];
+
+/** ref: { range, value } from referenceRanges(); a value outside it is flagged and listed in the summary. */
+function metric(k, v, unit, hint, ref) {
   const el = document.createElement('div');
   el.className = 'metric';
   el.innerHTML = '<div class="k"></div><div class="v"></div><div class="h"></div>';
@@ -375,6 +379,27 @@ function metric(k, v, unit, hint) {
   el.children[1].textContent = v;
   if (unit && v !== '--') { const s = document.createElement('small'); s.textContent = unit; el.children[1].appendChild(s); }
   el.children[2].textContent = hint || '';
+  if (ref?.range) {
+    const r = document.createElement('div');
+    r.className = 'ref';
+    const refUnit = ref.display ? '%' : unit.trim();
+    r.textContent = `Ref ${fmtRange(ref.range)}${refUnit ? ` ${refUnit}` : ''}${ref.range.note ? ` · ${ref.range.note}` : ''}`;
+    el.appendChild(r);
+    const status = checkRange(ref.range, ref.value);
+    if (status) {
+      el.classList.add('out');
+      const f = document.createElement('div');
+      f.className = 'flag';
+      f.textContent = status === 'high' ? '▲ Above range' : '▼ Below range';
+      el.appendChild(f);
+      outliers.push({ name: k, value: ref.display || `${v}${unit ? ` ${unit.trim()}` : ''}`, range: fmtRange(ref.range), status });
+    }
+  } else if (ref?.skipped) {
+    const r = document.createElement('div');
+    r.className = 'ref';
+    r.textContent = ref.skipped;
+    el.appendChild(r);
+  }
   return el;
 }
 
@@ -418,33 +443,68 @@ function renderReport() {
   ].filter(Boolean).join(' · ');
 
   const qtcName = settings.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
+  const R = referenceRanges(settings);
+  // resting norms don't apply when much of the recording was exercise (above 60 % of max HR)
+  const timed = m.zones.reduce((a, b) => a + b, 0) || 1;
+  const exercise = (m.zones[2] + m.zones[3] + m.zones[4] + m.zones[5]) / timed > 0.3;
+  const ref = (key, value) => (exercise && R[key].rest
+    ? { skipped: 'Resting range not applied (exercise)' }
+    : { range: R[key], value });
+  outliers = [];
   $('mRhythm').replaceChildren(
-    metric('Mean heart rate', fmt(m.meanHR), 'bpm', 'from normal beats'),
-    metric('HRV score', fmt(m.hrvScore), '', '15 × ln(RMSSD)'),
-    metric('RMSSD', fmt(m.rmssd), 'ms'),
-    metric('SDNN', fmt(m.sdnn), 'ms'),
-    metric('pNN50', fmt(m.pnn50, 1), '%', 'successive Δ > 50 ms'),
-    metric('pNN200', fmt(m.pnn200, 1), '%', 'successive Δ > 200 ms'),
+    metric('Mean heart rate', fmt(m.meanHR), 'bpm', 'from normal beats', ref('meanHR', m.meanHR)),
+    metric('HRV score', fmt(m.hrvScore), '', '15 × ln(RMSSD)', ref('hrvScore', m.hrvScore)),
+    metric('RMSSD', fmt(m.rmssd), 'ms', '', ref('rmssd', m.rmssd)),
+    metric('SDNN', fmt(m.sdnn), 'ms', '', ref('sdnn', m.sdnn)),
+    metric('pNN50', fmt(m.pnn50, 1), '%', 'successive Δ > 50 ms', ref('pnn50', m.pnn50)),
+    metric('pNN200', fmt(m.pnn200, 1), '%', 'successive Δ > 200 ms', ref('pnn200', m.pnn200)),
     metric('Poincaré SD1 / SD2', `${fmt(m.sd1)} / ${fmt(m.sd2)}`, 'ms'),
-    metric('Events', String(m.eventCount), '', `${fmt(m.eventPct, 1)} % of beats`),
+    metric('Events', String(m.eventCount), '', `${fmt(m.eventPct, 1)} % of beats`, { range: { ...R.eventPct, note: 'of beats' }, value: m.eventPct, display: `${fmt(m.eventPct, 1)} % of beats` }),
   );
   $('mWaves').replaceChildren(
-    metric('QRS duration', fmt(m.qrs), 'ms', 'median'),
+    metric('QRS duration', fmt(m.qrs), 'ms', 'median', ref('qrs', m.qrs)),
     metric('QT', fmt(m.qt), 'ms', 'median'),
-    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`),
-    metric('T wave positive', fmt(m.tPositive), '%'),
-    metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline'),
-    metric('ST at J+60 ms', fmt(m.st60), 'µV'),
-    metric('R amplitude', fmt(m.rAmp), 'µV'),
-    metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise'),
+    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
+    metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
+    metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
+    metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
+    metric('R amplitude', fmt(m.rAmp), 'µV', '', ref('rAmp', m.rAmp)),
+    metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
   );
   const maxSeen = Math.max(0, ...m.hr.filter((v) => v != null));
   $('mTraining').replaceChildren(
     metric('Effort (TRIMP)', fmt(m.trimp, 1), '', 'Banister, uses rest/max HR'),
     metric('HR recovery (60 s)', m.recovery ? fmt(m.recovery.hrr60) : '--', 'bpm',
-      m.recovery ? `${fmt(m.recovery.peak)} → ${fmt(m.recovery.after60)} bpm` : 'needs ≥1 min above 90 % of max HR'),
+      m.recovery ? `${fmt(m.recovery.peak)} → ${fmt(m.recovery.after60)} bpm` : 'needs ≥1 min above 90 % of max HR',
+      m.recovery ? ref('hrr60', m.recovery.hrr60) : null),
     metric('Highest HR', maxSeen ? fmt(maxSeen) : '--', 'bpm', `max HR setting ${settings.hrMax}`),
   );
+
+  // outliers summary at the top of the report
+  const box = $('reportFlags');
+  box.replaceChildren();
+  box.className = `flags ${outliers.length ? 'has' : 'none'}`;
+  const head = document.createElement('div');
+  head.className = 'flags-head';
+  head.textContent = outliers.length
+    ? `${outliers.length} value${outliers.length > 1 ? 's' : ''} outside the reference range`
+    : '✓ All values within reference ranges';
+  box.appendChild(head);
+  for (const o of outliers) {
+    const row = document.createElement('div');
+    row.className = 'flags-row';
+    row.innerHTML = '<span></span><span></span><span></span>';
+    row.children[0].textContent = `${o.status === 'high' ? '▲' : '▼'} ${o.name}`;
+    row.children[1].textContent = o.value;
+    row.children[2].textContent = `ref ${o.range}`;
+    box.appendChild(row);
+  }
+  if (exercise) {
+    const n = document.createElement('div');
+    n.className = 'flags-note';
+    n.textContent = 'Exercise recording: resting ranges for heart rate and HRV are not applied.';
+    box.appendChild(n);
+  }
 
   const zoneNames = ['Below 50 %', 'Z1 50–60 %', 'Z2 60–70 %', 'Z3 70–80 %', 'Z4 80–90 %', 'Z5 90–100 %'];
   const totalZ = m.zones.reduce((a, b) => a + b, 0) || 1;
@@ -570,7 +630,7 @@ $('btnExportCsv').addEventListener('click', () => {
 });
 $('btnExportJson').addEventListener('click', () => {
   const { session, metrics, events } = current;
-  const out = { app: 'OpenBeat ECG', session: { ...session, summary: undefined }, settings, metrics, events };
+  const out = { app: 'OpenBeat ECG', session: { ...session, summary: undefined }, settings, metrics, referenceRanges: referenceRanges(settings), outliers, events };
   download(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `${fileStem()}_report.json`);
 });
 
@@ -597,7 +657,19 @@ form.addEventListener('change', (e) => {
 });
 fillSettings();
 
+// ---------- Reference sources ----------
+
+$('refSources').replaceChildren(...SOURCES.map(([what, text]) => {
+  const li = document.createElement('li');
+  const b = document.createElement('b');
+  b.textContent = `${what}: `;
+  li.append(b, text);
+  return li;
+}));
+
 // ---------- Startup ----------
+
+$('copyYear').textContent = String(Math.max(2026, new Date().getFullYear()));
 
 if (!bluetoothAvailable() || !window.isSecureContext) {
   $('btnConnect').disabled = true;

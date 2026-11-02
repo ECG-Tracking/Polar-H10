@@ -1,6 +1,6 @@
 # OpenBeat ECG
 
-Free, open ECG recording and analysis for the **Polar H10** chest strap. It is an installable web app (PWA) that runs on desktop and mobile with no account, no usage limit and no upload: recordings stay in the browser's storage on your device.
+Free ECG recording and analysis for the **Polar H10** chest strap. It is an installable web app (PWA) that runs on desktop and mobile with no account, no usage limit and no upload: recordings stay in the browser's storage on your device.
 
 > Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong.
 
@@ -47,3 +47,6 @@ The live tiles re-analyse the last 60 s every second. Reports re-analyse the who
 - Analysis runs on the main thread. A 4 h report takes a few seconds to open.
 - Delineation at 130 Hz has ~8 ms resolution. Use QRS/QT as trends, not clinical values.
 - Detection is tuned for normal sinus rhythm. Atrial fibrillation or paced rhythms are not classified.
+
+---
+© 2026 ECG-Tracking. All rights reserved.

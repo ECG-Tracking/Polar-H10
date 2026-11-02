@@ -90,6 +90,7 @@
       <div id="reportBody">
         <h2 id="reportTitle"></h2>
         <p class="muted" id="reportMeta"></p>
+        <div id="reportFlags" class="flags" role="status"></div>
 
         <h3>Rhythm and HRV</h3>
         <div class="metrics" id="mRhythm"></div>
@@ -120,6 +121,12 @@
 
         <h3>Events <span class="muted" id="eventCount"></span></h3>
         <ul class="events" id="eventList"></ul>
+
+        <details class="card sources">
+          <summary>About the reference ranges</summary>
+          <p class="muted">Ranges are typical values for healthy adults from published guidelines. A chest strap is a single, non-standard ECG lead, so values outside a range are a prompt to look closer, not a diagnosis. Heart-rate and HRV ranges apply to resting recordings only and adjust to the age and sex in Settings.</p>
+          <ul id="refSources"></ul>
+        </details>
       </div>
     </section>
 
@@ -156,13 +163,16 @@
       </form>
       <div class="card">
         <h3>About</h3>
-        <p>OpenBeat ECG is free and open. Recordings stay on this device (browser storage); nothing is uploaded.</p>
+        <p>OpenBeat ECG is free to use. Recordings stay on this device (browser storage); nothing is uploaded.</p>
         <p class="muted">Requires a browser with Web Bluetooth: Chrome or Edge on Windows, macOS, Linux, ChromeOS or Android. On iPhone/iPad use the Bluefy browser. Demo modes work everywhere.</p>
       </div>
     </section>
   </main>
 
-  <footer class="disclaimer">Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</footer>
+  <footer class="disclaimer">
+    <p>Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</p>
+    <p class="copyright">© <span id="copyYear">2026</span> ECG-Tracking. All rights reserved.</p>
+  </footer>
 
   <script type="module" src="js/app.js"></script>
 </body>

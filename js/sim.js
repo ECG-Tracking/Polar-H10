@@ -96,8 +96,11 @@ export class EcgSimulator {
   /** Next `count` samples as Int32Array (µV). */
   next(count) {
     const out = new Int32Array(count);
-    this._scheduleBeats((this.n + count) / this.fs + 1);
-    for (let i = 0; i < count; i++, this.n++) out[i] = this._sampleAt(this.n / this.fs);
+    for (let i = 0; i < count; i++, this.n++) {
+      // schedule one second at a time; old beats are pruned, so a long request must not schedule far ahead
+      if (i % this.fs === 0) this._scheduleBeats((this.n + this.fs) / this.fs + 1);
+      out[i] = this._sampleAt(this.n / this.fs);
+    }
     return out;
   }
 
