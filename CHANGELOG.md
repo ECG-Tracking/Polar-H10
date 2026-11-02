@@ -4,6 +4,11 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Private notes excluded *(GitHub)*
+| File | Change |
+|---|---|
+| `.gitignore` | Word documents (`*.docx`) and Word's temporary `~$` files are never uploaded; PUBLISHING-INSTRUCTIONS.md stays on this Mac |
+
 ## 2 Nov 2026 – Supabase permissions *(GitHub)*
 | File | Change |
 |---|---|

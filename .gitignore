@@ -7,3 +7,7 @@ openbeat-ecg/
 openbeat-ecg-update/
 GitHub uploads/
 node_modules/
+PUBLISHING-INSTRUCTIONS.md
+# private notes (Word documents and the temporary copies Word makes while one is open)
+*.docx
+~$*
