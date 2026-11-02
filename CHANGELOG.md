@@ -4,6 +4,18 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: naps, score explanation, Week and Month *(GitHub)*
+Why: 50 synced records (30 nights, 20 naps) showed how the watch's results fit together.
+
+| File | Change |
+|---|---|
+| `src/d2/night.ts` (new) | Night figures moved here; naps (stage 5, no score) recognised and dated by their day |
+| `src/d2/score.ts` (new) | Estimate of the watch's sleep score: starting point + duration (hours up to 8; beyond 8 counts against) + sleep efficiency + deep sleep %; fitted to the user's own scored nights once there are 10 (on the 30 nights so far: within 1.1 points on average) |
+| `src/d2/trends.ts`, `src/d2/trendsui.ts` (new) | Week and Month views: averages (score, night sleep with bed/wake times, deep %, heart rate, HRV), night sleep per day stacked deep/light/REM (tap a bar to open the night), trend lines for score, deep sleep, heart rate and HRV; Month adds a weekly averages table. Naps are left out |
+| `src/d2/ui.ts`, `src/d2/dom.ts` (new) | Nights / Week / Month tabs; naps kept out of the night list and shown as "Naps that day" in the night's report (naps on a day without a night get their own row); new "What made your score" card; durations under an hour shown in minutes; clearer message when sync can't reach the internet |
+| `styles.css` | Styles for the above |
+| `tests/d2.test.ts` | New tests for naps, the score fit and the week/month calculations |
+
 ## 3 Nov 2026 – D2 Link: export all nights *(GitHub)*
 | File | Change |
 |---|---|

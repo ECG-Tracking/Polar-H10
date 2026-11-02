@@ -7,8 +7,13 @@ import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
+import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
+import { dayKey, figures, isNap } from './night';
+import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import * as store from './store';
 import type { D2Night } from './store';
+import { addDays, dateOf } from './trends';
+import { renderTrends, type Period } from './trendsui';
 
 export interface D2Deps {
   /** Signed-in account id: nights and the pairing are kept per account. */
@@ -19,75 +24,11 @@ export interface D2Deps {
   cloud: CloudClient | null;
 }
 
-// ---------- small DOM helpers ----------
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', text?: string): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text != null) e.textContent = text;
-  return e;
-}
-const SVG = 'http://www.w3.org/2000/svg';
-function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>, title?: string): SVGElementTagNameMap[K] {
-  const e = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-  if (title) { const t = document.createElementNS(SVG, 'title'); t.textContent = title; e.appendChild(t); }
-  return e;
-}
-function button(text: string, cls = ''): HTMLButtonElement { const b = el('button', cls, text); b.type = 'button'; return b; }
-
-const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-const shortDate = (ms: number): string => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}`; };
-const dayLabel = (ms: number): string => new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-const hm = (min: number): string => `${Math.floor(min / 60)} h ${Math.round(min % 60)} min`;
-
 // ---------- what a night shows ----------
 
 export const STAGE_NAME: Readonly<Record<number, string>> = { 1: 'Light sleep', 2: 'REM sleep', 3: 'Deep sleep', 4: 'Awake', 5: 'Nap' };
 const STAGE_VAR: Readonly<Record<number, string>> = { 1: 'var(--stage-light)', 2: 'var(--stage-rem)', 3: 'var(--stage-deep)', 4: 'var(--stage-awake)', 5: 'var(--stage-light)' };
 const STAGE_ROW: Readonly<Record<number, number>> = { 4: 0, 2: 1, 1: 2, 5: 2, 3: 3 }; // awake on top, deep at the bottom
-
-export interface NightFigures {
-  deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number;
-  /** Huawei Health's "Bed time": when sleep started (the watch's fallAsleepTime). */
-  bedMs: number;
-  /** When you woke up (wakeupTime). */
-  wokeMs: number;
-  wakeups: number | null;
-  /** Lying in bed, from the watch: bedTime to risingTime. */
-  inBedFromMs: number; inBedToMs: number;
-  /** The stages Huawei Health shows: from falling asleep to waking up. */
-  shown: { start: number; stages: number[] };
-}
-
-/** Awake spells between sleep (not before falling asleep or after the last sleep), from the stage list. */
-export function countWakeups(stages: readonly number[]): number {
-  const asleep = (c: number | undefined): boolean => c === 1 || c === 2 || c === 3 || c === 5;
-  const first = stages.findIndex(asleep);
-  let last = -1;
-  for (let i = stages.length - 1; i >= 0; i--) if (asleep(stages[i])) { last = i; break; }
-  let n = 0;
-  for (let i = first + 1; first >= 0 && i <= last; i++) if (stages[i] === 4 && stages[i - 1] !== 4) n++;
-  return n;
-}
-
-export function figures(n: D2Night): NightFigures {
-  const s = n.summary;
-  const endMs = n.start + n.stages.length * 60000;
-  const at = (sec: number | null, fallback: number): number => (sec != null ? Math.min(endMs, Math.max(n.start, sec * 1000)) : fallback);
-  // Huawei Health shows the night from falling asleep to waking up; the watch records from lying down to getting up
-  const bedMs = at(s.fallAsleepTime, n.start), wokeMs = at(s.wakeupTime, endMs);
-  const from = Math.round((bedMs - n.start) / 60000), to = Math.max(from, Math.round((wokeMs - n.start) / 60000));
-  const shown = { start: n.start + from * 60000, stages: n.stages.slice(from, to) };
-  const count = (c: number): number => shown.stages.filter((x) => x === c).length;
-  const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
-  // the watch's own count when it sends one, otherwise counted from the stages (as Huawei Health shows it)
-  const wakeups = s.wakeCount ?? (shown.stages.length ? countWakeups(shown.stages) : null);
-  return {
-    deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups,
-    inBedFromMs: at(s.bedTime, n.start), inBedToMs: at(s.risingTime, endMs), shown,
-  };
-}
 
 type Verdict = { text: string; kind: 'normal' | 'high' | 'low' | 'personal' } | null;
 
@@ -252,7 +193,18 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   syncRow.append(syncText, syncButtons2);
   const list = el('ul', 'sessions');
   const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
-  home.append(title, card, help, listHead, syncRow, empty, list);
+  // Nights / Week / Month, like Huawei Health's Day / Week / Month
+  const tabs = el('div', 'd2-tabs');
+  tabs.setAttribute('role', 'tablist');
+  const tabBtns = (['nights', 'week', 'month'] as const).map((v) => {
+    const b = button(v === 'nights' ? 'Nights' : v === 'week' ? 'Week' : 'Month');
+    b.setAttribute('role', 'tab');
+    b.dataset['view'] = v;
+    tabs.appendChild(b);
+    return b;
+  });
+  const trendsBox = el('div', 'd2-trends');
+  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -270,20 +222,69 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     help.open = !paired;
   };
 
-  let nights: D2Night[] = [];
+  let nights: D2Night[] = []; // night sleeps, newest first
+  let napsByDay = new Map<string, D2Night[]>(); // daytime naps, by the day they belong to
+  let model: ScoreModel = fitScoreModel([]);
   async function renderList(): Promise<void> {
     userTag.textContent = `· ${deps.userLabel()}`;
-    nights = await store.listNights(deps.user());
-    empty.hidden = nights.length > 0;
-    list.replaceChildren(...nights.map((n) => {
+    const all = await store.listNights(deps.user());
+    nights = all.filter((n) => !isNap(n));
+    model = fitScoreModel(nights.filter((n) => n.source !== 'demo'));
+    napsByDay = new Map();
+    for (const n of all.filter(isNap).sort((a, b) => a.start - b.start)) {
+      const k = dayKey(n);
+      napsByDay.set(k, [...(napsByDay.get(k) ?? []), n]);
+    }
+    empty.hidden = all.length > 0;
+    const nightDays = new Set(nights.map(dayKey));
+    const rows: { ms: number; li: HTMLLIElement }[] = nights.map((n) => {
       const f = figures(n);
+      const naps = napsByDay.get(dayKey(n)) ?? [];
       const li = el('li');
       const left = el('div');
-      left.append(el('div', 'when', `Night of ${dayLabel(f.wokeMs)}`), el('div', 'stats', `${clock(f.bedMs)}–${clock(f.wokeMs)} · ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : 'no score'}${n.source === 'demo' ? ' · demo' : ''}`));
+      left.append(el('div', 'when', `Night of ${dayLabel(f.wokeMs)}`), el('div', 'stats', `${clock(f.bedMs)}–${clock(f.wokeMs)} · ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : 'no score'}${naps.length ? ` · + ${naps.length} nap${naps.length > 1 ? 's' : ''}` : ''}${n.source === 'demo' ? ' · demo' : ''}`));
       li.append(left, el('div', 'dur', f.sleepMin ? hm(f.sleepMin) : '--'));
       li.addEventListener('click', () => openReport(n.id));
-      return li;
-    }));
+      return { ms: f.wokeMs, li };
+    });
+    // naps on a day without a night sleep: listed on their own
+    for (const [k, naps] of napsByDay) {
+      if (nightDays.has(k) || !naps[0]) continue;
+      const li = el('li', 'd2-naps-only');
+      const left = el('div');
+      left.append(el('div', 'when', `Naps on ${dayLabel(figures(naps[0]).wokeMs)}`), el('div', 'stats', naps.map(napText).join(' · ')));
+      li.append(left, el('div', 'dur', hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))));
+      rows.push({ ms: figures(naps[0]).wokeMs, li });
+    }
+    list.replaceChildren(...rows.sort((a, b) => b.ms - a.ms).map((r) => r.li));
+    showView();
+  }
+
+  // ---------- Nights / Week / Month ----------
+  let view: 'nights' | Period = 'nights';
+  let anchor = new Date();
+  function showView(): void {
+    for (const b of tabBtns) b.setAttribute('aria-selected', String(b.dataset['view'] === view));
+    list.hidden = view !== 'nights';
+    empty.hidden = view !== 'nights' || nights.length > 0 || napsByDay.size > 0;
+    trendsBox.hidden = view === 'nights';
+    if (view === 'nights') return;
+    const period = view;
+    renderTrends(trendsBox, nights, period, anchor, {
+      prev: () => { anchor = period === 'week' ? addDays(anchor, -7) : new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1); showView(); },
+      next: () => { anchor = period === 'week' ? addDays(anchor, 7) : new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1); showView(); },
+      open: (day) => { const n = nights.find((x) => dayKey(x) === day); if (n) openReport(n.id); },
+    });
+  }
+  for (const b of tabBtns) {
+    b.addEventListener('click', () => {
+      const v = b.dataset['view'];
+      if (v !== 'nights' && v !== 'week' && v !== 'month') return;
+      view = v;
+      const latest = nights[0];
+      anchor = latest ? dateOf(dayKey(latest)) : new Date(); // start at the most recent night
+      showView();
+    });
   }
 
   // ---------- cloud sync: nights downloaded on one device appear on the others ----------
@@ -304,7 +305,10 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
         syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Nights are shared with your other devices; demo nights stay here.`;
         if (r.downloaded || r.deleted) await renderList();
       } catch (e) {
-        syncText.textContent = e instanceof CloudSetupError ? e.message : `Sync failed: ${e instanceof Error ? e.message : String(e)}`;
+        const msg = e instanceof Error ? e.message : String(e);
+        syncText.textContent = e instanceof CloudSetupError ? e.message
+          : /failed to fetch|network|load failed/i.test(msg) ? 'Can’t reach the cloud (no internet?). Nights stay on this device; tap Sync now to try again.'
+          : `Sync failed: ${msg}`;
       } finally {
         btnSync.disabled = false;
         syncing = null;
@@ -384,7 +388,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const i = nights.findIndex((n) => n.id === id);
     const n = nights[i];
     if (!n) return;
-    renderReport(report, n, nights, {
+    renderReport(report, n, nights, napsByDay.get(dayKey(n)) ?? [], model, {
       back: () => { report.hidden = true; home.hidden = false; window.scrollTo(0, 0); },
       older: nights[i + 1] ? () => openReport(nights[i + 1]!.id) : null,
       newer: i > 0 ? () => openReport(nights[i - 1]!.id) : null,
@@ -408,7 +412,48 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
 
-function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], act: ReportActions): void {
+const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
+
+/** "What made your score": the estimate's parts for this night. */
+function scoreCardFor(n: D2Night, model: ScoreModel): HTMLElement | null {
+  const e = explainScore(n, model);
+  if (!e) return null;
+  const card = el('div', 'card d2-why');
+  card.appendChild(el('h3', '', 'What made your score'));
+  const x = e.inputs;
+  const pts = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(Math.round(v))}`;
+  const parts: { name: string; detail: string; value: number; color: string }[] = [
+    { name: 'Sleep duration', detail: `${hm(x.hours * 60)}${x.hours > CEILING_H ? ` (more than ${CEILING_H} h lowers it)` : ''}`, value: e.duration, color: 'var(--stage-deep)' },
+    { name: 'Sleep efficiency', detail: `${Math.round(x.efficiency)}% of time in bed asleep`, value: e.efficiency, color: 'var(--stage-light)' },
+    { name: 'Deep sleep', detail: `${Math.round(x.deepPct)}% of sleep`, value: e.deep, color: 'var(--stage-rem)' },
+  ];
+  const summary = el('p', 'd2-why-sum', `Starting point ${Math.round(e.base)} · ${parts.map((p) => `${p.name.toLowerCase().replace('sleep ', '')} ${pts(p.value)}`).join(' · ')} = ${Math.round(e.estimate)}${e.actual != null ? ` (watch: ${e.actual})` : ''}`);
+  card.appendChild(summary);
+  // one bar: the share of the estimate each part makes up
+  const bar = el('div', 'd2-why-bar');
+  bar.setAttribute('role', 'img');
+  bar.setAttribute('aria-label', summary.textContent ?? '');
+  const total = Math.max(1, e.base + parts.reduce((s, p) => s + Math.max(0, p.value), 0));
+  const seg = (w: number, color: string, title: string): void => {
+    const d = el('span'); d.style.width = `${(100 * Math.max(0, w)) / total}%`; d.style.background = color; d.title = title; bar.appendChild(d);
+  };
+  seg(e.base, 'var(--line)', `Starting point ${Math.round(e.base)}`);
+  for (const p of parts) seg(p.value, p.color, `${p.name} ${pts(p.value)}`);
+  card.appendChild(bar);
+  for (const p of parts) {
+    const r = el('div', 'row between d2-more-row');
+    const name = el('span'); const sw = el('i'); sw.style.background = p.color; name.append(sw, document.createTextNode(`${p.name} · `), el('span', 'muted', p.detail));
+    r.append(name, el('b', '', `${pts(p.value)} points`));
+    card.appendChild(r);
+  }
+  card.appendChild(el('p', 'note', `Each hour of sleep up to ${CEILING_H} h adds about ${model.perHour.toFixed(1)} points; each 10% of efficiency about ${(10 * model.perEfficiency).toFixed(1)}; each 10% of deep sleep about ${(10 * model.perDeep).toFixed(1)}.`));
+  card.appendChild(el('p', 'note', model.fittedOn
+    ? `Our estimate of how the watch scores sleep, fitted to your ${model.fittedOn} scored nights (typically within ${model.rmse != null ? model.rmse.toFixed(1) : '?'} points of the watch). Huawei doesn't publish its formula.`
+    : `Our starting estimate of how the watch scores sleep (fitted to 30 nights of a Watch D2); it is fitted to your own nights once you have ${MIN_NIGHTS_TO_FIT}. Huawei doesn't publish its formula.`));
+  return card;
+}
+
+function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Night[], model: ScoreModel, act: ReportActions): void {
   box.replaceChildren();
   const f = figures(n), s = n.summary;
 
@@ -516,7 +561,19 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], act: ReportA
     more.appendChild(r);
   }
 
-  box.append(bar, top, scoreCard, grid, more, notes);
+  // naps that day, as Huawei Health lists them under the night
+  const napCard = el('div', 'card d2-more');
+  napCard.hidden = naps.length === 0;
+  napCard.appendChild(el('h3', '', `Naps that day · ${hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))}`));
+  for (const x of naps) {
+    const r = el('div', 'row between d2-more-row');
+    const f = figures(x);
+    r.append(el('span', 'muted', `${clock(f.bedMs)}–${clock(f.wokeMs)}`), el('span', '', hm(f.sleepMin)));
+    napCard.appendChild(r);
+  }
+
+  const why = scoreCardFor(n, model);
+  box.append(bar, top, napCard, scoreCard, ...(why ? [why] : []), grid, more, notes);
 }
 
 function stars(score: number | null): HTMLElement {

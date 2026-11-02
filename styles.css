@@ -372,3 +372,29 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
 .d2-more-row { padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; gap: 12px; }
 .d2-more-row:first-of-type { border-top: 0; }
 .d2-sync { margin: -4px 0 10px; gap: 8px; }
+.d2-why { margin-top: 0; }
+.d2-why h3 { margin-top: 0; }
+.d2-why-sum { font-weight: 600; font-variant-numeric: tabular-nums; margin: 0 0 8px; }
+.d2-why-bar { display: flex; gap: 2px; height: 12px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+.d2-why-bar span { display: block; height: 100%; }
+.d2-why i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.d2-tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 4px; margin: 0 0 12px; }
+.d2-tabs button { flex: 1; border: 0; background: none; min-height: 38px; color: var(--ink-2); }
+.d2-tabs button[aria-selected="true"] { background: var(--bg); color: var(--ink); font-weight: 600; }
+.d2-trends .d2-datenav { margin: 4px 0 12px; }
+.d2-avg { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin-bottom: 12px; }
+.d2-chart { margin-top: 0; }
+.d2-chart h3 { margin-top: 0; }
+.d2-trend { width: 100%; height: auto; display: block; }
+.d2-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.d2-line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.d2-dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+.d2-hit { cursor: pointer; }
+.d2-hit:hover rect:not([fill="transparent"]) { opacity: 0.85; }
+.d2-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.d2-center { text-align: center; }
+.d2-table-wrap { overflow-x: auto; }
+.d2-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.d2-table th, .d2-table td { text-align: right; padding: 6px 8px; border-top: 1px solid var(--line); white-space: nowrap; }
+.d2-table th:first-child, .d2-table td:first-child { text-align: left; }
+.d2-table th { color: var(--ink-2); font-weight: 600; border-top: 0; }

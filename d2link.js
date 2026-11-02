@@ -1077,7 +1077,7 @@
     return concat(head, body);
   }
 
-  // src/d2/ui.ts
+  // src/d2/dom.ts
   function el(tag, cls = "", text) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;
@@ -1106,10 +1106,12 @@
     return `${d.getMonth() + 1}/${d.getDate()}`;
   };
   var dayLabel = (ms) => new Date(ms).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
-  var hm = (min) => `${Math.floor(min / 60)} h ${Math.round(min % 60)} min`;
-  var STAGE_NAME = { 1: "Light sleep", 2: "REM sleep", 3: "Deep sleep", 4: "Awake", 5: "Nap" };
-  var STAGE_VAR = { 1: "var(--stage-light)", 2: "var(--stage-rem)", 3: "var(--stage-deep)", 4: "var(--stage-awake)", 5: "var(--stage-light)" };
-  var STAGE_ROW = { 4: 0, 2: 1, 1: 2, 5: 2, 3: 3 };
+  var hm = (min) => {
+    const total = Math.round(min);
+    return total < 60 ? `${total} min` : `${Math.floor(total / 60)} h ${total % 60} min`;
+  };
+
+  // src/d2/night.ts
   function countWakeups(stages) {
     const asleep = (c) => c === 1 || c === 2 || c === 3 || c === 5;
     const first = stages.findIndex(asleep);
@@ -1146,6 +1148,330 @@
       shown
     };
   }
+  function isNap(n) {
+    const asleep = n.stages.filter((c) => c !== 4 && c !== 0);
+    return asleep.length > 0 && asleep.filter((c) => c === 5).length >= 0.8 * asleep.length;
+  }
+  function dayKey(n) {
+    const d = new Date(figures(n).wokeMs);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  // src/d2/score.ts
+  var CEILING_H = 8;
+  var MIN_NIGHTS_TO_FIT = 10;
+  var STARTING_MODEL = { base: 26.16, perHour: 4.03, perEfficiency: 0.236, perDeep: 0.252, fittedOn: 0, rmse: null };
+  var durationTerm = (hours) => Math.min(hours, CEILING_H) - Math.max(0, hours - CEILING_H);
+  function scoreInputs(n) {
+    if (isNap(n)) return null;
+    const f = figures(n);
+    if (f.sleepMin <= 0) return null;
+    const inBed = (f.inBedToMs - f.inBedFromMs) / 6e4;
+    const efficiency = n.summary.sleepEfficiency ?? (inBed > 0 ? Math.min(100, 100 * f.sleepMin / inBed) : null);
+    if (efficiency == null) return null;
+    const hours = f.sleepMin / 60;
+    return { hours, durationTerm: durationTerm(hours), efficiency, deepPct: 100 * f.deepMin / f.sleepMin };
+  }
+  function solve(rows, y) {
+    const k = rows[0]?.length ?? 0;
+    const a = Array.from({ length: k }, (_, i) => Array.from({ length: k + 1 }, (_2, j) => j < k ? rows.reduce((s, r) => s + (r[i] ?? 0) * (r[j] ?? 0), 0) : rows.reduce((s, r, ri) => s + (r[i] ?? 0) * (y[ri] ?? 0), 0)));
+    for (let i = 0; i < k; i++) {
+      let p = i;
+      for (let r = i + 1; r < k; r++) if (Math.abs(a[r][i]) > Math.abs(a[p][i])) p = r;
+      [a[i], a[p]] = [a[p], a[i]];
+      const piv = a[i][i];
+      if (Math.abs(piv) < 1e-9) return null;
+      for (let r = 0; r < k; r++) {
+        if (r === i) continue;
+        const f = a[r][i] / piv;
+        for (let j = i; j <= k; j++) a[r][j] -= f * a[i][j];
+      }
+    }
+    return a.map((r, i) => r[k] / r[i]);
+  }
+  function fitScoreModel(nights) {
+    const data = nights.flatMap((n) => {
+      const x = scoreInputs(n);
+      return x && n.summary.sleepScore != null ? [{ x, y: n.summary.sleepScore }] : [];
+    });
+    if (data.length < MIN_NIGHTS_TO_FIT) return STARTING_MODEL;
+    const b = solve(data.map((d) => [1, d.x.durationTerm, d.x.efficiency, d.x.deepPct]), data.map((d) => d.y));
+    if (!b || b.slice(1).some((v) => !(v > 0))) return STARTING_MODEL;
+    const [base, perHour, perEfficiency, perDeep] = b;
+    const err = data.map((d) => base + perHour * d.x.durationTerm + perEfficiency * d.x.efficiency + perDeep * d.x.deepPct - d.y);
+    return { base, perHour, perEfficiency, perDeep, fittedOn: data.length, rmse: Math.sqrt(err.reduce((s, e) => s + e * e, 0) / err.length) };
+  }
+  function explainScore(n, m) {
+    const x = scoreInputs(n);
+    if (!x) return null;
+    const duration = m.perHour * x.durationTerm, efficiency = m.perEfficiency * x.efficiency, deep = m.perDeep * x.deepPct;
+    return { base: m.base, duration, efficiency, deep, estimate: m.base + duration + efficiency + deep, actual: n.summary.sleepScore, inputs: x };
+  }
+
+  // src/d2/trends.ts
+  var positive = (v) => v != null && v > 0 ? v : null;
+  function dayPoints(nights) {
+    const out2 = /* @__PURE__ */ new Map();
+    for (const n of nights) {
+      if (isNap(n)) continue;
+      const f = figures(n);
+      if (f.sleepMin <= 0) continue;
+      const p = {
+        day: dayKey(n),
+        score: n.summary.sleepScore,
+        sleepMin: f.sleepMin,
+        deepMin: f.deepMin,
+        lightMin: f.lightMin,
+        remMin: f.remMin,
+        deepPct: 100 * f.deepMin / f.sleepMin,
+        hr: positive(n.summary.avgHeartRate),
+        hrv: positive(n.summary.avgHrv),
+        bedMs: f.bedMs,
+        wokeMs: f.wokeMs
+      };
+      const had = out2.get(p.day);
+      if (!had || p.sleepMin > had.sleepMin) out2.set(p.day, p);
+    }
+    return out2;
+  }
+  var keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  var dateOf = (key) => {
+    const [y, m, d] = key.split("-").map(Number);
+    return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  };
+  var addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+  function weekStart(d) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return addDays(x, -((x.getDay() + 6) % 7));
+  }
+  function daysFrom(start, count) {
+    return Array.from({ length: count }, (_, i) => keyOf(addDays(start, i)));
+  }
+  var monthDays = (year, month) => daysFrom(new Date(year, month, 1), new Date(year, month + 1, 0).getDate());
+  function weeksOfMonth(year, month) {
+    const days = monthDays(year, month);
+    const weeks = [];
+    for (const k of days) {
+      const monday = keyOf(weekStart(dateOf(k)));
+      const last = weeks[weeks.length - 1];
+      if (last && keyOf(weekStart(dateOf(last[0] ?? k))) === monday) last.push(k);
+      else weeks.push([k]);
+    }
+    return weeks;
+  }
+  var mean = (xs) => xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
+  function meanClock(ms) {
+    if (!ms.length) return null;
+    const mins = ms.map((t) => {
+      const d = new Date(t);
+      return d.getHours() * 60 + d.getMinutes();
+    });
+    const shifted = mins.map((m) => (m + 720) % 1440);
+    return ((mean(shifted) ?? 0) + 720) % 1440;
+  }
+  function averages(points) {
+    const vals = (f) => points.map(f).filter((v) => v != null && Number.isFinite(v));
+    return {
+      nights: points.length,
+      score: mean(vals((p) => p.score)),
+      sleepMin: mean(vals((p) => p.sleepMin)),
+      deepPct: mean(vals((p) => p.deepPct)),
+      hr: mean(vals((p) => p.hr)),
+      hrv: mean(vals((p) => p.hrv)),
+      bedClock: meanClock(points.map((p) => p.bedMs)),
+      wokeClock: meanClock(points.map((p) => p.wokeMs))
+    };
+  }
+
+  // src/d2/trendsui.ts
+  var clockOf = (min) => min == null ? "--" : `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(Math.round(min % 60) % 60).padStart(2, "0")}`;
+  var r0 = (v) => v == null ? "--" : String(Math.round(v));
+  var dayShort = (key) => dateOf(key).toLocaleDateString([], { weekday: "short", day: "numeric" });
+  var dayLong = (key) => dateOf(key).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  var W = 600;
+  var PAD_L = 36;
+  var PAD_R = 8;
+  var PAD_T = 10;
+  var PAD_B = 22;
+  function xScale(n) {
+    const inner = W - PAD_L - PAD_R;
+    return (i) => PAD_L + (i + 0.5) * inner / n;
+  }
+  function xLabels(root, days, x, H) {
+    days.forEach((k, i) => {
+      const d = dateOf(k);
+      const show = days.length <= 7 || d.getDate() === 1 || d.getDate() % 5 === 0;
+      if (!show) return;
+      const label = days.length <= 7 ? d.toLocaleDateString([], { weekday: "short" }) : String(d.getDate());
+      const t = svg("text", { x: x(i), y: H - 6, "text-anchor": "middle", class: "d2-axis" });
+      t.textContent = label;
+      root.appendChild(t);
+    });
+  }
+  function yGrid(root, ticks, y, fmt) {
+    for (const v of ticks) {
+      root.appendChild(svg("line", { x1: PAD_L, x2: W - PAD_R, y1: y(v), y2: y(v), class: "d2-row" }));
+      const t = svg("text", { x: PAD_L - 6, y: y(v) + 4, "text-anchor": "end", class: "d2-axis" });
+      t.textContent = fmt(v);
+      root.appendChild(t);
+    }
+  }
+  function sleepBars(days, pts, open2) {
+    const H = 190;
+    const maxH = Math.max(8, Math.ceil(Math.max(0, ...days.map((k) => (pts.get(k)?.sleepMin ?? 0) / 60))));
+    const y = (h) => PAD_T + (H - PAD_T - PAD_B) * (1 - h / maxH);
+    const x = xScale(days.length);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "d2-trend", role: "img", "aria-label": "Night sleep per day: deep, light and REM sleep" });
+    const ticks = Array.from({ length: Math.floor(maxH / 2) + 1 }, (_, i) => i * 2);
+    yGrid(root, ticks, y, (v) => `${v} h`);
+    const bw = Math.min(26, (W - PAD_L - PAD_R) / days.length * 0.6);
+    days.forEach((k, i) => {
+      const p = pts.get(k);
+      if (!p) return;
+      const g = svg("g", { class: "d2-hit" }, `${dayLong(k)}: night sleep ${hm(p.sleepMin)} \xB7 deep ${hm(p.deepMin)} \xB7 light ${hm(p.lightMin)} \xB7 REM ${hm(p.remMin)}${p.score != null ? ` \xB7 ${p.score} points` : ""}`);
+      g.addEventListener("click", () => open2(k));
+      let base = 0;
+      const segs = [[p.deepMin, "var(--stage-deep)"], [p.lightMin, "var(--stage-light)"], [p.remMin, "var(--stage-rem)"]];
+      segs.forEach(([min, color], si) => {
+        if (min <= 0) return;
+        const h0 = base / 60, h1 = (base + min) / 60;
+        const top = y(h1), bottom = y(h0) - (si > 0 ? 2 : 0);
+        g.appendChild(svg("rect", { x: x(i) - bw / 2, y: top, width: bw, height: Math.max(1, bottom - top), rx: 2, fill: color }));
+        base += min;
+      });
+      g.appendChild(svg("rect", { x: x(i) - bw / 2 - 4, y: PAD_T, width: bw + 8, height: H - PAD_T - PAD_B, fill: "transparent" }));
+      root.appendChild(g);
+    });
+    xLabels(root, days, x, H);
+    return root;
+  }
+  function lineChart(days, pts, value, label, unit) {
+    const H = 130;
+    const vals = days.map((k) => {
+      const p = pts.get(k);
+      return p ? value(p) : null;
+    });
+    const have = vals.filter((v) => v != null);
+    const lo0 = have.length ? Math.min(...have) : 0, hi0 = have.length ? Math.max(...have) : 1;
+    const span = Math.max(4, hi0 - lo0);
+    const step = span > 40 ? 20 : span > 16 ? 10 : span > 8 ? 4 : 2;
+    const lo = Math.floor((lo0 - span * 0.15) / step) * step, hi = Math.ceil((hi0 + span * 0.15) / step) * step;
+    const y = (v) => PAD_T + (H - PAD_T - PAD_B) * (1 - (v - lo) / (hi - lo || 1));
+    const x = xScale(days.length);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "d2-trend", role: "img", "aria-label": `${label} per day` });
+    const ticks = [];
+    for (let v = lo; v <= hi; v += step) ticks.push(v);
+    yGrid(root, ticks.length > 4 ? ticks.filter((_, i) => i % 2 === 0) : ticks, y, (v) => String(v));
+    let path = "";
+    vals.forEach((v, i) => {
+      if (v == null) return;
+      path += `${path && vals[i - 1] != null ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+    });
+    if (path) root.appendChild(svg("path", { d: path, class: "d2-line" }));
+    vals.forEach((v, i) => {
+      if (v == null) return;
+      const k = days[i] ?? "";
+      root.appendChild(svg("circle", { cx: x(i), cy: y(v), r: 4, class: "d2-dot" }, `${dayLong(k)}: ${label.toLowerCase()} ${Math.round(v)}${unit}`));
+    });
+    xLabels(root, days, x, H);
+    return root;
+  }
+  function renderTrends(box, nights, period, anchor, nav) {
+    box.replaceChildren();
+    const pts = dayPoints(nights);
+    const days = period === "week" ? daysFrom(weekStart(anchor), 7) : monthDays(anchor.getFullYear(), anchor.getMonth());
+    const first = days[0] ?? "", last = days[days.length - 1] ?? "";
+    const inPeriod = days.flatMap((k) => {
+      const p = pts.get(k);
+      return p ? [p] : [];
+    });
+    const head = el("div", "d2-datenav");
+    const prev = button("\u2039", "d2-nav"), next = button("\u203A", "d2-nav");
+    prev.setAttribute("aria-label", period === "week" ? "Previous week" : "Previous month");
+    next.setAttribute("aria-label", period === "week" ? "Next week" : "Next month");
+    const today = /* @__PURE__ */ new Date();
+    today.setHours(0, 0, 0, 0);
+    next.disabled = dateOf(last) >= today;
+    prev.addEventListener("click", nav.prev);
+    next.addEventListener("click", nav.next);
+    const title = period === "week" ? `${dateOf(first).toLocaleDateString([], { day: "numeric", month: "short" })} \u2013 ${dateOf(last).toLocaleDateString([], { day: "numeric", month: "short" })}` : dateOf(first).toLocaleDateString([], { month: "long", year: "numeric" });
+    head.append(prev, el("span", "d2-date", title), next);
+    box.appendChild(head);
+    if (!inPeriod.length) {
+      box.appendChild(el("p", "muted d2-center", `No nights in this ${period}.`));
+      return;
+    }
+    const a = averages(inPeriod);
+    const tiles2 = el("div", "d2-tiles d2-avg");
+    const tile = (name, value, unit, sub = "") => {
+      const t = el("div", "d2-tile");
+      const v = el("div", "d2-tile-value");
+      v.append(document.createTextNode(value), el("small", "", unit ? ` ${unit}` : ""));
+      t.append(el("div", "d2-tile-name", name), v);
+      if (sub) t.appendChild(el("div", "d2-tile-ref", sub));
+      tiles2.appendChild(t);
+    };
+    tile("Avg sleep score", r0(a.score), "points", `${a.nights} night${a.nights === 1 ? "" : "s"}`);
+    tile("Avg night sleep", a.sleepMin == null ? "--" : hm(a.sleepMin).replace(" min", ""), "min", `Bed ${clockOf(a.bedClock)} \xB7 woke ${clockOf(a.wokeClock)}`);
+    tile("Avg deep sleep", r0(a.deepPct), "%");
+    tile("Avg heart rate", r0(a.hr), "bpm");
+    tile("Avg HRV", r0(a.hrv), "ms");
+    box.appendChild(tiles2);
+    const chart = (titleText, svgEl, legend) => {
+      const c = el("div", "card d2-chart");
+      c.appendChild(el("h3", "", titleText));
+      if (legend) {
+        const lg = el("div", "legend");
+        for (const [name, color] of legend) {
+          const it = el("span");
+          const sw = el("i");
+          sw.className = "d2-swatch";
+          sw.style.background = color;
+          it.append(sw, document.createTextNode(name));
+          lg.appendChild(it);
+        }
+        c.appendChild(lg);
+      }
+      c.appendChild(svgEl);
+      box.appendChild(c);
+    };
+    chart("Night sleep", sleepBars(days, pts, nav.open), [["Deep sleep", "var(--stage-deep)"], ["Light sleep", "var(--stage-light)"], ["REM sleep", "var(--stage-rem)"]]);
+    chart(`Sleep score \xB7 avg ${r0(a.score)}`, lineChart(days, pts, (p) => p.score, "Sleep score", " points"));
+    chart(`Deep sleep \xB7 avg ${r0(a.deepPct)}%`, lineChart(days, pts, (p) => p.deepPct, "Deep sleep", "%"));
+    chart(`Avg heart rate \xB7 avg ${r0(a.hr)} bpm`, lineChart(days, pts, (p) => p.hr, "Heart rate", " bpm"));
+    chart(`Avg HRV \xB7 avg ${r0(a.hrv)} ms`, lineChart(days, pts, (p) => p.hrv, "HRV", " ms"));
+    if (period === "month") {
+      const c = el("div", "card");
+      c.appendChild(el("h3", "", "Weekly averages"));
+      const table = el("table", "d2-table");
+      const headRow = el("tr");
+      for (const h of ["Week", "Nights", "Score", "Night sleep", "Deep", "Heart rate", "HRV"]) headRow.appendChild(el("th", "", h));
+      table.appendChild(el("thead")).appendChild(headRow);
+      const body = el("tbody");
+      for (const week of weeksOfMonth(anchor.getFullYear(), anchor.getMonth())) {
+        const wp = week.flatMap((k) => {
+          const p = pts.get(k);
+          return p ? [p] : [];
+        });
+        const w = averages(wp);
+        const tr = el("tr");
+        const range = `${dateOf(week[0] ?? "").getDate()}\u2013${dateOf(week[week.length - 1] ?? "").getDate()}`;
+        for (const v of [range, String(w.nights), r0(w.score), w.sleepMin == null ? "--" : hm(w.sleepMin), w.deepPct == null ? "--" : `${r0(w.deepPct)}%`, w.hr == null ? "--" : `${r0(w.hr)} bpm`, w.hrv == null ? "--" : `${r0(w.hrv)} ms`]) tr.appendChild(el("td", "", v));
+        body.appendChild(tr);
+      }
+      table.appendChild(body);
+      const wrap = el("div", "d2-table-wrap");
+      wrap.appendChild(table);
+      c.appendChild(wrap);
+      box.appendChild(c);
+    }
+    box.appendChild(el("p", "note", `Tap a day's bar to open that night. Naps are not included. Days without a night sleep are left empty. ${dayShort(first)}\u2013${dayShort(last)}.`));
+  }
+
+  // src/d2/ui.ts
+  var STAGE_NAME = { 1: "Light sleep", 2: "REM sleep", 3: "Deep sleep", 4: "Awake", 5: "Nap" };
+  var STAGE_VAR = { 1: "var(--stage-light)", 2: "var(--stage-rem)", 3: "var(--stage-deep)", 4: "var(--stage-awake)", 5: "var(--stage-light)" };
+  var STAGE_ROW = { 4: 0, 2: 1, 1: 2, 5: 2, 3: 3 };
   function fixed(v, lo, hi) {
     if (v == null || !Number.isFinite(v)) return null;
     if (v < lo) return { text: "Low", kind: "low" };
@@ -1177,11 +1503,11 @@
     ];
   }
   function hypnogram(n) {
-    const W = 600, rowH = 34, gap = 10, top = 6, H = top + 4 * (rowH + gap);
+    const W2 = 600, rowH = 34, gap = 10, top = 6, H = top + 4 * (rowH + gap);
     const total = Math.max(1, n.stages.length);
-    const x = (m) => m / total * W;
-    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "d2-hypno", role: "img", "aria-label": "Sleep stages through the night" });
-    for (let r = 0; r < 4; r++) root.appendChild(svg("line", { x1: 0, x2: W, y1: top + r * (rowH + gap) + rowH / 2, y2: top + r * (rowH + gap) + rowH / 2, class: "d2-row" }));
+    const x = (m) => m / total * W2;
+    const root = svg("svg", { viewBox: `0 0 ${W2} ${H}`, class: "d2-hypno", role: "img", "aria-label": "Sleep stages through the night" });
+    for (let r = 0; r < 4; r++) root.appendChild(svg("line", { x1: 0, x2: W2, y1: top + r * (rowH + gap) + rowH / 2, y2: top + r * (rowH + gap) + rowH / 2, class: "d2-row" }));
     let i = 0, prevRow = null, prevX = 0;
     while (i < n.stages.length) {
       const code = n.stages[i] ?? 0;
@@ -1231,13 +1557,13 @@
     return root;
   }
   function wakeBars(nights) {
-    const W = 210, H = 70, n = nights.length, bw = 12;
+    const W2 = 210, H = 70, n = nights.length, bw = 12;
     const max = Math.max(3, ...nights.map((x) => figures(x).wakeups ?? 0));
-    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "d2-bars", role: "img", "aria-label": "Times woke up, recent nights" });
-    root.appendChild(svg("line", { x1: 0, x2: W, y1: H - 2, y2: H - 2, class: "d2-row" }));
+    const root = svg("svg", { viewBox: `0 0 ${W2} ${H}`, class: "d2-bars", role: "img", "aria-label": "Times woke up, recent nights" });
+    root.appendChild(svg("line", { x1: 0, x2: W2, y1: H - 2, y2: H - 2, class: "d2-row" }));
     nights.forEach((night, k) => {
       const v = figures(night).wakeups;
-      const cx = n === 1 ? W / 2 : 8 + k * (W - 16) / (n - 1);
+      const cx = n === 1 ? W2 / 2 : 8 + k * (W2 - 16) / (n - 1);
       const h = v == null ? 0 : Math.max(4, (H - 10) * v / max);
       root.appendChild(svg(
         "rect",
@@ -1307,7 +1633,17 @@
     syncRow.append(syncText, syncButtons2);
     const list = el("ul", "sessions");
     const empty = el("p", "muted", "No nights yet. Download from the watch, or try the demo nights.");
-    home.append(title, card, help, listHead, syncRow, empty, list);
+    const tabs = el("div", "d2-tabs");
+    tabs.setAttribute("role", "tablist");
+    const tabBtns = ["nights", "week", "month"].map((v) => {
+      const b = button(v === "nights" ? "Nights" : v === "week" ? "Week" : "Month");
+      b.setAttribute("role", "tab");
+      b.dataset["view"] = v;
+      tabs.appendChild(b);
+      return b;
+    });
+    const trendsBox = el("div", "d2-trends");
+    home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox);
     const log = (line) => {
       logPre.textContent += `${clock(Date.now())} ${line}
 `;
@@ -1328,19 +1664,74 @@
       help.open = !paired;
     };
     let nights = [];
+    let napsByDay = /* @__PURE__ */ new Map();
+    let model = fitScoreModel([]);
     async function renderList() {
       userTag.textContent = `\xB7 ${deps.userLabel()}`;
-      nights = await listNights(deps.user());
-      empty.hidden = nights.length > 0;
-      list.replaceChildren(...nights.map((n) => {
+      const all = await listNights(deps.user());
+      nights = all.filter((n) => !isNap(n));
+      model = fitScoreModel(nights.filter((n) => n.source !== "demo"));
+      napsByDay = /* @__PURE__ */ new Map();
+      for (const n of all.filter(isNap).sort((a, b) => a.start - b.start)) {
+        const k = dayKey(n);
+        napsByDay.set(k, [...napsByDay.get(k) ?? [], n]);
+      }
+      empty.hidden = all.length > 0;
+      const nightDays = new Set(nights.map(dayKey));
+      const rows = nights.map((n) => {
         const f = figures(n);
+        const naps = napsByDay.get(dayKey(n)) ?? [];
         const li = el("li");
         const left = el("div");
-        left.append(el("div", "when", `Night of ${dayLabel(f.wokeMs)}`), el("div", "stats", `${clock(f.bedMs)}\u2013${clock(f.wokeMs)} \xB7 ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : "no score"}${n.source === "demo" ? " \xB7 demo" : ""}`));
+        left.append(el("div", "when", `Night of ${dayLabel(f.wokeMs)}`), el("div", "stats", `${clock(f.bedMs)}\u2013${clock(f.wokeMs)} \xB7 ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : "no score"}${naps.length ? ` \xB7 + ${naps.length} nap${naps.length > 1 ? "s" : ""}` : ""}${n.source === "demo" ? " \xB7 demo" : ""}`));
         li.append(left, el("div", "dur", f.sleepMin ? hm(f.sleepMin) : "--"));
         li.addEventListener("click", () => openReport(n.id));
-        return li;
-      }));
+        return { ms: f.wokeMs, li };
+      });
+      for (const [k, naps] of napsByDay) {
+        if (nightDays.has(k) || !naps[0]) continue;
+        const li = el("li", "d2-naps-only");
+        const left = el("div");
+        left.append(el("div", "when", `Naps on ${dayLabel(figures(naps[0]).wokeMs)}`), el("div", "stats", naps.map(napText).join(" \xB7 ")));
+        li.append(left, el("div", "dur", hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))));
+        rows.push({ ms: figures(naps[0]).wokeMs, li });
+      }
+      list.replaceChildren(...rows.sort((a, b) => b.ms - a.ms).map((r) => r.li));
+      showView();
+    }
+    let view = "nights";
+    let anchor = /* @__PURE__ */ new Date();
+    function showView() {
+      for (const b of tabBtns) b.setAttribute("aria-selected", String(b.dataset["view"] === view));
+      list.hidden = view !== "nights";
+      empty.hidden = view !== "nights" || nights.length > 0 || napsByDay.size > 0;
+      trendsBox.hidden = view === "nights";
+      if (view === "nights") return;
+      const period = view;
+      renderTrends(trendsBox, nights, period, anchor, {
+        prev: () => {
+          anchor = period === "week" ? addDays(anchor, -7) : new Date(anchor.getFullYear(), anchor.getMonth() - 1, 1);
+          showView();
+        },
+        next: () => {
+          anchor = period === "week" ? addDays(anchor, 7) : new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1);
+          showView();
+        },
+        open: (day) => {
+          const n = nights.find((x) => dayKey(x) === day);
+          if (n) openReport(n.id);
+        }
+      });
+    }
+    for (const b of tabBtns) {
+      b.addEventListener("click", () => {
+        const v = b.dataset["view"];
+        if (v !== "nights" && v !== "week" && v !== "month") return;
+        view = v;
+        const latest = nights[0];
+        anchor = latest ? dateOf(dayKey(latest)) : /* @__PURE__ */ new Date();
+        showView();
+      });
     }
     let syncing = null;
     function sync() {
@@ -1359,7 +1750,8 @@
           syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(", ")})` : ""}. Nights are shared with your other devices; demo nights stay here.`;
           if (r.downloaded || r.deleted) await renderList();
         } catch (e) {
-          syncText.textContent = e instanceof CloudSetupError ? e.message : `Sync failed: ${e instanceof Error ? e.message : String(e)}`;
+          const msg = e instanceof Error ? e.message : String(e);
+          syncText.textContent = e instanceof CloudSetupError ? e.message : /failed to fetch|network|load failed/i.test(msg) ? "Can\u2019t reach the cloud (no internet?). Nights stay on this device; tap Sync now to try again." : `Sync failed: ${msg}`;
         } finally {
           btnSync.disabled = false;
           syncing = null;
@@ -1440,7 +1832,7 @@
       const i = nights.findIndex((n2) => n2.id === id);
       const n = nights[i];
       if (!n) return;
-      renderReport(report, n, nights, {
+      renderReport(report, n, nights, napsByDay.get(dayKey(n)) ?? [], model, {
         back: () => {
           report.hidden = true;
           home.hidden = false;
@@ -1469,7 +1861,52 @@
       void renderList().then(sync);
     } };
   }
-  function renderReport(box, n, all, act) {
+  var napText = (n) => {
+    const f = figures(n);
+    return `${clock(f.bedMs)}\u2013${clock(f.wokeMs)} (${f.sleepMin} min)`;
+  };
+  function scoreCardFor(n, model) {
+    const e = explainScore(n, model);
+    if (!e) return null;
+    const card = el("div", "card d2-why");
+    card.appendChild(el("h3", "", "What made your score"));
+    const x = e.inputs;
+    const pts = (v) => `${v >= 0 ? "+" : "\u2212"}${Math.abs(Math.round(v))}`;
+    const parts = [
+      { name: "Sleep duration", detail: `${hm(x.hours * 60)}${x.hours > CEILING_H ? ` (more than ${CEILING_H} h lowers it)` : ""}`, value: e.duration, color: "var(--stage-deep)" },
+      { name: "Sleep efficiency", detail: `${Math.round(x.efficiency)}% of time in bed asleep`, value: e.efficiency, color: "var(--stage-light)" },
+      { name: "Deep sleep", detail: `${Math.round(x.deepPct)}% of sleep`, value: e.deep, color: "var(--stage-rem)" }
+    ];
+    const summary = el("p", "d2-why-sum", `Starting point ${Math.round(e.base)} \xB7 ${parts.map((p) => `${p.name.toLowerCase().replace("sleep ", "")} ${pts(p.value)}`).join(" \xB7 ")} = ${Math.round(e.estimate)}${e.actual != null ? ` (watch: ${e.actual})` : ""}`);
+    card.appendChild(summary);
+    const bar = el("div", "d2-why-bar");
+    bar.setAttribute("role", "img");
+    bar.setAttribute("aria-label", summary.textContent ?? "");
+    const total = Math.max(1, e.base + parts.reduce((s, p) => s + Math.max(0, p.value), 0));
+    const seg = (w, color, title) => {
+      const d = el("span");
+      d.style.width = `${100 * Math.max(0, w) / total}%`;
+      d.style.background = color;
+      d.title = title;
+      bar.appendChild(d);
+    };
+    seg(e.base, "var(--line)", `Starting point ${Math.round(e.base)}`);
+    for (const p of parts) seg(p.value, p.color, `${p.name} ${pts(p.value)}`);
+    card.appendChild(bar);
+    for (const p of parts) {
+      const r = el("div", "row between d2-more-row");
+      const name = el("span");
+      const sw = el("i");
+      sw.style.background = p.color;
+      name.append(sw, document.createTextNode(`${p.name} \xB7 `), el("span", "muted", p.detail));
+      r.append(name, el("b", "", `${pts(p.value)} points`));
+      card.appendChild(r);
+    }
+    card.appendChild(el("p", "note", `Each hour of sleep up to ${CEILING_H} h adds about ${model.perHour.toFixed(1)} points; each 10% of efficiency about ${(10 * model.perEfficiency).toFixed(1)}; each 10% of deep sleep about ${(10 * model.perDeep).toFixed(1)}.`));
+    card.appendChild(el("p", "note", model.fittedOn ? `Our estimate of how the watch scores sleep, fitted to your ${model.fittedOn} scored nights (typically within ${model.rmse != null ? model.rmse.toFixed(1) : "?"} points of the watch). Huawei doesn't publish its formula.` : `Our starting estimate of how the watch scores sleep (fitted to 30 nights of a Watch D2); it is fitted to your own nights once you have ${MIN_NIGHTS_TO_FIT}. Huawei doesn't publish its formula.`));
+    return card;
+  }
+  function renderReport(box, n, all, naps, model, act) {
     box.replaceChildren();
     const f = figures(n), s = n.summary;
     const bar = el("div", "row between wrap");
@@ -1580,7 +2017,17 @@
       r.append(el("span", "muted", k), el("span", "", v));
       more.appendChild(r);
     }
-    box.append(bar, top, scoreCard, grid, more, notes);
+    const napCard = el("div", "card d2-more");
+    napCard.hidden = naps.length === 0;
+    napCard.appendChild(el("h3", "", `Naps that day \xB7 ${hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))}`));
+    for (const x of naps) {
+      const r = el("div", "row between d2-more-row");
+      const f2 = figures(x);
+      r.append(el("span", "muted", `${clock(f2.bedMs)}\u2013${clock(f2.wokeMs)}`), el("span", "", hm(f2.sleepMin)));
+      napCard.appendChild(r);
+    }
+    const why = scoreCardFor(n, model);
+    box.append(bar, top, napCard, scoreCard, ...why ? [why] : [], grid, more, notes);
   }
   function stars(score) {
     const box = el("div", "d2-stars");

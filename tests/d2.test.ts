@@ -192,7 +192,7 @@ test('D2 link: a new pairing is handed over as soon as the watch accepts it', as
   assert.equal(again.length, 0);
 });
 
-import { countWakeups, figures } from '../src/d2/ui';
+import { countWakeups, figures, isNap, dayKey } from '../src/d2/night';
 
 test('D2 report: times woke up is counted from the stages when the watch does not send it', () => {
   // awake at the start and end do not count; three spells in between do
@@ -236,4 +236,61 @@ test('D2 cloud: a night read back from the cloud is checked field by field', () 
   assert.equal(n.source, 'd2');
   assert.equal(parseCloudNight({ id: 'x', night: { v: 2 } }), null); // a newer format is skipped, not shown wrongly
   assert.equal(parseCloudNight(null), null);
+});
+
+import { fitScoreModel, explainScore, STARTING_MODEL, durationTerm } from '../src/d2/score';
+import { averages, meanClock, weeksOfMonth, weekStart, keyOf, dayPoints } from '../src/d2/trends';
+import type { D2Night } from '../src/d2/store';
+
+function makeNight(o: { bedMin: number; sleepMin: number; deepPct: number; awake?: number; score?: number | null; nap?: boolean; day?: number }): D2Night {
+  const start = new Date(2026, 9, o.day ?? 10, 0, 0).getTime() + o.bedMin * 60000;
+  const deep = Math.round((o.sleepMin * o.deepPct) / 100), awake = o.awake ?? 0;
+  const stages = o.nap ? Array(o.sleepMin).fill(5) : [...Array(deep).fill(3), ...Array(awake).fill(4), ...Array(o.sleepMin - deep).fill(1)];
+  const summary = { ...parseSleepFile(writeSleepFile([night1()]))[0]!.summary };
+  for (const k of Object.keys(summary) as (keyof typeof summary)[]) summary[k] = null;
+  const t0 = start / 1000;
+  Object.assign(summary, { bedTime: t0, fallAsleepTime: t0, wakeupTime: t0 + stages.length * 60, risingTime: t0 + stages.length * 60, sleepScore: o.nap ? null : o.score ?? null,
+    sleepEfficiency: o.nap ? null : Math.round((100 * o.sleepMin) / stages.length), avgHeartRate: o.nap ? 0 : 50, avgHrv: o.nap ? 0 : 50 });
+  return { id: `n${start}`, user: 1, start, stages, summary, source: 'd2', watch: 'w', downloadedAt: 0 };
+}
+
+test('D2 naps: stage-5 records without a score are naps, kept out of nights and trends', () => {
+  const nap = makeNight({ bedMin: 15 * 60, sleepMin: 50, deepPct: 0, nap: true });
+  const night = makeNight({ bedMin: 23 * 60, sleepMin: 400, deepPct: 25, score: 80 });
+  assert.equal(isNap(nap), true);
+  assert.equal(isNap(night), false);
+  assert.equal(dayKey(nap), '2026-10-10');
+  assert.equal(dayPoints([nap, night]).size, 1);
+});
+
+test('D2 score estimate: fitted to the nights it is given; the starting estimate until there are 10', () => {
+  // nights scored exactly by a known formula
+  const truth = { base: 20, perHour: 5, perEfficiency: 0.3, perDeep: 0.2 };
+  const nights = Array.from({ length: 14 }, (_, i) => {
+    const sleepMin = 300 + i * 25, deepPct = 15 + (i * 7) % 20, awake = (i * 13) % 40;
+    const eff = Math.round((100 * sleepMin) / (sleepMin + awake));
+    const score = truth.base + truth.perHour * durationTerm(sleepMin / 60) + truth.perEfficiency * eff + truth.perDeep * (Math.round((sleepMin * deepPct) / 100) / sleepMin) * 100;
+    return makeNight({ bedMin: 23 * 60, sleepMin, deepPct, awake, score, day: 1 + i });
+  });
+  assert.equal(fitScoreModel(nights.slice(0, 9)), STARTING_MODEL);
+  const m = fitScoreModel(nights);
+  assert.equal(m.fittedOn, 14);
+  assert.ok(Math.abs(m.perHour - 5) < 0.01 && Math.abs(m.perEfficiency - 0.3) < 0.01 && Math.abs(m.perDeep - 0.2) < 0.01, JSON.stringify(m));
+  const e = explainScore(nights[3]!, m)!;
+  assert.ok(Math.abs(e.base + e.duration + e.efficiency + e.deep - (e.actual ?? 0)) < 0.01);
+  assert.equal(durationTerm(9), 7); // each hour beyond 8 counts against
+  assert.equal(explainScore(makeNight({ bedMin: 900, sleepMin: 40, deepPct: 0, nap: true }), m), null); // naps have no score
+});
+
+test('D2 trends: weeks run Monday to Sunday; times around midnight average correctly', () => {
+  assert.equal(keyOf(weekStart(new Date(2026, 10, 2))), '2026-11-02'); // Monday 2 Nov 2026
+  assert.equal(keyOf(weekStart(new Date(2026, 10, 1))), '2026-10-26'); // Sunday belongs to the week before
+  const weeks = weeksOfMonth(2026, 9); // October 2026 starts on a Thursday
+  assert.deepEqual(weeks.map((w) => [w[0], w[w.length - 1]]).slice(0, 2), [['2026-10-01', '2026-10-04'], ['2026-10-05', '2026-10-11']]);
+  assert.equal(weeks.flat().length, 31);
+  assert.equal(meanClock([new Date(2026, 0, 1, 23, 50).getTime(), new Date(2026, 0, 2, 0, 10).getTime()]), 0);
+  const a = averages([...dayPoints([makeNight({ bedMin: 23 * 60, sleepMin: 400, deepPct: 25, score: 80, day: 5 }), makeNight({ bedMin: 23 * 60, sleepMin: 440, deepPct: 25, score: 84, day: 6 })]).values()]);
+  assert.equal(a.nights, 2);
+  assert.equal(a.score, 82);
+  assert.equal(a.sleepMin, 420);
 });
