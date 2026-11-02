@@ -10,7 +10,8 @@ import { byId, $, $button, $input, $canvas, make, fmt, metricTile, renderOutlier
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
-import { current as account, historyChanged } from './account';
+import { current as account, historyChanged, supabase } from './account';
+import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 
 const FS = ECG_FS;
 
@@ -62,7 +63,12 @@ async function openD2(): Promise<void> {
     await d2Loading;
     const api = window.OpenBeatD2;
     if (!api) throw new Error('d2link.js did not start');
-    d2 = api.mount($('d2Root'), { account: account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser) });
+    const online = account.account && !account.account.offline;
+    d2 = api.mount($('d2Root'), {
+      account: account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser),
+      // D2 Link syncs its nights through the signed-in account (table d2_nights)
+      cloud: online ? (supabase() as unknown as CloudClient) : null,
+    });
   } catch (err) {
     $('d2Root').replaceChildren(make('p', 'muted', `D2 Link could not be loaded (${errorMessage(err)}). Check the internet connection and reopen the tab.`));
   }

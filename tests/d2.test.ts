@@ -199,8 +199,41 @@ test('D2 report: times woke up is counted from the stages when the watch does no
   const stages = [4, 4, 1, 1, 3, 4, 1, 2, 4, 4, 3, 1, 4, 2, 1, 4, 4];
   assert.equal(countWakeups(stages), 3);
   assert.equal(countWakeups([4, 4, 4]), 0);
-  const night = { id: 'x', user: 1, start: 0, stages, summary: parseSleepFile(writeSleepFile([night1()]))[0]!.summary, source: 'd2' as const, watch: 'w', downloadedAt: 0 };
+  // no times in the summary: the whole stage list is the night
+  const plain = { ...parseSleepFile(writeSleepFile([night1()]))[0]!.summary, bedTime: null, fallAsleepTime: null, wakeupTime: null, risingTime: null };
+  const night = { id: 'x', user: 1, start: 0, stages, summary: plain, source: 'd2' as const, watch: 'w', downloadedAt: 0 };
   assert.equal(figures({ ...night, summary: { ...night.summary, wakeCount: null } }).wakeups, 3);
   assert.equal(figures({ ...night, summary: { ...night.summary, wakeCount: 5 } }).wakeups, 5); // the watch's own count wins
 });
 function night1() { return night; }
+
+test('D2 report: the night is shown from falling asleep to waking up, like Huawei Health', () => {
+  const bedT = 1_800_000_000; // lay down
+  const stages = [...Array(6).fill(4), ...Array(60).fill(1), 4, ...Array(40).fill(3), 4, 4, ...Array(30).fill(2), ...Array(2).fill(4)];
+  const summary = { ...parseSleepFile(writeSleepFile([night1()]))[0]!.summary,
+    bedTime: bedT, fallAsleepTime: bedT + 360, wakeupTime: bedT + (stages.length - 2) * 60, risingTime: bedT + stages.length * 60, wakeCount: null };
+  const f = figures({ id: 'y', user: 1, start: bedT * 1000, stages, summary, source: 'd2', watch: 'w', downloadedAt: 0 });
+  assert.equal(f.bedMs, (bedT + 360) * 1000); // Huawei's "Bed time" is when sleep started
+  assert.equal(f.inBedFromMs, bedT * 1000);
+  assert.equal(f.shown.stages.length, stages.length - 8); // the awake minutes before sleep and after waking are left out
+  assert.equal(f.sleepMin, 130);
+  assert.equal(f.awakeMin, 3);
+  assert.equal(f.wakeups, 2);
+});
+
+import { parseCloudNight } from '../src/d2/cloud';
+
+test('D2 cloud: a night read back from the cloud is checked field by field', () => {
+  const summary = parseSleepFile(writeSleepFile([night1()]))[0]!.summary;
+  const row = { id: 'd2-1', user_no: 2, night: { v: 1, start: 1000, stages: [4, 1, 3, 'x', 2, 99], summary: { ...summary, sleepScore: 'bad', avgHrv: 45 }, watch: 'LCA-B10', downloadedAt: 5 } };
+  const n = parseCloudNight(row);
+  assert.ok(n);
+  assert.equal(n.user, 2);
+  assert.deepEqual(n.stages, [4, 1, 3, 2]); // non-numbers and impossible codes dropped
+  assert.equal(n.summary.sleepScore, null);
+  assert.equal(n.summary.avgHrv, 45);
+  assert.equal(n.synced, true);
+  assert.equal(n.source, 'd2');
+  assert.equal(parseCloudNight({ id: 'x', night: { v: 2 } }), null); // a newer format is skipped, not shown wrongly
+  assert.equal(parseCloudNight(null), null);
+});

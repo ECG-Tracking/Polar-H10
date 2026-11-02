@@ -4,6 +4,26 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link nights sync between devices *(GitHub)*
+Why: nights downloaded from the watch on the phone should also be seen on the MacBook.
+
+| File | Change |
+|---|---|
+| `supabase/setup.sql` | New table `d2_nights` (one row per night: stages and the watch's summary, about 2 KB) with the same access rules as the others. **Run setup.sql again in Supabase** |
+| `src/d2/cloud.ts` (new) | Syncs D2 nights both ways: uploads new nights, downloads nights from other devices, carries deletions across; checks every downloaded night; demo nights stay on the device |
+| `src/d2/store.ts`, `src/d2/ui.ts` | Nights remember whether they are in the cloud; sync when the tab opens, after a download and after a delete, plus a "Sync now" button and status line; deleting a synced night asks to delete it everywhere |
+| `src/app.ts` | Passes the signed-in cloud connection to D2 Link (D2 Link's code stays in d2link.js) |
+| `tests/d2.test.ts` | New test for reading nights back from the cloud |
+
+## 3 Nov 2026 – D2 Link report matches Huawei Health *(GitHub)*
+Why: the downloaded night (JSON) showed how Huawei Health builds its sleep page from the watch's record.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts` | "Bed time" is when sleep started (fallAsleepTime) and the stage chart runs from falling asleep to waking up, as in Huawei Health; durations, percentages and times woke up use that window. "Breathing quality" shows "--" (it isn't in the watch's sleep record; the earlier value was a different field). New "More from the watch" card: time in bed (lying down to getting up), time to fall asleep, sleep efficiency, minutes awake in the night |
+| `styles.css` | Style for the new card |
+| `tests/d2.test.ts` | New test for the night window |
+
 ## 3 Nov 2026 – D2 Link: times woke up from the stages *(GitHub)*
 Why: the first real night from the watch (6 h 49 min, 82 points, matching Huawei Health) arrived without the watch's "times woke up" number.
 

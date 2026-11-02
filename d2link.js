@@ -82,59 +82,6 @@
     return out2;
   }
 
-  // src/d2/crypto.ts
-  var subtle = () => globalThis.crypto.subtle;
-  var out = (b) => new Uint8Array(b);
-  async function sha256(data) {
-    return out(await subtle().digest("SHA-256", data));
-  }
-  async function hmacSha256(key, message) {
-    const k = await subtle().importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    return out(await subtle().sign("HMAC", k, message));
-  }
-  async function hkdfSha256(secret, salt, info, length) {
-    const k = await subtle().importKey("raw", secret, "HKDF", false, ["deriveBits"]);
-    return out(await subtle().deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, k, length * 8));
-  }
-  async function aesKey(key, name) {
-    return subtle().importKey("raw", key, { name }, false, ["encrypt", "decrypt"]);
-  }
-  async function aesCbcEncrypt(data, key, iv) {
-    return out(await subtle().encrypt({ name: "AES-CBC", iv }, await aesKey(key, "AES-CBC"), data));
-  }
-  async function aesCbcDecrypt(data, key, iv) {
-    return out(await subtle().decrypt({ name: "AES-CBC", iv }, await aesKey(key, "AES-CBC"), data));
-  }
-  async function aesGcmEncrypt(data, key, iv, aad) {
-    const p = { name: "AES-GCM", iv, tagLength: 128, ...aad ? { additionalData: aad } : {} };
-    return out(await subtle().encrypt(p, await aesKey(key, "AES-GCM"), data));
-  }
-  async function aesGcmDecrypt(data, key, iv, aad) {
-    const p = { name: "AES-GCM", iv, tagLength: 128, ...aad ? { additionalData: aad } : {} };
-    return out(await subtle().decrypt(p, await aesKey(key, "AES-GCM"), data));
-  }
-  async function encrypt(gcm, data, key, iv) {
-    return gcm ? aesGcmEncrypt(data, key, iv) : aesCbcEncrypt(data, key, iv);
-  }
-  async function decrypt(gcm, data, key, iv) {
-    return gcm ? aesGcmDecrypt(data, key, iv) : aesCbcDecrypt(data, key, iv);
-  }
-  var DIGEST_SECRET_V1 = Uint8Array.of(112, 251, 108, 36, 3, 95, 219, 85, 47, 56, 137, 138, 238, 222, 63, 105);
-  var DIGEST_SECRET_V2 = Uint8Array.of(147, 172, 222, 247, 106, 203, 9, 133, 125, 191, 229, 38, 26, 171, 205, 120);
-  var DIGEST_SECRET_V3 = Uint8Array.of(156, 39, 99, 169, 204, 225, 52, 118, 109, 227, 255, 97, 24, 32, 5, 83);
-  function digestSecret(authVersion) {
-    if (authVersion === 1 || authVersion === 4) return DIGEST_SECRET_V1;
-    if (authVersion === 2) return DIGEST_SECRET_V2;
-    return DIGEST_SECRET_V3;
-  }
-  function nextIv(state) {
-    if (state.deviceSupportType === 4) return randomBytes(16);
-    state.counter = state.counter >= 4294967295 ? 1 : state.counter + 1;
-    const iv = randomBytes(16);
-    new DataView(iv.buffer).setUint32(12, state.counter);
-    return iv;
-  }
-
   // src/d2/tlv.ts
   var Tlv = class _Tlv {
     constructor() {
@@ -220,103 +167,6 @@
       return this.items.filter((i) => (i.tag & 128) !== 0).map((i) => _Tlv.parse(i.value));
     }
   };
-
-  // src/d2/packet.ts
-  var MAGIC = 90;
-  var defaultParams = () => ({ sliceSize: 244, deviceSupportType: 0, encryptMethod: 0, authVersion: 0, authAlgo: 0, secretKey: null, counter: 0 });
-  var useGcm = (p) => p.encryptMethod === 1 || p.deviceSupportType === 4;
-  async function encryptBody(p, plain) {
-    if (!p.secretKey) throw new Error("not logged in");
-    const iv = nextIv(p);
-    return new Tlv().putByte(124, 1).put(125, iv).put(126, await encrypt(useGcm(p), plain, p.secretKey, iv));
-  }
-  async function decryptBody(p, tlv) {
-    if (!p.secretKey) throw new Error("encrypted packet before login");
-    return decrypt(useGcm(p), tlv.bytes(126), p.secretKey, tlv.bytes(125));
-  }
-  var withCrc = (b) => concat(b, u16(crc16(b)));
-  function unsliced(service, command, body) {
-    const len = 2 + body.length;
-    return [withCrc(concat(Uint8Array.of(MAGIC), u16(len + 1), Uint8Array.of(0, service, command), body))];
-  }
-  function sliced(sliceSize, service, command, body) {
-    const header = 5, footer = 2;
-    const maxBody = sliceSize - header - footer;
-    const count = Math.ceil((body.length + 2) / maxBody);
-    if (count <= 1) return unsliced(service, command, body);
-    const out2 = [];
-    let pos = 0;
-    for (let i = 0; i < count; i++) {
-      const size = Math.min(sliceSize, body.length - pos + header + footer);
-      const flag = i === 0 ? 1 : i === count - 1 ? 3 : 2;
-      let content = size - header - footer;
-      const ids = i === 0 ? Uint8Array.of(service, command) : new Uint8Array(0);
-      content -= ids.length;
-      out2.push(withCrc(concat(Uint8Array.of(MAGIC), u16(size - header), Uint8Array.of(flag, i & 255), ids, body.slice(pos, pos + content))));
-      pos += content;
-    }
-    return out2;
-  }
-  async function encode(p, pkt) {
-    const body = pkt.encrypt !== false && p.secretKey ? (await encryptBody(p, pkt.tlv.serialize())).serialize() : pkt.tlv.serialize();
-    return pkt.sliced === false ? unsliced(pkt.service, pkt.command, body) : sliced(p.sliceSize, pkt.service, pkt.command, body);
-  }
-  var RAW = /* @__PURE__ */ new Set(["10:5", "40:6", "44:5", "28:5"]);
-  var Decoder = class {
-    constructor() {
-      this.buf = new Uint8Array(0);
-      this.slices = [];
-      this.badFrames = 0;
-    }
-    /** Returns the complete packets in `data`, still to be decrypted with `open()`. */
-    push(data) {
-      this.buf = concat(this.buf, data);
-      const done = [];
-      for (; ; ) {
-        const start = this.buf.indexOf(MAGIC);
-        if (start < 0) {
-          this.buf = new Uint8Array(0);
-          break;
-        }
-        if (start > 0) this.buf = this.buf.slice(start);
-        if (this.buf.length < 3) break;
-        const size = (this.buf[1] ?? 0) << 8 | (this.buf[2] ?? 0);
-        const total = 3 + size + 2;
-        if (this.buf.length < total) break;
-        const frame = this.buf.slice(0, total);
-        this.buf = this.buf.slice(total);
-        const crc = (frame[total - 2] ?? 0) << 8 | (frame[total - 1] ?? 0);
-        if (crc16(frame.slice(0, total - 2)) !== crc) {
-          this.badFrames++;
-          continue;
-        }
-        const flag = frame[3] ?? 0;
-        if (flag >= 1 && flag <= 3) {
-          if (flag === 1) this.slices = [];
-          this.slices.push(frame.slice(5, 3 + size));
-          if (flag === 3) {
-            done.push(concat(...this.slices));
-            this.slices = [];
-          }
-        } else {
-          done.push(frame.slice(4, 3 + size));
-        }
-      }
-      return done;
-    }
-  };
-  async function open(p, body) {
-    const service = body[0] ?? 0, command = body[1] ?? 0;
-    const raw = body.slice(2);
-    if (RAW.has(`${service}:${command}`)) return { service, command, tlv: null, raw, encrypted: false };
-    let tlv = Tlv.parse(raw);
-    let encrypted = false;
-    if (tlv.has(124) && tlv.bool(124) && p.secretKey) {
-      tlv = Tlv.parse(await decryptBody(p, tlv));
-      encrypted = true;
-    }
-    return { service, command, tlv, raw, encrypted };
-  }
 
   // src/d2/sleepfile.ts
   var SLEEP_DICT = 700013;
@@ -437,6 +287,320 @@
       nights.push({ summary: s, ...parseStages(details ?? new Uint8Array(0), start), recordStart, recordEnd });
     }
     return nights;
+  }
+
+  // src/d2/store.ts
+  function nightFromData(d, user, watch) {
+    return { id: `d2-${d.start}`, user, start: d.start * 1e3, stages: d.stages, summary: d.summary, source: "d2", watch, downloadedAt: Date.now() };
+  }
+  var account = "local";
+  var dbPromise = null;
+  function useAccount(id) {
+    if (id === account) return;
+    account = id;
+    dbPromise = null;
+  }
+  function db() {
+    dbPromise ?? (dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(`d2link-${account}`, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains("nights")) req.result.createObjectStore("nights", { keyPath: "id" });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error("could not open storage"));
+    }));
+    return dbPromise;
+  }
+  async function tx(mode, fn) {
+    const d = await db();
+    return new Promise((resolve, reject) => {
+      const t = d.transaction("nights", mode);
+      const r = fn(t.objectStore("nights"));
+      t.oncomplete = () => resolve(r ? r.result : void 0);
+      t.onerror = () => reject(t.error ?? new Error("storage error"));
+    });
+  }
+  async function saveNights(nights) {
+    await tx("readwrite", (s) => {
+      for (const n of nights) s.put(n);
+    });
+  }
+  async function listAllNights() {
+    return await tx("readonly", (s) => s.getAll()) ?? [];
+  }
+  async function listNights(user) {
+    return (await listAllNights()).filter((n) => n.user === user).sort((a, b) => b.start - a.start);
+  }
+  async function deleteNight(id, { fromCloud = true } = {}) {
+    const existing = (await listAllNights()).find((n) => n.id === id);
+    if (fromCloud && existing?.synced) setPendingCloudDeletes([.../* @__PURE__ */ new Set([...pendingCloudDeletes(), id])]);
+    await tx("readwrite", (s) => {
+      s.delete(id);
+    });
+  }
+  var tombstoneKey = () => `d2link-deleted-${account}`;
+  function pendingCloudDeletes() {
+    try {
+      const v = JSON.parse(localStorage.getItem(tombstoneKey()) ?? "[]");
+      return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    } catch {
+      return [];
+    }
+  }
+  function setPendingCloudDeletes(ids) {
+    try {
+      localStorage.setItem(tombstoneKey(), JSON.stringify(ids));
+    } catch {
+    }
+  }
+  var pairingKey = () => `d2link-pairing-${account}`;
+  function loadPairing() {
+    try {
+      const v = JSON.parse(localStorage.getItem(pairingKey()) ?? "null");
+      if (typeof v === "object" && v !== null && typeof v.authId === "string" && typeof v.authToken === "string") return v;
+    } catch {
+    }
+    return null;
+  }
+  function savePairing(p) {
+    try {
+      if (p) localStorage.setItem(pairingKey(), JSON.stringify(p));
+      else localStorage.removeItem(pairingKey());
+    } catch {
+    }
+  }
+
+  // src/d2/cloud.ts
+  var TABLE = "d2_nights";
+  var CloudSetupError = class extends Error {
+  };
+  function fail(e) {
+    if (e.code === "42P01" || e.code === "PGRST205" || /does not exist|could not find the table/i.test(e.message)) {
+      throw new CloudSetupError("The cloud has no table for D2 nights yet. Run supabase/setup.sql once in Supabase (SQL Editor) to add it.");
+    }
+    if (e.code === "42501" || /permission denied/i.test(e.message)) {
+      throw new CloudSetupError("The cloud refused access to D2 nights. Run supabase/setup.sql again in Supabase (SQL Editor).");
+    }
+    throw new Error(e.message);
+  }
+  var payload = (n) => ({ v: 1, start: n.start, stages: n.stages, summary: n.summary, watch: n.watch, downloadedAt: n.downloadedAt });
+  function parseCloudNight(row) {
+    if (typeof row !== "object" || row === null) return null;
+    const r = row;
+    const night = r["night"];
+    if (typeof r["id"] !== "string" || typeof night !== "object" || night === null) return null;
+    const v = night;
+    const stages = v["stages"], summary = v["summary"];
+    if (v["v"] !== 1 || typeof v["start"] !== "number" || !Array.isArray(stages) || typeof summary !== "object" || summary === null) return null;
+    const s = emptySummary();
+    for (const k of Object.keys(s)) {
+      const x = summary[k];
+      s[k] = typeof x === "number" && Number.isFinite(x) ? x : null;
+    }
+    const user = typeof r["user_no"] === "number" && r["user_no"] >= 1 && r["user_no"] <= 9 ? r["user_no"] : 1;
+    return {
+      id: r["id"],
+      user,
+      start: v["start"],
+      stages: stages.filter((x) => typeof x === "number" && Number.isInteger(x) && x >= 0 && x < 16),
+      summary: s,
+      source: "d2",
+      watch: typeof v["watch"] === "string" ? v["watch"] : "Huawei Watch D2",
+      downloadedAt: typeof v["downloadedAt"] === "number" ? v["downloadedAt"] : 0,
+      synced: true
+    };
+  }
+  async function syncNights(client) {
+    const result = { uploaded: 0, downloaded: 0, deleted: 0 };
+    const stillPending = [];
+    for (const id of pendingCloudDeletes()) {
+      const { error } = await client.from(TABLE).delete().eq("id", id);
+      if (error) stillPending.push(id);
+    }
+    setPendingCloudDeletes(stillPending);
+    const list = await client.from(TABLE).select("id");
+    if (list.error) fail(list.error);
+    const inCloud = new Set((Array.isArray(list.data) ? list.data : []).flatMap((r) => {
+      const id = typeof r === "object" && r !== null ? r["id"] : null;
+      return typeof id === "string" ? [id] : [];
+    }));
+    const local = await listAllNights();
+    const localIds = new Set(local.map((n) => n.id));
+    for (const n of local) {
+      if (n.source === "demo") continue;
+      if (inCloud.has(n.id)) {
+        if (!n.synced) await saveNights([{ ...n, synced: true }]);
+        continue;
+      }
+      if (n.synced) {
+        await deleteNight(n.id, { fromCloud: false });
+        result.deleted++;
+        continue;
+      }
+      const up = await client.from(TABLE).upsert({ id: n.id, user_no: n.user, started_at: n.start, night: payload(n) });
+      if (up.error) fail(up.error);
+      await saveNights([{ ...n, synced: true }]);
+      result.uploaded++;
+    }
+    const missing = [...inCloud].filter((id) => !localIds.has(id) && !stillPending.includes(id));
+    for (let i = 0; i < missing.length; i += 20) {
+      const res = await client.from(TABLE).select("id, user_no, night").in("id", missing.slice(i, i + 20));
+      if (res.error) fail(res.error);
+      const nights = (Array.isArray(res.data) ? res.data : []).map(parseCloudNight).filter((n) => n !== null);
+      await saveNights(nights);
+      result.downloaded += nights.length;
+    }
+    return result;
+  }
+
+  // src/d2/crypto.ts
+  var subtle = () => globalThis.crypto.subtle;
+  var out = (b) => new Uint8Array(b);
+  async function sha256(data) {
+    return out(await subtle().digest("SHA-256", data));
+  }
+  async function hmacSha256(key, message) {
+    const k = await subtle().importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return out(await subtle().sign("HMAC", k, message));
+  }
+  async function hkdfSha256(secret, salt, info, length) {
+    const k = await subtle().importKey("raw", secret, "HKDF", false, ["deriveBits"]);
+    return out(await subtle().deriveBits({ name: "HKDF", hash: "SHA-256", salt, info }, k, length * 8));
+  }
+  async function aesKey(key, name) {
+    return subtle().importKey("raw", key, { name }, false, ["encrypt", "decrypt"]);
+  }
+  async function aesCbcEncrypt(data, key, iv) {
+    return out(await subtle().encrypt({ name: "AES-CBC", iv }, await aesKey(key, "AES-CBC"), data));
+  }
+  async function aesCbcDecrypt(data, key, iv) {
+    return out(await subtle().decrypt({ name: "AES-CBC", iv }, await aesKey(key, "AES-CBC"), data));
+  }
+  async function aesGcmEncrypt(data, key, iv, aad) {
+    const p = { name: "AES-GCM", iv, tagLength: 128, ...aad ? { additionalData: aad } : {} };
+    return out(await subtle().encrypt(p, await aesKey(key, "AES-GCM"), data));
+  }
+  async function aesGcmDecrypt(data, key, iv, aad) {
+    const p = { name: "AES-GCM", iv, tagLength: 128, ...aad ? { additionalData: aad } : {} };
+    return out(await subtle().decrypt(p, await aesKey(key, "AES-GCM"), data));
+  }
+  async function encrypt(gcm, data, key, iv) {
+    return gcm ? aesGcmEncrypt(data, key, iv) : aesCbcEncrypt(data, key, iv);
+  }
+  async function decrypt(gcm, data, key, iv) {
+    return gcm ? aesGcmDecrypt(data, key, iv) : aesCbcDecrypt(data, key, iv);
+  }
+  var DIGEST_SECRET_V1 = Uint8Array.of(112, 251, 108, 36, 3, 95, 219, 85, 47, 56, 137, 138, 238, 222, 63, 105);
+  var DIGEST_SECRET_V2 = Uint8Array.of(147, 172, 222, 247, 106, 203, 9, 133, 125, 191, 229, 38, 26, 171, 205, 120);
+  var DIGEST_SECRET_V3 = Uint8Array.of(156, 39, 99, 169, 204, 225, 52, 118, 109, 227, 255, 97, 24, 32, 5, 83);
+  function digestSecret(authVersion) {
+    if (authVersion === 1 || authVersion === 4) return DIGEST_SECRET_V1;
+    if (authVersion === 2) return DIGEST_SECRET_V2;
+    return DIGEST_SECRET_V3;
+  }
+  function nextIv(state) {
+    if (state.deviceSupportType === 4) return randomBytes(16);
+    state.counter = state.counter >= 4294967295 ? 1 : state.counter + 1;
+    const iv = randomBytes(16);
+    new DataView(iv.buffer).setUint32(12, state.counter);
+    return iv;
+  }
+
+  // src/d2/packet.ts
+  var MAGIC = 90;
+  var defaultParams = () => ({ sliceSize: 244, deviceSupportType: 0, encryptMethod: 0, authVersion: 0, authAlgo: 0, secretKey: null, counter: 0 });
+  var useGcm = (p) => p.encryptMethod === 1 || p.deviceSupportType === 4;
+  async function encryptBody(p, plain) {
+    if (!p.secretKey) throw new Error("not logged in");
+    const iv = nextIv(p);
+    return new Tlv().putByte(124, 1).put(125, iv).put(126, await encrypt(useGcm(p), plain, p.secretKey, iv));
+  }
+  async function decryptBody(p, tlv) {
+    if (!p.secretKey) throw new Error("encrypted packet before login");
+    return decrypt(useGcm(p), tlv.bytes(126), p.secretKey, tlv.bytes(125));
+  }
+  var withCrc = (b) => concat(b, u16(crc16(b)));
+  function unsliced(service, command, body) {
+    const len = 2 + body.length;
+    return [withCrc(concat(Uint8Array.of(MAGIC), u16(len + 1), Uint8Array.of(0, service, command), body))];
+  }
+  function sliced(sliceSize, service, command, body) {
+    const header = 5, footer = 2;
+    const maxBody = sliceSize - header - footer;
+    const count = Math.ceil((body.length + 2) / maxBody);
+    if (count <= 1) return unsliced(service, command, body);
+    const out2 = [];
+    let pos = 0;
+    for (let i = 0; i < count; i++) {
+      const size = Math.min(sliceSize, body.length - pos + header + footer);
+      const flag = i === 0 ? 1 : i === count - 1 ? 3 : 2;
+      let content = size - header - footer;
+      const ids = i === 0 ? Uint8Array.of(service, command) : new Uint8Array(0);
+      content -= ids.length;
+      out2.push(withCrc(concat(Uint8Array.of(MAGIC), u16(size - header), Uint8Array.of(flag, i & 255), ids, body.slice(pos, pos + content))));
+      pos += content;
+    }
+    return out2;
+  }
+  async function encode(p, pkt) {
+    const body = pkt.encrypt !== false && p.secretKey ? (await encryptBody(p, pkt.tlv.serialize())).serialize() : pkt.tlv.serialize();
+    return pkt.sliced === false ? unsliced(pkt.service, pkt.command, body) : sliced(p.sliceSize, pkt.service, pkt.command, body);
+  }
+  var RAW = /* @__PURE__ */ new Set(["10:5", "40:6", "44:5", "28:5"]);
+  var Decoder = class {
+    constructor() {
+      this.buf = new Uint8Array(0);
+      this.slices = [];
+      this.badFrames = 0;
+    }
+    /** Returns the complete packets in `data`, still to be decrypted with `open()`. */
+    push(data) {
+      this.buf = concat(this.buf, data);
+      const done = [];
+      for (; ; ) {
+        const start = this.buf.indexOf(MAGIC);
+        if (start < 0) {
+          this.buf = new Uint8Array(0);
+          break;
+        }
+        if (start > 0) this.buf = this.buf.slice(start);
+        if (this.buf.length < 3) break;
+        const size = (this.buf[1] ?? 0) << 8 | (this.buf[2] ?? 0);
+        const total = 3 + size + 2;
+        if (this.buf.length < total) break;
+        const frame = this.buf.slice(0, total);
+        this.buf = this.buf.slice(total);
+        const crc = (frame[total - 2] ?? 0) << 8 | (frame[total - 1] ?? 0);
+        if (crc16(frame.slice(0, total - 2)) !== crc) {
+          this.badFrames++;
+          continue;
+        }
+        const flag = frame[3] ?? 0;
+        if (flag >= 1 && flag <= 3) {
+          if (flag === 1) this.slices = [];
+          this.slices.push(frame.slice(5, 3 + size));
+          if (flag === 3) {
+            done.push(concat(...this.slices));
+            this.slices = [];
+          }
+        } else {
+          done.push(frame.slice(4, 3 + size));
+        }
+      }
+      return done;
+    }
+  };
+  async function open(p, body) {
+    const service = body[0] ?? 0, command = body[1] ?? 0;
+    const raw = body.slice(2);
+    if (RAW.has(`${service}:${command}`)) return { service, command, tlv: null, raw, encrypted: false };
+    let tlv = Tlv.parse(raw);
+    let encrypted = false;
+    if (tlv.has(124) && tlv.bool(124) && p.secretKey) {
+      tlv = Tlv.parse(await decryptBody(p, tlv));
+      encrypted = true;
+    }
+    return { service, command, tlv, raw, encrypted };
   }
 
   // src/d2/link.ts
@@ -570,8 +734,8 @@
     async hiChain(op, selfId, key) {
       const requestId = Date.now();
       const seed = randomBytes(32), randSelf = randomBytes(16);
-      const send = async (step, payload, value = {}, messageStep = step) => {
-        const json = hiChainJson(op, messageStep, requestId, selfId, payload, value);
+      const send = async (step, payload2, value = {}, messageStep = step) => {
+        const json = hiChainJson(op, messageStep, requestId, selfId, payload2, value);
         const tlv = new Tlv().putString(1, json).putByte(2, op).put(3, u64(requestId));
         const wait = op === 1 && step === 1 ? 6e4 : 1e4;
         return this.request({ service: DEVICE_CONFIG, command: 40, tlv, encrypt: false }, wait, `login step ${step}`);
@@ -676,10 +840,10 @@
       return { fileId: b[0] ?? 0, offset: dv.getInt32(1), data: b.slice(6) };
     }
   };
-  function hiChainJson(op, step, requestId, selfId, payload, extra = {}) {
+  function hiChainJson(op, step, requestId, selfId, payload2, extra = {}) {
     const value = {
       authForm: 0,
-      payload: { ...payload, version: { minVersion: "1.0.0", currentVersion: "2.0.16" } },
+      payload: { ...payload2, version: { minVersion: "1.0.0", currentVersion: "2.0.16" } },
       groupAndModuleVersion: "2.0.1",
       message: op === 2 ? step | 16 : step,
       ...extra
@@ -746,9 +910,9 @@
     for (const text of candidates) {
       const top = parseJsonObject(text);
       if (!top) continue;
-      let payload = top["payload"];
-      if (typeof payload === "string") payload = parseJsonObject(payload) ?? payload;
-      const p = typeof payload === "object" && payload !== null ? payload : top;
+      let payload2 = top["payload"];
+      if (typeof payload2 === "string") payload2 = parseJsonObject(payload2) ?? payload2;
+      const p = typeof payload2 === "object" && payload2 !== null ? payload2 : top;
       const err = p["errorCode"] ?? top["errorCode"];
       if (typeof err === "number" && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
       if (("epk" in p || "challenge" in p) && !("isoSalt" in p) && !("returnCodeMac" in p) && !("encAuthToken" in p)) {
@@ -913,68 +1077,6 @@
     return concat(head, body);
   }
 
-  // src/d2/store.ts
-  function nightFromData(d, user, watch) {
-    return { id: `d2-${d.start}`, user, start: d.start * 1e3, stages: d.stages, summary: d.summary, source: "d2", watch, downloadedAt: Date.now() };
-  }
-  var account = "local";
-  var dbPromise = null;
-  function useAccount(id) {
-    if (id === account) return;
-    account = id;
-    dbPromise = null;
-  }
-  function db() {
-    dbPromise ?? (dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(`d2link-${account}`, 1);
-      req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains("nights")) req.result.createObjectStore("nights", { keyPath: "id" });
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error ?? new Error("could not open storage"));
-    }));
-    return dbPromise;
-  }
-  async function tx(mode, fn) {
-    const d = await db();
-    return new Promise((resolve, reject) => {
-      const t = d.transaction("nights", mode);
-      const r = fn(t.objectStore("nights"));
-      t.oncomplete = () => resolve(r ? r.result : void 0);
-      t.onerror = () => reject(t.error ?? new Error("storage error"));
-    });
-  }
-  async function saveNights(nights) {
-    await tx("readwrite", (s) => {
-      for (const n of nights) s.put(n);
-    });
-  }
-  async function listNights(user) {
-    const all = await tx("readonly", (s) => s.getAll()) ?? [];
-    return all.filter((n) => n.user === user).sort((a, b) => b.start - a.start);
-  }
-  async function deleteNight(id) {
-    await tx("readwrite", (s) => {
-      s.delete(id);
-    });
-  }
-  var pairingKey = () => `d2link-pairing-${account}`;
-  function loadPairing() {
-    try {
-      const v = JSON.parse(localStorage.getItem(pairingKey()) ?? "null");
-      if (typeof v === "object" && v !== null && typeof v.authId === "string" && typeof v.authToken === "string") return v;
-    } catch {
-    }
-    return null;
-  }
-  function savePairing(p) {
-    try {
-      if (p) localStorage.setItem(pairingKey(), JSON.stringify(p));
-      else localStorage.removeItem(pairingKey());
-    } catch {
-    }
-  }
-
   // src/d2/ui.ts
   function el(tag, cls = "", text) {
     const e = document.createElement(tag);
@@ -1021,13 +1123,28 @@
     return n;
   }
   function figures(n) {
-    const count = (c) => n.stages.filter((s2) => s2 === c).length;
-    const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
     const s = n.summary;
-    const bedMs = s.bedTime != null ? s.bedTime * 1e3 : n.start;
-    const wokeMs = s.wakeupTime != null ? s.wakeupTime * 1e3 : n.start + n.stages.length * 6e4;
-    const wakeups = s.wakeCount ?? (n.stages.length ? countWakeups(n.stages) : null);
-    return { deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups };
+    const endMs = n.start + n.stages.length * 6e4;
+    const at = (sec, fallback) => sec != null ? Math.min(endMs, Math.max(n.start, sec * 1e3)) : fallback;
+    const bedMs = at(s.fallAsleepTime, n.start), wokeMs = at(s.wakeupTime, endMs);
+    const from = Math.round((bedMs - n.start) / 6e4), to = Math.max(from, Math.round((wokeMs - n.start) / 6e4));
+    const shown = { start: n.start + from * 6e4, stages: n.stages.slice(from, to) };
+    const count = (c) => shown.stages.filter((x) => x === c).length;
+    const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
+    const wakeups = s.wakeCount ?? (shown.stages.length ? countWakeups(shown.stages) : null);
+    return {
+      deepMin,
+      lightMin,
+      remMin,
+      awakeMin,
+      sleepMin: deepMin + lightMin + remMin,
+      bedMs,
+      wokeMs,
+      wakeups,
+      inBedFromMs: at(s.bedTime, n.start),
+      inBedToMs: at(s.risingTime, endMs),
+      shown
+    };
   }
   function fixed(v, lo, hi) {
     if (v == null || !Number.isFinite(v)) return null;
@@ -1053,7 +1170,7 @@
       { name: "Deep sleep", value: show(deep), unit: "%", verdict: fixed(deep, 20, 60), ref: "References: 20\u201360%" },
       { name: "REM sleep", value: show(rem), unit: "%", verdict: fixed(rem, 10, 30), ref: "References: 10\u201330%" },
       { name: "Deep sleep continuity", value: show(s.deepPart), unit: "points", verdict: fixed(s.deepPart, 70, 100), ref: "References: 70\u2013100 points" },
-      { name: "Breathing quality", value: show(s.sleepDataQuality), unit: "points", verdict: fixed(s.sleepDataQuality, 70, 100), ref: "References: 70\u2013100 points *" },
+      { name: "Breathing quality", value: "--", unit: "points", verdict: null, ref: "Not sent by the watch with the sleep record" },
       { name: "Avg HRV", value: show(s.avgHrv), unit: "ms", verdict: personal(s.avgHrv, s.minHrvBaseline, s.maxHrvBaseline), ref: pr(s.minHrvBaseline, s.maxHrvBaseline, " ms") },
       { name: "Avg SpO\u2082", value: show(s.avgOxygenSaturation), unit: "%", verdict: personal(s.avgOxygenSaturation, s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline), ref: pr(s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline, "%") },
       { name: "Avg breathing rate", value: show(s.avgBreathRate), unit: "per min", verdict: personal(s.avgBreathRate, s.minBreathRateBaseline, s.maxBreathRateBaseline), ref: pr(s.minBreathRateBaseline, s.maxBreathRateBaseline, "") }
@@ -1180,9 +1297,13 @@
     help.appendChild(steps);
     help.appendChild(el("p", "note", "D2 Link is experimental: it is built from Gadgetbridge\u2019s open-source description of the Huawei protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped."));
     const listHead = el("h3", "", "Nights from the watch");
+    const syncRow = el("div", "row between wrap d2-sync");
+    const syncText = el("span", "note");
+    const btnSync = button("Sync now");
+    syncRow.append(syncText, btnSync);
     const list = el("ul", "sessions");
     const empty = el("p", "muted", "No nights yet. Download from the watch, or try the demo nights.");
-    home.append(title, card, help, listHead, empty, list);
+    home.append(title, card, help, listHead, syncRow, empty, list);
     const log = (line) => {
       logPre.textContent += `${clock(Date.now())} ${line}
 `;
@@ -1217,6 +1338,32 @@
         return li;
       }));
     }
+    let syncing = null;
+    function sync() {
+      if (!deps.cloud) {
+        syncText.textContent = "Offline: nights stay on this device and sync when you\u2019re back online.";
+        btnSync.disabled = true;
+        return Promise.resolve();
+      }
+      const client = deps.cloud;
+      syncing ?? (syncing = (async () => {
+        btnSync.disabled = true;
+        syncText.textContent = "Syncing with the cloud\u2026";
+        try {
+          const r = await syncNights(client);
+          const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
+          syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(", ")})` : ""}. Nights are shared with your other devices; demo nights stay here.`;
+          if (r.downloaded || r.deleted) await renderList();
+        } catch (e) {
+          syncText.textContent = e instanceof CloudSetupError ? e.message : `Sync failed: ${e instanceof Error ? e.message : String(e)}`;
+        } finally {
+          btnSync.disabled = false;
+          syncing = null;
+        }
+      })());
+      return syncing;
+    }
+    btnSync.addEventListener("click", () => void sync());
     const download = (mode) => void (async () => {
       syncButtons(true);
       progress.textContent = "";
@@ -1241,6 +1388,7 @@
         const got = parseSleepFile(file).map((d) => nightFromData(d, deps.user(), name));
         await saveNights(got);
         log(`${got.length} night${got.length === 1 ? "" : "s"} saved.`);
+        void sync();
         progress.textContent = got.length ? `${got.length} night${got.length === 1 ? "" : "s"} downloaded.` : "The watch has no sleep records for this period.";
         setStatus(`${name} \u2013 done`, "on");
         await renderList();
@@ -1283,9 +1431,10 @@
         older: nights[i + 1] ? () => openReport(nights[i + 1].id) : null,
         newer: i > 0 ? () => openReport(nights[i - 1].id) : null,
         remove: async () => {
-          if (!window.confirm("Delete this night from this device?")) return;
+          if (!window.confirm(n.synced ? "Delete this night from this device and from your other devices?" : "Delete this night from this device?")) return;
           await deleteNight(n.id);
           await renderList();
+          void sync();
           report.hidden = true;
           home.hidden = false;
         }
@@ -1295,11 +1444,11 @@
       window.scrollTo(0, 0);
     }
     syncButtons();
-    void renderList();
+    void renderList().then(sync);
     return { refresh: () => {
       report.hidden = true;
       home.hidden = false;
-      void renderList();
+      void renderList().then(sync);
     } };
   }
   function renderReport(box, n, all, act) {
@@ -1348,7 +1497,7 @@
       it.append(sw, document.createTextNode(STAGE_NAME[code] ?? ""));
       legend.appendChild(it);
     }
-    top.append(nav, big, hypnogram(n), times, legend);
+    top.append(nav, big, hypnogram(f.shown), times, legend);
     if (n.source === "demo") top.appendChild(el("p", "note", "Demo night (made-up data) to show the report layout."));
     const scoreCard = el("div", "card d2-score");
     const score = el("div", "d2-score-main");
@@ -1396,11 +1545,24 @@
     for (const line of [
       `All results are calculated by the watch (${n.watch}) and downloaded as they are; D2 Link doesn\u2019t recalculate them.`,
       "References are the ones Huawei Health shows for sleep. \u201CPersonal range\u201D comes from the watch\u2019s own baseline of your recent nights; until it has enough nights it isn\u2019t set.",
-      "* \u201CBreathing quality\u201D is the watch value Gadgetbridge calls \u201Csleep data quality\u201D; its exact meaning isn\u2019t published.",
+      "Huawei Health shows the night from falling asleep to waking up; the watch also records when you lay down and got up (see \u201CMore from the watch\u201D). \u201CBreathing quality\u201D comes from separate breathing data that D2 Link doesn\u2019t download yet.",
       "Not a medical device. Sleep stages from a wrist watch are estimates."
     ]) ul.appendChild(el("li", "", line));
     notes.appendChild(ul);
-    box.append(bar, top, scoreCard, grid, notes);
+    const more = el("div", "card d2-more");
+    more.appendChild(el("h3", "", "More from the watch"));
+    const moreRows = [
+      ["Time in bed", `${clock(f.inBedFromMs)}\u2013${clock(f.inBedToMs)} (${hm((f.inBedToMs - f.inBedFromMs) / 6e4)})`],
+      ["Time to fall asleep", s.sleepLatency != null ? `${s.sleepLatency} min` : "--"],
+      ["Sleep efficiency", s.sleepEfficiency != null ? `${s.sleepEfficiency}% (asleep \xF7 time in bed)` : "--"],
+      ["Awake in the night", `${f.awakeMin} min`]
+    ];
+    for (const [k, v] of moreRows) {
+      const r = el("div", "row between d2-more-row");
+      r.append(el("span", "muted", k), el("span", "", v));
+      more.appendChild(r);
+    }
+    box.append(bar, top, scoreCard, grid, more, notes);
   }
   function stars(score) {
     const box = el("div", "d2-stars");

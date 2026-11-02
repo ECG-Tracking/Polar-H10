@@ -15,6 +15,8 @@ export interface D2Night {
   source: 'd2' | 'demo';
   watch: string;
   downloadedAt: number;
+  /** In the account's cloud copy (D2 Link syncs nights between devices). */
+  synced?: boolean;
 }
 
 export function nightFromData(d: D2NightData, user: number, watch: string): D2Night {
@@ -54,13 +56,32 @@ export async function saveNights(nights: D2Night[]): Promise<void> {
   await tx('readwrite', (s) => { for (const n of nights) s.put(n); });
 }
 
-export async function listNights(user: number): Promise<D2Night[]> {
-  const all = ((await tx<D2Night[]>('readonly', (s) => s.getAll() as IDBRequest<D2Night[]>)) ?? []);
-  return all.filter((n) => n.user === user).sort((a, b) => b.start - a.start);
+export async function listAllNights(): Promise<D2Night[]> {
+  return (await tx<D2Night[]>('readonly', (s) => s.getAll() as IDBRequest<D2Night[]>)) ?? [];
 }
 
-export async function deleteNight(id: string): Promise<void> {
+export async function listNights(user: number): Promise<D2Night[]> {
+  return (await listAllNights()).filter((n) => n.user === user).sort((a, b) => b.start - a.start);
+}
+
+/** Deletes a night here; `fromCloud` also removes it from the cloud at the next sync (and so from other devices). */
+export async function deleteNight(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
+  const existing = (await listAllNights()).find((n) => n.id === id);
+  if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes(), id])]);
   await tx('readwrite', (s) => { s.delete(id); });
+}
+
+const tombstoneKey = (): string => `d2link-deleted-${account}`;
+
+export function pendingCloudDeletes(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(tombstoneKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+export function setPendingCloudDeletes(ids: readonly string[]): void {
+  try { localStorage.setItem(tombstoneKey(), JSON.stringify(ids)); } catch { /* storage unavailable */ }
 }
 
 const pairingKey = (): string => `d2link-pairing-${account}`;

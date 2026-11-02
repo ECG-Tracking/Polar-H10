@@ -2,6 +2,7 @@
 // D2 Link — the screen: pair with the watch, download sleep, and a Huawei Health-style night report.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
+import { CloudSetupError, syncNights, type CloudClient } from './cloud';
 import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
@@ -14,6 +15,8 @@ export interface D2Deps {
   account: string;
   user: () => number;
   userLabel: () => string;
+  /** The signed-in account's cloud client, or null when offline: nights then stay on this device until the next sync. */
+  cloud: CloudClient | null;
 }
 
 // ---------- small DOM helpers ----------
@@ -44,7 +47,18 @@ export const STAGE_NAME: Readonly<Record<number, string>> = { 1: 'Light sleep', 
 const STAGE_VAR: Readonly<Record<number, string>> = { 1: 'var(--stage-light)', 2: 'var(--stage-rem)', 3: 'var(--stage-deep)', 4: 'var(--stage-awake)', 5: 'var(--stage-light)' };
 const STAGE_ROW: Readonly<Record<number, number>> = { 4: 0, 2: 1, 1: 2, 5: 2, 3: 3 }; // awake on top, deep at the bottom
 
-export interface NightFigures { deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number; bedMs: number; wokeMs: number; wakeups: number | null }
+export interface NightFigures {
+  deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number;
+  /** Huawei Health's "Bed time": when sleep started (the watch's fallAsleepTime). */
+  bedMs: number;
+  /** When you woke up (wakeupTime). */
+  wokeMs: number;
+  wakeups: number | null;
+  /** Lying in bed, from the watch: bedTime to risingTime. */
+  inBedFromMs: number; inBedToMs: number;
+  /** The stages Huawei Health shows: from falling asleep to waking up. */
+  shown: { start: number; stages: number[] };
+}
 
 /** Awake spells between sleep (not before falling asleep or after the last sleep), from the stage list. */
 export function countWakeups(stages: readonly number[]): number {
@@ -58,14 +72,21 @@ export function countWakeups(stages: readonly number[]): number {
 }
 
 export function figures(n: D2Night): NightFigures {
-  const count = (c: number): number => n.stages.filter((s) => s === c).length;
-  const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
   const s = n.summary;
-  const bedMs = s.bedTime != null ? s.bedTime * 1000 : n.start;
-  const wokeMs = s.wakeupTime != null ? s.wakeupTime * 1000 : n.start + n.stages.length * 60000;
+  const endMs = n.start + n.stages.length * 60000;
+  const at = (sec: number | null, fallback: number): number => (sec != null ? Math.min(endMs, Math.max(n.start, sec * 1000)) : fallback);
+  // Huawei Health shows the night from falling asleep to waking up; the watch records from lying down to getting up
+  const bedMs = at(s.fallAsleepTime, n.start), wokeMs = at(s.wakeupTime, endMs);
+  const from = Math.round((bedMs - n.start) / 60000), to = Math.max(from, Math.round((wokeMs - n.start) / 60000));
+  const shown = { start: n.start + from * 60000, stages: n.stages.slice(from, to) };
+  const count = (c: number): number => shown.stages.filter((x) => x === c).length;
+  const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
   // the watch's own count when it sends one, otherwise counted from the stages (as Huawei Health shows it)
-  const wakeups = s.wakeCount ?? (n.stages.length ? countWakeups(n.stages) : null);
-  return { deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups };
+  const wakeups = s.wakeCount ?? (shown.stages.length ? countWakeups(shown.stages) : null);
+  return {
+    deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups,
+    inBedFromMs: at(s.bedTime, n.start), inBedToMs: at(s.risingTime, endMs), shown,
+  };
 }
 
 type Verdict = { text: string; kind: 'normal' | 'high' | 'low' | 'personal' } | null;
@@ -98,7 +119,7 @@ export function tiles(n: D2Night): TileSpec[] {
     { name: 'Deep sleep', value: show(deep), unit: '%', verdict: fixed(deep, 20, 60), ref: 'References: 20–60%' },
     { name: 'REM sleep', value: show(rem), unit: '%', verdict: fixed(rem, 10, 30), ref: 'References: 10–30%' },
     { name: 'Deep sleep continuity', value: show(s.deepPart), unit: 'points', verdict: fixed(s.deepPart, 70, 100), ref: 'References: 70–100 points' },
-    { name: 'Breathing quality', value: show(s.sleepDataQuality), unit: 'points', verdict: fixed(s.sleepDataQuality, 70, 100), ref: 'References: 70–100 points *' },
+    { name: 'Breathing quality', value: '--', unit: 'points', verdict: null, ref: 'Not sent by the watch with the sleep record' },
     { name: 'Avg HRV', value: show(s.avgHrv), unit: 'ms', verdict: personal(s.avgHrv, s.minHrvBaseline, s.maxHrvBaseline), ref: pr(s.minHrvBaseline, s.maxHrvBaseline, ' ms') },
     { name: 'Avg SpO₂', value: show(s.avgOxygenSaturation), unit: '%', verdict: personal(s.avgOxygenSaturation, s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline), ref: pr(s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline, '%') },
     { name: 'Avg breathing rate', value: show(s.avgBreathRate), unit: 'per min', verdict: personal(s.avgBreathRate, s.minBreathRateBaseline, s.maxBreathRateBaseline), ref: pr(s.minBreathRateBaseline, s.maxBreathRateBaseline, '') },
@@ -107,7 +128,7 @@ export function tiles(n: D2Night): TileSpec[] {
 
 // ---------- charts (SVG) ----------
 
-function hypnogram(n: D2Night): SVGSVGElement {
+function hypnogram(n: { start: number; stages: number[] }): SVGSVGElement {
   const W = 600, rowH = 34, gap = 10, top = 6, H = top + 4 * (rowH + gap);
   const total = Math.max(1, n.stages.length);
   const x = (m: number): number => (m / total) * W;
@@ -221,9 +242,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the Huawei protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped.'));
 
   const listHead = el('h3', '', 'Nights from the watch');
+  const syncRow = el('div', 'row between wrap d2-sync');
+  const syncText = el('span', 'note');
+  const btnSync = button('Sync now');
+  syncRow.append(syncText, btnSync);
   const list = el('ul', 'sessions');
   const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
-  home.append(title, card, help, listHead, empty, list);
+  home.append(title, card, help, listHead, syncRow, empty, list);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -257,6 +282,34 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     }));
   }
 
+  // ---------- cloud sync: nights downloaded on one device appear on the others ----------
+  let syncing: Promise<void> | null = null;
+  function sync(): Promise<void> {
+    if (!deps.cloud) {
+      syncText.textContent = 'Offline: nights stay on this device and sync when you’re back online.';
+      btnSync.disabled = true;
+      return Promise.resolve();
+    }
+    const client = deps.cloud;
+    syncing ??= (async () => {
+      btnSync.disabled = true;
+      syncText.textContent = 'Syncing with the cloud…';
+      try {
+        const r = await syncNights(client);
+        const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
+        syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Nights are shared with your other devices; demo nights stay here.`;
+        if (r.downloaded || r.deleted) await renderList();
+      } catch (e) {
+        syncText.textContent = e instanceof CloudSetupError ? e.message : `Sync failed: ${e instanceof Error ? e.message : String(e)}`;
+      } finally {
+        btnSync.disabled = false;
+        syncing = null;
+      }
+    })();
+    return syncing;
+  }
+  btnSync.addEventListener('click', () => void sync());
+
   // ---------- download ----------
   const download = (mode: 'bluetooth' | 'system'): void => void (async () => {
     syncButtons(true);
@@ -277,6 +330,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const got = parseSleepFile(file).map((d) => store.nightFromData(d, deps.user(), name));
       await store.saveNights(got);
       log(`${got.length} night${got.length === 1 ? '' : 's'} saved.`);
+      void sync();
       progress.textContent = got.length ? `${got.length} night${got.length === 1 ? '' : 's'} downloaded.` : 'The watch has no sleep records for this period.';
       setStatus(`${name} – done`, 'on');
       await renderList();
@@ -323,9 +377,10 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       older: nights[i + 1] ? () => openReport(nights[i + 1]!.id) : null,
       newer: i > 0 ? () => openReport(nights[i - 1]!.id) : null,
       remove: async () => {
-        if (!window.confirm('Delete this night from this device?')) return;
+        if (!window.confirm(n.synced ? 'Delete this night from this device and from your other devices?' : 'Delete this night from this device?')) return;
         await store.deleteNight(n.id);
         await renderList();
+        void sync();
         report.hidden = true; home.hidden = false;
       },
     });
@@ -335,8 +390,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   syncButtons();
-  void renderList();
-  return { refresh: () => { report.hidden = true; home.hidden = false; void renderList(); } };
+  void renderList().then(sync);
+  return { refresh: () => { report.hidden = true; home.hidden = false; void renderList().then(sync); } };
 }
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
@@ -379,7 +434,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], act: ReportA
   for (const code of [3, 1, 2, 4]) {
     const it = el('span'); const sw = el('i'); sw.style.background = STAGE_VAR[code] ?? ''; it.append(sw, document.createTextNode(STAGE_NAME[code] ?? '')); legend.appendChild(it);
   }
-  top.append(nav, big, hypnogram(n), times, legend);
+  top.append(nav, big, hypnogram(f.shown), times, legend);
   if (n.source === 'demo') top.appendChild(el('p', 'note', 'Demo night (made-up data) to show the report layout.'));
 
   // score, recent awakenings and the stage donut (Huawei's second screen)
@@ -429,12 +484,27 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], act: ReportA
   for (const line of [
     `All results are calculated by the watch (${n.watch}) and downloaded as they are; D2 Link doesn’t recalculate them.`,
     'References are the ones Huawei Health shows for sleep. “Personal range” comes from the watch’s own baseline of your recent nights; until it has enough nights it isn’t set.',
-    '* “Breathing quality” is the watch value Gadgetbridge calls “sleep data quality”; its exact meaning isn’t published.',
+    'Huawei Health shows the night from falling asleep to waking up; the watch also records when you lay down and got up (see “More from the watch”). “Breathing quality” comes from separate breathing data that D2 Link doesn’t download yet.',
     'Not a medical device. Sleep stages from a wrist watch are estimates.',
   ]) ul.appendChild(el('li', '', line));
   notes.appendChild(ul);
 
-  box.append(bar, top, scoreCard, grid, notes);
+  // what the watch sends that Huawei's sleep page doesn't show
+  const more = el('div', 'card d2-more');
+  more.appendChild(el('h3', '', 'More from the watch'));
+  const moreRows: [string, string][] = [
+    ['Time in bed', `${clock(f.inBedFromMs)}–${clock(f.inBedToMs)} (${hm((f.inBedToMs - f.inBedFromMs) / 60000)})`],
+    ['Time to fall asleep', s.sleepLatency != null ? `${s.sleepLatency} min` : '--'],
+    ['Sleep efficiency', s.sleepEfficiency != null ? `${s.sleepEfficiency}% (asleep ÷ time in bed)` : '--'],
+    ['Awake in the night', `${f.awakeMin} min`],
+  ];
+  for (const [k, v] of moreRows) {
+    const r = el('div', 'row between d2-more-row');
+    r.append(el('span', 'muted', k), el('span', '', v));
+    more.appendChild(r);
+  }
+
+  box.append(bar, top, scoreCard, grid, more, notes);
 }
 
 function stars(score: number | null): HTMLElement {

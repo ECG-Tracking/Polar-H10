@@ -367,3 +367,8 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
   .d2-mix { grid-template-columns: 96px 1fr; }
   .d2-donut { width: 96px; height: 96px; }
 }
+.d2-more { margin-top: 14px; }
+.d2-more h3 { margin-top: 0; }
+.d2-more-row { padding: 6px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; gap: 12px; }
+.d2-more-row:first-of-type { border-top: 0; }
+.d2-sync { margin: -4px 0 10px; gap: 8px; }
