@@ -695,6 +695,21 @@
     }
     return JSON.stringify(value);
   }
+  function parseJsonObject(text) {
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    if (a < 0 || b <= a) return null;
+    try {
+      const v = JSON.parse(text.slice(a, b + 1));
+      return typeof v === "object" && v !== null && !Array.isArray(v) ? v : null;
+    } catch {
+      return null;
+    }
+  }
+  function textShape(b) {
+    const code = (x) => x == null ? "-" : x >= 32 && x < 127 ? `'${String.fromCharCode(x)}'` : `0x${x.toString(16).padStart(2, "0")}`;
+    const zeros = b.filter((x) => x === 0).length;
+    return ` text[first ${code(b[0])} ${code(b[1])}, last ${code(b[b.length - 2])} ${code(b[b.length - 1])}${zeros ? `, ${zeros} zero bytes` : ""}]`;
+  }
   function describeReply(tlv) {
     return tlv.items.map((i) => {
       let text = "";
@@ -703,16 +718,15 @@
       } catch {
       }
       let keys = "";
-      try {
-        const v = JSON.parse(text);
+      {
+        const v = parseJsonObject(text);
         if (typeof v === "object" && v !== null) {
           const top = v;
           const pl = top["payload"];
-          keys = ` JSON{${Object.keys(top).join(",")}}${typeof pl === "object" && pl !== null ? ` payload{${Object.keys(pl).join(",")}}` : ""}${typeof top["message"] === "number" ? ` message=${top["message"]}` : ""}`;
+          keys = ` JSON{${Object.keys(top).join(",")}}${typeof pl === "object" && pl !== null ? ` payload{${Object.keys(pl).join(",")}}` : typeof pl === "string" ? " payload:text" : ""}${typeof top["message"] === "number" ? ` message=${top["message"]}` : ""}`;
         }
-      } catch {
       }
-      return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : "")}`;
+      return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : textShape(i.value))}`;
     }).join(" ");
   }
   function hiChainPayload(tlv) {
@@ -725,21 +739,10 @@
       }
     });
     for (const text of candidates) {
-      let value;
-      try {
-        value = JSON.parse(text);
-      } catch {
-        continue;
-      }
-      if (typeof value !== "object" || value === null) continue;
-      const top = value;
+      const top = parseJsonObject(text);
+      if (!top) continue;
       let payload = top["payload"];
-      if (typeof payload === "string") {
-        try {
-          payload = JSON.parse(payload);
-        } catch {
-        }
-      }
+      if (typeof payload === "string") payload = parseJsonObject(payload) ?? payload;
       const p = typeof payload === "object" && payload !== null ? payload : top;
       const err = p["errorCode"] ?? top["errorCode"];
       if (typeof err === "number" && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);

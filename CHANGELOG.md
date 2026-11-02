@@ -4,6 +4,14 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: tolerant login reading *(GitHub)*
+Why: the watch's first login reply (805 bytes in field 0x01) was not accepted as JSON by the browser.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | Login replies are read like Java (Gadgetbridge) reads them: the JSON object is taken from the text and anything around it, such as a trailing zero byte, is ignored; if it still can't be read, the log shows how the text starts and ends (no content) |
+| `tests/d2.test.ts` | New test for a reply with a trailing zero byte |
+
 ## 3 Nov 2026 – D2 Link always loads the latest version *(GitHub)*
 Why: the phone kept using the previous D2 Link for up to 10 minutes after publishing (browser cache).
 

@@ -307,21 +307,41 @@ export function hiChainJson(op: number, step: number, requestId: number, selfId:
   return JSON.stringify(value);
 }
 
+/**
+ * The JSON object in a text, ignoring anything around it (e.g. a trailing zero byte), as Java's JSON reader does.
+ * Returns null if there is no readable object.
+ */
+export function parseJsonObject(text: string): Record<string, unknown> | null {
+  const a = text.indexOf('{'), b = text.lastIndexOf('}');
+  if (a < 0 || b <= a) return null;
+  try {
+    const v: unknown = JSON.parse(text.slice(a, b + 1));
+    return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch { return null; }
+}
+
+/** How a text that isn't JSON starts and ends, without its content: first and last byte codes, any zero bytes. */
+function textShape(b: Uint8Array): string {
+  const code = (x: number | undefined): string => (x == null ? '-' : x >= 0x20 && x < 0x7f ? `'${String.fromCharCode(x)}'` : `0x${x.toString(16).padStart(2, '0')}`);
+  const zeros = b.filter((x) => x === 0).length;
+  return ` text[first ${code(b[0])} ${code(b[1])}, last ${code(b[b.length - 2])} ${code(b[b.length - 1])}${zeros ? `, ${zeros} zero bytes` : ''}]`;
+}
+
 /** A short, value-free description of a login reply for the connection log: its fields and JSON keys. */
 export function describeReply(tlv: Tlv): string {
   return tlv.items.map((i) => {
     let text = '';
     try { text = fromUtf8(i.value); } catch { /* binary */ }
     let keys = '';
-    try {
-      const v: unknown = JSON.parse(text);
+    {
+      const v = parseJsonObject(text);
       if (typeof v === 'object' && v !== null) {
         const top = v as Record<string, unknown>;
         const pl = top['payload'];
-        keys = ` JSON{${Object.keys(top).join(',')}}${typeof pl === 'object' && pl !== null ? ` payload{${Object.keys(pl).join(',')}}` : ''}${typeof top['message'] === 'number' ? ` message=${top['message']}` : ''}`;
+        keys = ` JSON{${Object.keys(top).join(',')}}${typeof pl === 'object' && pl !== null ? ` payload{${Object.keys(pl).join(',')}}` : typeof pl === 'string' ? ' payload:text' : ''}${typeof top['message'] === 'number' ? ` message=${top['message']}` : ''}`;
       }
-    } catch { /* not JSON */ }
-    return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : '')}`;
+    }
+    return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : textShape(i.value))}`;
   }).join(' ');
 }
 
@@ -333,12 +353,10 @@ export function hiChainPayload(tlv: Tlv): Record<string, unknown> {
   if (tlv.has(0x04) && tlv.byte(0x04) !== 0) return {};
   const candidates = [0x01, 0x02].filter((t) => tlv.has(t)).map((t) => { try { return fromUtf8(tlv.bytes(t)); } catch { return ''; } });
   for (const text of candidates) {
-    let value: unknown;
-    try { value = JSON.parse(text); } catch { continue; }
-    if (typeof value !== 'object' || value === null) continue;
-    const top = value as Record<string, unknown>;
+    const top = parseJsonObject(text);
+    if (!top) continue;
     let payload: unknown = top['payload'];
-    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch { /* keep as is */ } }
+    if (typeof payload === 'string') payload = parseJsonObject(payload) ?? payload;
     const p = (typeof payload === 'object' && payload !== null ? payload : top) as Record<string, unknown>;
     const err = p['errorCode'] ?? top['errorCode'];
     if (typeof err === 'number' && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);

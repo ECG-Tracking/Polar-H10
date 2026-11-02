@@ -159,3 +159,11 @@ test('D2 login replies: both Huawei layouts are read; others are described in th
   assert.throws(() => hiChainPayload(odd), /can’t read yet\. Reply: 0x1:1B=01 0x2:6B/);
   assert.match(describeReply(new Tlv().putString(0x01, json)), /JSON\{payload,message\} payload\{isoSalt,token\} message=1/);
 });
+
+test('D2 login replies: JSON with a trailing zero byte (as Java tolerates) is read; non-JSON text is described by shape', () => {
+  const json = JSON.stringify({ payload: { isoSalt: 'AA' }, message: 1 });
+  const withZero = new Tlv().put(0x01, new Uint8Array([...new TextEncoder().encode(json), 0])).putByte(0x02, 1).put(0x03, new Uint8Array(8)).putByte(0x04, 0).putByte(0x05, 0);
+  assert.equal(hiChainPayload(withZero)['isoSalt'], 'AA');
+  const notJson = new Tlv().put(0x01, Uint8Array.of(0x41, 0x42, 0x00, 0x43, 0x44)).putByte(0x04, 0);
+  assert.throws(() => hiChainPayload(notJson), /0x1:5B text\[first 'A' 'B', last 'C' 'D', 1 zero bytes\]/);
+});
