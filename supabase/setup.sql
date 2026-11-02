@@ -33,6 +33,9 @@ begin
 end $$;
 
 alter table public.ecg_sessions enable row level security;
+-- signed-in users may use the table (the policies below still limit them to their own rows); signed-out visitors may not
+grant select, insert, update, delete on public.ecg_sessions to authenticated;
+revoke all on public.ecg_sessions from anon;
 
 drop policy if exists "ecg_sessions: read own"   on public.ecg_sessions;
 drop policy if exists "ecg_sessions: add own"    on public.ecg_sessions;
@@ -58,6 +61,8 @@ create table if not exists public.sleep_nights (
 );
 
 alter table public.sleep_nights enable row level security;
+grant select, insert, update, delete on public.sleep_nights to authenticated;
+revoke all on public.sleep_nights from anon;
 
 drop policy if exists "sleep_nights: read own"   on public.sleep_nights;
 drop policy if exists "sleep_nights: add own"    on public.sleep_nights;

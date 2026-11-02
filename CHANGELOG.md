@@ -4,6 +4,11 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Supabase permissions *(GitHub)*
+| File | Change |
+|---|---|
+| `supabase/setup.sql` | Grants signed-in users access to the ecg_sessions and sleep_nights tables (this project doesn't grant it automatically) and keeps signed-out visitors out; the access rules still limit each account to its own rows |
+
 ## 2 Nov 2026 – Sign-in and cloud sync of summaries *(GitHub)*
 Why: a login like the Portfolio Optimizer's; ECG and sleep history available on all your devices while keeping cloud storage small.
 
