@@ -30,14 +30,19 @@ export const serialAvailable = (): boolean => serial() !== null;
  */
 export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log: (line: string) => void = () => {}): Promise<Transport> {
   const s = serial();
-  if (!s) throw new Error('This browser cannot reach classic Bluetooth. Use Chrome (version 117 or later) on a computer.');
+  if (!s) throw new Error('This browser cannot reach the watch. Use Chrome on an Android phone or on a computer.');
   const port = await s.requestPort(mode === 'bluetooth'
     ? { filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] }
     : { allowedBluetoothServiceClassIds: [D2_SERVICE] });
   const id = port.getInfo().bluetoothServiceClassId;
   log(`Chosen port: ${id ? `Bluetooth service ${id}` : 'a serial port of this computer'}`);
   try {
-    await port.open({ baudRate: 115200 }); // the rate is ignored for Bluetooth
+    await port.open({ baudRate: 115200 }).catch(async (e: unknown) => {
+      // still open from an earlier attempt: close it and try once more
+      if (!(e instanceof Error && /already open/i.test(e.message))) throw e;
+      await port.close().catch(() => undefined);
+      await port.open({ baudRate: 115200 });
+    }); // the rate is ignored for Bluetooth
   } catch (e) {
     throw new Error(mode === 'bluetooth'
       ? `Chrome could not open the watch’s connection (${e instanceof Error ? e.message : String(e)}). Try “Use the computer’s serial port” instead.`
@@ -48,18 +53,21 @@ export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log:
   if (!writer || !reader) throw new Error('The watch connection could not be opened.');
 
   let open = true;
+  // releases everything so the port can be opened again (after a disconnect as well as on close)
+  const shutdown = async (): Promise<void> => {
+    if (!open) return;
+    open = false;
+    await reader.cancel().catch(() => undefined);
+    try { reader.releaseLock(); } catch { /* already released */ }
+    await writer.close().catch(() => undefined);
+    try { writer.releaseLock(); } catch { /* already released */ }
+    await port.close().catch(() => undefined);
+  };
   const t: Transport = {
     onData: null,
     onClose: null,
     send: async (data) => { await writer.write(data); },
-    close: async () => {
-      if (!open) return;
-      open = false;
-      await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-      writer.releaseLock();
-      await port.close().catch(() => undefined);
-    },
+    close: shutdown,
   };
   void (async () => {
     try {
@@ -69,7 +77,7 @@ export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log:
         if (value) t.onData?.(value);
       }
     } catch { /* disconnected */ }
-    if (open) { open = false; t.onClose?.(); }
+    if (open) { await shutdown(); t.onClose?.(); }
   })();
   return t;
 }

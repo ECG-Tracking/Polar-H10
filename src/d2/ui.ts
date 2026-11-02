@@ -172,7 +172,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const status = el('div', 'status');
   const dot = el('span', 'dot'), statusText = el('span', '', 'Not connected');
   status.append(dot, statusText);
-  const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome (version 117 or later) on a computer; phones, Safari and Firefox can’t connect to a Huawei Watch D2.');
+  const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome on an Android phone (including Huawei phones) or on a computer; Safari, Firefox and iPhones can’t connect to a Huawei Watch D2.');
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
   const btnSystem = button('Use the computer’s serial port');
@@ -198,11 +198,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   help.appendChild(el('summary', '', 'Before you start (first time)'));
   const steps = el('ol');
   for (const s of [
-    'Use Chrome (version 117 or later) on a Mac or Windows computer. Phones and other browsers can’t reach classic Bluetooth.',
-    'Turn off Bluetooth on your phone, so the watch is not connected to Huawei Health while you do this.',
-    'Pair the watch with this computer first: on a Mac, System Settings → Bluetooth → “HUAWEI WATCH D2-…” → Connect. On Windows: Settings → Bluetooth & devices → Add device.',
+    'Use Chrome on an Android phone (Huawei phones work) or on a computer. Safari, Firefox and iPhones can’t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.',
+    'Make sure the watch is not connected to Huawei Health while you do this (disconnect it there, or use a phone without Huawei Health).',
+    'Pair the watch in the phone’s or computer’s Bluetooth settings first (“HUAWEI WATCH D2-…”).',
     'Click “Pair & download sleep” and choose the watch in Chrome’s list. The first time, confirm the pairing on the watch if it asks.',
-    'Afterwards, turn your phone’s Bluetooth back on. Huawei Health may need to reconnect to the watch.',
+    'Afterwards, Huawei Health may need to reconnect to the watch.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
   help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the Huawei protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped.'));

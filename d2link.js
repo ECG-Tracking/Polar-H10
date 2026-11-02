@@ -695,19 +695,61 @@
     }
     return JSON.stringify(value);
   }
+  function describeReply(tlv) {
+    return tlv.items.map((i) => {
+      let text = "";
+      try {
+        text = fromUtf8(i.value);
+      } catch {
+      }
+      let keys = "";
+      try {
+        const v = JSON.parse(text);
+        if (typeof v === "object" && v !== null) {
+          const top = v;
+          const pl = top["payload"];
+          keys = ` JSON{${Object.keys(top).join(",")}}${typeof pl === "object" && pl !== null ? ` payload{${Object.keys(pl).join(",")}}` : ""}${typeof top["message"] === "number" ? ` message=${top["message"]}` : ""}`;
+        }
+      } catch {
+      }
+      return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : "")}`;
+    }).join(" ");
+  }
   function hiChainPayload(tlv) {
     if (tlv.has(4) && tlv.byte(4) !== 0) return {};
-    let value;
-    try {
-      value = JSON.parse(tlv.string(1));
-    } catch {
-      throw new WatchError("The watch sent an unreadable login message.");
+    const candidates = [1, 2].filter((t) => tlv.has(t)).map((t) => {
+      try {
+        return fromUtf8(tlv.bytes(t));
+      } catch {
+        return "";
+      }
+    });
+    for (const text of candidates) {
+      let value;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        continue;
+      }
+      if (typeof value !== "object" || value === null) continue;
+      const top = value;
+      let payload = top["payload"];
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+        }
+      }
+      const p = typeof payload === "object" && payload !== null ? payload : top;
+      const err = p["errorCode"] ?? top["errorCode"];
+      if (typeof err === "number" && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
+      if ("epk" in p || "challenge" in p || top["message"] === 32785) {
+        throw new WatchError(`This watch uses Huawei\u2019s newer \u201CPAKE\u201D login, which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
+      }
+      return p;
     }
-    const payload = typeof value === "object" && value !== null ? value["payload"] : null;
-    if (typeof payload !== "object" || payload === null) throw new WatchError("The watch sent an unreadable login message.");
-    const p = payload;
-    if (typeof p["errorCode"] === "number" && p["errorCode"] !== 0) throw new WatchError(`The watch refused the login (error ${p["errorCode"]}).`);
-    return p;
+    if (tlv.has(1) && !tlv.has(2) && tlv.items.length === 1 && candidates[0] === "") return {};
+    throw new WatchError(`The watch sent a login message D2 Link can\u2019t read yet. Reply: ${describeReply(tlv)}`);
   }
   var str = (p, k) => {
     const v = p[k];
@@ -735,12 +777,16 @@
   async function openWatch(mode = "bluetooth", log = () => {
   }) {
     const s = serial();
-    if (!s) throw new Error("This browser cannot reach classic Bluetooth. Use Chrome (version 117 or later) on a computer.");
+    if (!s) throw new Error("This browser cannot reach the watch. Use Chrome on an Android phone or on a computer.");
     const port = await s.requestPort(mode === "bluetooth" ? { filters: [{ bluetoothServiceClassId: D2_SERVICE }], allowedBluetoothServiceClassIds: [D2_SERVICE] } : { allowedBluetoothServiceClassIds: [D2_SERVICE] });
     const id = port.getInfo().bluetoothServiceClassId;
     log(`Chosen port: ${id ? `Bluetooth service ${id}` : "a serial port of this computer"}`);
     try {
-      await port.open({ baudRate: 115200 });
+      await port.open({ baudRate: 115200 }).catch(async (e) => {
+        if (!(e instanceof Error && /already open/i.test(e.message))) throw e;
+        await port.close().catch(() => void 0);
+        await port.open({ baudRate: 115200 });
+      });
     } catch (e) {
       throw new Error(mode === "bluetooth" ? `Chrome could not open the watch\u2019s connection (${e instanceof Error ? e.message : String(e)}). Try \u201CUse the computer\u2019s serial port\u201D instead.` : `This serial port could not be opened (${e instanceof Error ? e.message : String(e)}).`);
     }
@@ -748,20 +794,28 @@
     const reader = port.readable?.getReader();
     if (!writer || !reader) throw new Error("The watch connection could not be opened.");
     let open2 = true;
+    const shutdown = async () => {
+      if (!open2) return;
+      open2 = false;
+      await reader.cancel().catch(() => void 0);
+      try {
+        reader.releaseLock();
+      } catch {
+      }
+      await writer.close().catch(() => void 0);
+      try {
+        writer.releaseLock();
+      } catch {
+      }
+      await port.close().catch(() => void 0);
+    };
     const t = {
       onData: null,
       onClose: null,
       send: async (data) => {
         await writer.write(data);
       },
-      close: async () => {
-        if (!open2) return;
-        open2 = false;
-        await reader.cancel().catch(() => void 0);
-        reader.releaseLock();
-        writer.releaseLock();
-        await port.close().catch(() => void 0);
-      }
+      close: shutdown
     };
     void (async () => {
       try {
@@ -773,7 +827,7 @@
       } catch {
       }
       if (open2) {
-        open2 = false;
+        await shutdown();
         t.onClose?.();
       }
     })();
@@ -1068,7 +1122,7 @@
     const status = el("div", "status");
     const dot = el("span", "dot"), statusText = el("span", "", "Not connected");
     status.append(dot, statusText);
-    const noSerial = el("p", "d2-warn", "This browser can\u2019t reach the watch. Use Chrome (version 117 or later) on a computer; phones, Safari and Firefox can\u2019t connect to a Huawei Watch D2.");
+    const noSerial = el("p", "d2-warn", "This browser can\u2019t reach the watch. Use Chrome on an Android phone (including Huawei phones) or on a computer; Safari, Firefox and iPhones can\u2019t connect to a Huawei Watch D2.");
     noSerial.hidden = serialAvailable();
     const btnGo = button("Pair & download sleep", "primary big");
     const btnSystem = button("Use the computer\u2019s serial port");
@@ -1096,11 +1150,11 @@
     help.appendChild(el("summary", "", "Before you start (first time)"));
     const steps = el("ol");
     for (const s of [
-      "Use Chrome (version 117 or later) on a Mac or Windows computer. Phones and other browsers can\u2019t reach classic Bluetooth.",
-      "Turn off Bluetooth on your phone, so the watch is not connected to Huawei Health while you do this.",
-      "Pair the watch with this computer first: on a Mac, System Settings \u2192 Bluetooth \u2192 \u201CHUAWEI WATCH D2-\u2026\u201D \u2192 Connect. On Windows: Settings \u2192 Bluetooth & devices \u2192 Add device.",
+      "Use Chrome on an Android phone (Huawei phones work) or on a computer. Safari, Firefox and iPhones can\u2019t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.",
+      "Make sure the watch is not connected to Huawei Health while you do this (disconnect it there, or use a phone without Huawei Health).",
+      "Pair the watch in the phone\u2019s or computer\u2019s Bluetooth settings first (\u201CHUAWEI WATCH D2-\u2026\u201D).",
       "Click \u201CPair & download sleep\u201D and choose the watch in Chrome\u2019s list. The first time, confirm the pairing on the watch if it asks.",
-      "Afterwards, turn your phone\u2019s Bluetooth back on. Huawei Health may need to reconnect to the watch."
+      "Afterwards, Huawei Health may need to reconnect to the watch."
     ]) steps.appendChild(el("li", "", s));
     help.appendChild(steps);
     help.appendChild(el("p", "note", "D2 Link is experimental: it is built from Gadgetbridge\u2019s open-source description of the Huawei protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped."));

@@ -139,3 +139,23 @@ test('D2 link: no nights on the watch gives an empty download', async () => {
   const { link } = await connectFake(w, null);
   assert.equal((await link.downloadSleep(0, 1)).length, 0);
 });
+
+import { hiChainPayload, describeReply } from '../src/d2/link';
+
+test('D2 login replies: both Huawei layouts are read; others are described in the log', () => {
+  const json = JSON.stringify({ payload: { isoSalt: 'AA', token: 'BB' }, message: 1 });
+  // layout 1: field 0x04 = 0, JSON in 0x01
+  assert.equal(hiChainPayload(new Tlv().putString(0x01, json).putByte(0x04, 0))['isoSalt'], 'AA');
+  // layout 2: field 0x01 = data type 2, JSON in 0x02
+  assert.equal(hiChainPayload(new Tlv().putByte(0x01, 2).putString(0x02, json))['token'], 'BB');
+  // a payload sent as a JSON string inside the JSON
+  assert.equal(hiChainPayload(new Tlv().putString(0x01, JSON.stringify({ payload: JSON.stringify({ isoSalt: 'CC' }) })).putByte(0x04, 0))['isoSalt'], 'CC');
+  // the watch's error code is reported
+  assert.throws(() => hiChainPayload(new Tlv().putString(0x01, JSON.stringify({ payload: { errorCode: 7 } })).putByte(0x04, 0)), /error 7/);
+  // the newer PAKE login is recognised and named
+  assert.throws(() => hiChainPayload(new Tlv().putByte(0x01, 2).putString(0x02, JSON.stringify({ payload: { challenge: '1', salt: '2', epk: '3' } }))), /PAKE/);
+  // anything else: the log gets the layout (field sizes and JSON keys), not the values
+  const odd = new Tlv().putByte(0x01, 1).put(0x02, Uint8Array.of(1, 2, 3, 4, 5, 6));
+  assert.throws(() => hiChainPayload(odd), /can’t read yet\. Reply: 0x1:1B=01 0x2:6B/);
+  assert.match(describeReply(new Tlv().putString(0x01, json)), /JSON\{payload,message\} payload\{isoSalt,token\} message=1/);
+});

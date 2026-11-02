@@ -4,6 +4,16 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: login reply fix *(GitHub)*
+Why: on a Huawei phone the watch connected and sent its pairing code, then D2 Link couldn't read the watch's first login reply.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | Reads both layouts Huawei watches use for login replies (and a payload sent as text); names the newer "PAKE" login if the watch uses it; when a reply still can't be read, the connection log shows its layout (field sizes and JSON keys, no values) |
+| `src/d2/serial.ts` | The port is fully closed after the watch disconnects, and a port left open by an earlier attempt is closed and reopened ("The port is already open") |
+| `src/d2/ui.ts` | Instructions now say Chrome on an Android phone (Huawei phones work) or a computer; a Mac may not get an answer from the watch |
+| `tests/d2.test.ts` | New test for the login reply layouts |
+
 ## 3 Nov 2026 – D2 Link: second way to connect *(GitHub)*
 Why: on a Mac, Chrome found the watch but its own Bluetooth connection timed out ("SDP query timeout").
 

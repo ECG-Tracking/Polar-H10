@@ -307,15 +307,48 @@ export function hiChainJson(op: number, step: number, requestId: number, selfId:
   return JSON.stringify(value);
 }
 
-function hiChainPayload(tlv: Tlv): Record<string, unknown> {
+/** A short, value-free description of a login reply for the connection log: its fields and JSON keys. */
+export function describeReply(tlv: Tlv): string {
+  return tlv.items.map((i) => {
+    let text = '';
+    try { text = fromUtf8(i.value); } catch { /* binary */ }
+    let keys = '';
+    try {
+      const v: unknown = JSON.parse(text);
+      if (typeof v === 'object' && v !== null) {
+        const top = v as Record<string, unknown>;
+        const pl = top['payload'];
+        keys = ` JSON{${Object.keys(top).join(',')}}${typeof pl === 'object' && pl !== null ? ` payload{${Object.keys(pl).join(',')}}` : ''}${typeof top['message'] === 'number' ? ` message=${top['message']}` : ''}`;
+      }
+    } catch { /* not JSON */ }
+    return `0x${i.tag.toString(16)}:${i.value.length}B${keys || (i.value.length <= 4 ? `=${hex(i.value)}` : '')}`;
+  }).join(' ');
+}
+
+/**
+ * The JSON payload of a login reply. Huawei watches use one of two layouts (both in Gadgetbridge):
+ * field 0x04 = type (0 = JSON in 0x01), or field 0x01 = data type (2 = JSON in 0x02).
+ */
+export function hiChainPayload(tlv: Tlv): Record<string, unknown> {
   if (tlv.has(0x04) && tlv.byte(0x04) !== 0) return {};
-  let value: unknown;
-  try { value = JSON.parse(tlv.string(0x01)); } catch { throw new WatchError('The watch sent an unreadable login message.'); }
-  const payload = typeof value === 'object' && value !== null ? (value as Record<string, unknown>)['payload'] : null;
-  if (typeof payload !== 'object' || payload === null) throw new WatchError('The watch sent an unreadable login message.');
-  const p = payload as Record<string, unknown>;
-  if (typeof p['errorCode'] === 'number' && p['errorCode'] !== 0) throw new WatchError(`The watch refused the login (error ${p['errorCode']}).`);
-  return p;
+  const candidates = [0x01, 0x02].filter((t) => tlv.has(t)).map((t) => { try { return fromUtf8(tlv.bytes(t)); } catch { return ''; } });
+  for (const text of candidates) {
+    let value: unknown;
+    try { value = JSON.parse(text); } catch { continue; }
+    if (typeof value !== 'object' || value === null) continue;
+    const top = value as Record<string, unknown>;
+    let payload: unknown = top['payload'];
+    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch { /* keep as is */ } }
+    const p = (typeof payload === 'object' && payload !== null ? payload : top) as Record<string, unknown>;
+    const err = p['errorCode'] ?? top['errorCode'];
+    if (typeof err === 'number' && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
+    if ('epk' in p || 'challenge' in p || top['message'] === 32785) {
+      throw new WatchError(`This watch uses Huawei’s newer “PAKE” login, which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
+    }
+    return p;
+  }
+  if (tlv.has(0x01) && !tlv.has(0x02) && tlv.items.length === 1 && candidates[0] === '') return {}; // an empty acknowledgement
+  throw new WatchError(`The watch sent a login message D2 Link can’t read yet. Reply: ${describeReply(tlv)}`);
 }
 
 const str = (p: Record<string, unknown>, k: string): string => {
