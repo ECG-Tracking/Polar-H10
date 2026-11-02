@@ -4,6 +4,11 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: export all nights *(GitHub)*
+| File | Change |
+|---|---|
+| `src/d2/ui.ts` | "Export all nights" saves every night from the watch (this user, demo nights left out) as one JSON file |
+
 ## 3 Nov 2026 – D2 Link nights sync between devices *(GitHub)*
 Why: nights downloaded from the watch on the phone should also be seen on the MacBook.
 

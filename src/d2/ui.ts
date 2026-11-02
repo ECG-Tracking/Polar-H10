@@ -245,7 +245,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const syncRow = el('div', 'row between wrap d2-sync');
   const syncText = el('span', 'note');
   const btnSync = button('Sync now');
-  syncRow.append(syncText, btnSync);
+  const btnExport = button('Export all nights');
+  btnExport.title = 'Save every night of this user from the watch as one JSON file';
+  const syncButtons2 = el('div', 'row wrap');
+  syncButtons2.append(btnSync, btnExport);
+  syncRow.append(syncText, syncButtons2);
   const list = el('ul', 'sessions');
   const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
   home.append(title, card, help, listHead, syncRow, empty, list);
@@ -309,6 +313,14 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     return syncing;
   }
   btnSync.addEventListener('click', () => void sync());
+  btnExport.addEventListener('click', () => void (async () => {
+    const all = (await store.listNights(deps.user())).filter((n) => n.source !== 'demo').sort((a, b) => a.start - b.start);
+    if (!all.length) { window.alert('There are no nights from the watch to export yet.'); return; }
+    const file = { app: 'OpenBeat ECG – D2 Link', exportedAt: new Date().toISOString(), user: deps.user(), nights: all };
+    const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
+    const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `d2-nights-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  })());
 
   // ---------- download ----------
   const download = (mode: 'bluetooth' | 'system'): void => void (async () => {
