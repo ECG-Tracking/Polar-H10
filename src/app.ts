@@ -547,6 +547,7 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     metric('QT', fmt(m.qt), 'ms', 'median'),
     metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
+    metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline · no reference range'),
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
     metric('R amplitude', fmt(m.rAmp), 'µV', 'no reference range'),

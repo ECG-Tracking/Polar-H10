@@ -41,6 +41,7 @@ test('rest metrics are physiological', () => {
   assert.ok(m.qrs >= 70 && m.qrs <= 110, `QRS ${m.qrs}`);
   assert.ok(m.qtc >= 390 && m.qtc <= 430, `QTc ${m.qtc}`);
   assert.equal(m.tPositive, 100);
+  assert.ok(m.tAmp >= 200 && m.tAmp <= 350, `T amplitude ${m.tAmp}`); // simulated T peak is 290 µV
   assert.equal(m.recovery, null);
 });
 
@@ -56,6 +57,7 @@ test('an upside-down signal gives a negative R amplitude but the same timing', (
   const up = sessionMetrics(analyze(raw, { fs: FS }), 120, PROFILE);
   const down = sessionMetrics(analyze(raw.map((v) => -v), { fs: FS }), 120, PROFILE);
   assert.ok(up.rAmp > 0 && down.rAmp < 0);
+  assert.ok(up.tAmp > 0 && down.tAmp < 0);
   assert.equal(down.qrs, up.qrs);
   assert.equal(down.qtc, up.qtc);
 });

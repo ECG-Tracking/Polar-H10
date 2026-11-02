@@ -610,6 +610,7 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   qtc: number;
   qt: number;
   tPositive: number;
+  tAmp: number; // µV, median T-wave peak vs the PR baseline (negative = T points down)
   jPoint: number;
   st60: number;
   rAmp: number;
@@ -634,6 +635,7 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     qtc: median(pick((m) => m.qtc)),
     qt: median(pick((m) => m.qt)),
     tPositive: tVals.length ? (100 * tVals.filter((v) => v > 0).length) / tVals.length : NaN,
+    tAmp: median(tVals),
     jPoint: median(pick((m) => m.jAmp)),
     st60: median(pick((m) => m.st60)),
     rAmp: median(pick((m) => m.rAmp)),
