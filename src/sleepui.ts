@@ -9,6 +9,8 @@ import * as store from './store';
 import type { SleepSession, UserNumber } from './store';
 import { $, $button, $canvas, make, fmt, fmtHM, metricTile, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
+import { current as account, historyChanged } from './account';
+import { parseSleepReport, toAnalysis } from './summary';
 
 export interface SleepDeps {
   user: () => UserNumber;
@@ -185,6 +187,7 @@ export function initSleep(deps: SleepDeps): {
     }
     const session: SleepSession = { id: `n${r.start}`, user: recUser, start: r.start, durationS: data.durationS, source: 'polar', summary: null };
     await store.saveSleep(session, data);
+    historyChanged();
     await openReport(session.id);
   }
 
@@ -197,6 +200,7 @@ export function initSleep(deps: SleepDeps): {
     bed.setHours(23, 20 + (seed % 25), 0, 0);
     const session: SleepSession = { id: `n${bed.getTime()}-${seed}`, user: deps.user(), start: bed.getTime(), durationS: data.durationS, source: 'demo', summary: null };
     await store.saveSleep(session, data);
+    historyChanged();
     await openReport(session.id);
   }
 
@@ -217,7 +221,7 @@ export function initSleep(deps: SleepDeps): {
         make('span', 'when', `Night of ${new Date(n.start).toLocaleDateString([], { dateStyle: 'medium' })}`),
         make('span', 'dur', s ? fmtHM(s.sleepMin) : fmtTime(n.durationS)),
         make('span', 'stats', s ? `Score ${s.score} · ${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'} · HR ${fmt(s.avgHR)} · HRV ${fmt(s.avgHrv)} ms` : 'Open to analyse'),
-        make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : ''].filter(Boolean).join(' · ')),
+        make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
       );
       li.addEventListener('click', () => void openReport(n.id));
       list.appendChild(li);
@@ -232,7 +236,7 @@ export function initSleep(deps: SleepDeps): {
   if (!hrChartEl || !brChartEl) throw new Error('sleep report needs two charts');
   const hrPlot = new Plot(hrChartEl);
   const brPlot = new Plot(brChartEl);
-  let current: { session: SleepSession; data: SleepData; analysis: SleepAnalysis } | null = null;
+  let current: { session: SleepSession; analysis: SleepAnalysis } | null = null;
   let donutParts: { key: SleepStageKey; value: number }[] = [];
 
   const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' ? null : s);
@@ -245,13 +249,22 @@ export function initSleep(deps: SleepDeps): {
     body.hidden = true;
     await new Promise((r) => setTimeout(r, 30));
     const { session, signals } = await store.loadSleep(id);
-    if (!session || !signals) { busy.textContent = 'Recording not found.'; return; }
-    const data: SleepData = { durationS: session.durationS, ...signals };
-    const analysis = analyzeSleep(data);
-    const m = analysis.metrics;
-    session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
-    store.updateSleep(session).catch(() => {});
-    current = { session, data, analysis };
+    if (!session) { busy.textContent = 'Recording not found.'; return; }
+    let analysis: SleepAnalysis;
+    if (session.cloudOnly) {
+      // a report copy synced from another device: shown as it was calculated there
+      const report = parseSleepReport(session.report);
+      if (!report) { busy.textContent = 'This synced night could not be read.'; return; }
+      analysis = toAnalysis(report);
+    } else {
+      if (!signals) { busy.textContent = 'Recording not found.'; return; }
+      const data: SleepData = { durationS: session.durationS, ...signals };
+      analysis = analyzeSleep(data);
+      const m = analysis.metrics;
+      session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
+      store.updateSleep(session).catch(() => {});
+    }
+    current = { session, analysis };
     const earlier = (await store.listSleeps(session.user)).filter((n) => n.start < session.start);
     renderReport(session, analysis, earlier);
     busy.hidden = true;
@@ -268,6 +281,7 @@ export function initSleep(deps: SleepDeps): {
       deps.userLabel(session.user),
       `Night of ${night.toLocaleDateString([], { dateStyle: 'full' })}`,
       session.source === 'demo' ? 'Demo night' : 'Polar H10',
+      session.cloudOnly ? 'Synced copy from another device (as calculated there)' : '',
       m.coverage < 95 ? `Data for ${fmt(m.coverage)} % of the night (strap dropped out)` : '',
     ].filter(Boolean).join(' · ');
     $('sleepDuration').textContent = m.sleepMin ? fmtHM(m.sleepMin) : 'No sleep detected';
@@ -385,6 +399,7 @@ export function initSleep(deps: SleepDeps): {
     void (async () => {
       if (!current || !window.confirm('Delete this night permanently?')) return;
       await store.deleteSleep(current.session.id);
+      historyChanged();
       current = null;
       deps.showSleepView('sleepHistory');
     })();
@@ -410,6 +425,10 @@ export function initSleep(deps: SleepDeps): {
     note.hidden = false;
     note.textContent = 'This browser can’t connect to the strap (use Chrome or Edge, or Bluefy on iPhone). Demo night still works.';
   }
+  // nights arrived from (or were deleted on) another device
+  account.cloud?.addEventListener('changed', () => {
+    if ($('view-sleepHistory').classList.contains('active')) void renderHistory();
+  });
   refreshUser();
   syncButtons();
 

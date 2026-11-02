@@ -12,6 +12,51 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div class="auth-overlay" id="authOverlay">
+    <div class="auth-card">
+      <div class="auth-brand"><img src="icons/icon.svg" alt="" width="26" height="26"><span>OpenBeat ECG</span></div>
+
+      <div class="auth-step active" id="authChecking">
+        <p class="muted">Checking sign-in…</p>
+      </div>
+
+      <div class="auth-step" id="loginStep">
+        <h2>Sign in</h2>
+        <p>Use your email address and password to open your ECG and sleep records.</p>
+        <form id="loginForm" class="auth-form">
+          <label for="loginEmail">Email address</label>
+          <input id="loginEmail" type="email" autocomplete="email" required>
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password" required>
+          <div class="auth-message" id="loginMessage" role="alert"></div>
+          <button type="submit" class="primary">Sign in</button>
+        </form>
+        <div class="auth-links">
+          <button type="button" data-show-step="registerStep">Create account</button>
+        </div>
+      </div>
+
+      <div class="auth-step" id="registerStep">
+        <h2>Create account</h2>
+        <p>Create an account with your email address and a password of at least 8 characters.</p>
+        <form id="registerForm" class="auth-form">
+          <label for="registerEmail">Email address</label>
+          <input id="registerEmail" type="email" autocomplete="email" required>
+          <label for="registerPassword">Password</label>
+          <input id="registerPassword" type="password" autocomplete="new-password" minlength="8" required>
+          <label for="registerPassword2">Confirm password</label>
+          <input id="registerPassword2" type="password" autocomplete="new-password" minlength="8" required>
+          <div class="auth-message" id="registerMessage" role="alert"></div>
+          <button type="submit" class="primary">Create account</button>
+        </form>
+        <div class="auth-links">
+          <button type="button" data-show-step="loginStep">Back to sign in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="appShell" hidden>
   <header class="top">
     <div class="brand">
       <img src="icons/icon.svg" alt="" width="28" height="28">
@@ -98,6 +143,7 @@
       <div id="reportBody">
         <h2 id="reportTitle"></h2>
         <p class="muted" id="reportMeta"></p>
+        <p class="copy-note" id="reportCopyNote" hidden></p>
         <div id="reportFlags" class="flags" role="status"></div>
 
         <h3>Rhythm and HRV</h3>
@@ -117,6 +163,7 @@
 
         <h3>ECG</h3>
         <div class="card viewer">
+          <p class="muted viewer-label" id="viewerLabel" hidden></p>
           <canvas id="viewerCanvas" aria-label="Recorded ECG; drag to pan, scroll or pinch to zoom"></canvas>
           <div class="row viewer-bar no-print">
             <button id="zoomOut" aria-label="Zoom out">−</button>
@@ -321,12 +368,24 @@
         </fieldset>
         <p class="muted">Settings stay in this browser.</p>
       </form>
+      <div class="card" id="accountCard">
+        <h3>Account</h3>
+        <p>Signed in as <b id="accountEmail"></b></p>
+        <p class="muted" id="syncStatus"></p>
+        <div class="row wrap">
+          <button id="btnSyncNow">Sync now</button>
+          <button id="btnSignOut">Sign out</button>
+        </div>
+        <p class="note">Backed up to your account and shown on your other devices: each ECG recording’s results, heart-rate trend, average beat, first 30 s and up to 50 event strips, and each night’s sleep report. The full ECG, raw sleep data and settings stay on the device that recorded them.</p>
+      </div>
       <div class="card">
         <h3>About</h3>
         <p class="muted">Requires a browser with Web Bluetooth: Chrome or Edge on Windows, macOS, Linux, ChromeOS or Android. On iPhone/iPad use the Bluefy browser. Demo modes work everywhere.</p>
       </div>
     </section>
   </main>
+
+  </div>
 
   <div id="sleepDim" class="dim-overlay" hidden role="button" tabindex="0" aria-label="Tap to brighten the screen">
     <div id="sleepDimClock"></div>

@@ -1,6 +1,28 @@
 // Local persistence: sessions in IndexedDB, settings in localStorage. Nothing leaves the device.
 
-const DB_NAME = 'ecg-analysis';
+// ---------- Accounts ----------
+// Each signed-in account keeps its own database and settings on the device. The first account to sign in
+// on a device takes over what was stored before accounts existed (the un-prefixed names); later accounts
+// get names of their own, so one account never sees another's recordings.
+
+const ACCOUNTS_KEY = 'ecg-analysis-accounts';
+let dbName = 'ecg-analysis';
+let keyPrefix = '';
+
+/** Switches storage to this account's database and settings. Call before reading anything. */
+export function useAccount(accountId: string): void {
+  let map: Record<string, string> = {};
+  try { map = JSON.parse(localStorage.getItem(ACCOUNTS_KEY) ?? '{}') as Record<string, string>; } catch { /* unreadable: start fresh */ }
+  let ns = map[accountId];
+  if (ns === undefined) {
+    ns = Object.keys(map).length === 0 ? '' : accountId;
+    map[accountId] = ns;
+    try { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(map)); } catch { /* private mode */ }
+  }
+  dbName = ns ? `ecg-analysis-${ns}` : 'ecg-analysis';
+  keyPrefix = ns ? `${ns}:` : '';
+  dbPromise = null;
+}
 
 export interface UserEvent { t: number; label: string }
 
@@ -21,11 +43,11 @@ export function sessionUser(s: Pick<Session, 'user'>): UserNumber {
   return isUserNumber(s.user) ? s.user : 1;
 }
 
-const CURRENT_USER_KEY = 'ecg-analysis-user';
+const currentUserKey = (): string => `${keyPrefix}ecg-analysis-user`;
 
 export function loadCurrentUser(): UserNumber {
   try {
-    const v = Number(localStorage.getItem(CURRENT_USER_KEY));
+    const v = Number(localStorage.getItem(currentUserKey()));
     return isUserNumber(v) ? v : 1;
   } catch {
     return 1;
@@ -33,7 +55,7 @@ export function loadCurrentUser(): UserNumber {
 }
 
 export function saveCurrentUser(user: UserNumber): void {
-  try { localStorage.setItem(CURRENT_USER_KEY, String(user)); } catch { /* private mode */ }
+  try { localStorage.setItem(currentUserKey(), String(user)); } catch { /* private mode */ }
 }
 
 export interface Session {
@@ -46,6 +68,8 @@ export interface Session {
   source: 'polar' | 'demo' | 'import';
   userEvents: UserEvent[];
   summary: SessionSummary | null;
+  synced?: boolean; // its summary is in the account's cloud copy
+  cloudOnly?: boolean; // a summary copy from another device: no signal on this device
 }
 
 interface SignalRecord { id: string; samples: Int16Array } // µV
@@ -54,11 +78,11 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    // version 2 adds sleep recordings; existing ECG recordings are kept as they are
-    const req = indexedDB.open(DB_NAME, 2);
+    // version 2 adds sleep recordings, version 3 summary copies of ECG recordings; existing data is kept
+    const req = indexedDB.open(dbName, 3);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals']) {
+      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries']) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       }
     };
@@ -68,7 +92,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals';
+type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -91,6 +115,43 @@ export async function updateSession(session: Session): Promise<void> {
   await tx(['sessions'], 'readwrite', (t) => { t.objectStore('sessions').put(session); });
 }
 
+/** Saves a summary copy that arrived from another device (no signal). */
+export async function saveSummaryCopy(session: Session, summary: unknown): Promise<void> {
+  await tx(['sessions', 'ecgSummaries'], 'readwrite', (t) => {
+    t.objectStore('sessions').put(session);
+    t.objectStore('ecgSummaries').put({ id: session.id, summary });
+  });
+}
+
+export async function loadSummaryCopy(id: string): Promise<unknown> {
+  return (await tx<{ id: string; summary: unknown } | undefined>(['ecgSummaries'], 'readonly', (t) => t.objectStore('ecgSummaries').get(id)))?.summary;
+}
+
+/** Every user's recordings (for cloud sync). */
+export async function listAllSessions(): Promise<Session[]> {
+  return (await tx<Session[]>(['sessions'], 'readonly', (t) => t.objectStore('sessions').getAll())) ?? [];
+}
+
+export async function loadSignal(id: string): Promise<Int16Array | undefined> {
+  return (await tx<SignalRecord | undefined>(['signals'], 'readonly', (t) => t.objectStore('signals').get(id)))?.samples;
+}
+
+// Recordings deleted here that the cloud still has; removed there on the next sync.
+const tombstoneKey = (kind: 'ecg' | 'sleep' = 'ecg'): string => `${keyPrefix}ecg-analysis-${kind === 'ecg' ? 'deleted' : 'deleted-sleep'}`;
+
+export function pendingCloudDeletes(kind: 'ecg' | 'sleep' = 'ecg'): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(tombstoneKey(kind)) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setPendingCloudDeletes(ids: readonly string[], kind: 'ecg' | 'sleep' = 'ecg'): void {
+  try { localStorage.setItem(tombstoneKey(kind), JSON.stringify(ids)); } catch { /* private mode */ }
+}
+
 /** One user's recordings, newest first. */
 export async function listSessions(user: UserNumber): Promise<Session[]> {
   const all = await tx<Session[]>(['sessions'], 'readonly', (t) => t.objectStore('sessions').getAll());
@@ -105,10 +166,13 @@ export async function loadSession(id: string): Promise<{ session: Session | unde
   return { session, samples: signal?.samples };
 }
 
-export async function deleteSession(id: string): Promise<void> {
-  await tx(['sessions', 'signals'], 'readwrite', (t) => {
+export async function deleteSession(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
+  const existing = await tx<Session | undefined>(['sessions'], 'readonly', (t) => t.objectStore('sessions').get(id));
+  if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes(), id])]);
+  await tx(['sessions', 'signals', 'ecgSummaries'], 'readwrite', (t) => {
     t.objectStore('sessions').delete(id);
     t.objectStore('signals').delete(id);
+    t.objectStore('ecgSummaries').delete(id);
   });
 }
 
@@ -130,6 +194,9 @@ export interface SleepSession {
   durationS: number;
   source: 'polar' | 'demo';
   summary: SleepSummary | null;
+  synced?: boolean; // its report is in the account's cloud copy
+  cloudOnly?: boolean; // a report copy from another device: no raw data on this device
+  report?: unknown; // the synced report (SleepReport) for copies from another device
 }
 
 interface SleepSignalRecord {
@@ -153,6 +220,15 @@ export async function updateSleep(session: SleepSession): Promise<void> {
   await tx(['sleeps'], 'readwrite', (t) => { t.objectStore('sleeps').put(session); });
 }
 
+export async function listAllSleeps(): Promise<SleepSession[]> {
+  return (await tx<SleepSession[]>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').getAll())) ?? [];
+}
+
+/** A report copy from another device (no raw data). */
+export async function saveSleepCopy(session: SleepSession): Promise<void> {
+  await tx(['sleeps'], 'readwrite', (t) => { t.objectStore('sleeps').put(session); });
+}
+
 /** One user's nights, newest first. */
 export async function listSleeps(user: UserNumber): Promise<SleepSession[]> {
   const all = await tx<SleepSession[]>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').getAll());
@@ -167,7 +243,9 @@ export async function loadSleep(id: string): Promise<{ session: SleepSession | u
   return { session, signals: rec ? { rrT: rec.rrT, rr: rec.rr, acc: rec.acc, accFs: rec.accFs } : undefined };
 }
 
-export async function deleteSleep(id: string): Promise<void> {
+export async function deleteSleep(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
+  const existing = await tx<SleepSession | undefined>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').get(id));
+  if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes('sleep'), id])], 'sleep');
   await tx(['sleeps', 'sleepSignals'], 'readwrite', (t) => {
     t.objectStore('sleeps').delete(id);
     t.objectStore('sleepSignals').delete(id);
@@ -197,7 +275,7 @@ export interface Settings {
 
 // User 1 keeps the original key, so settings saved before users existed stay with User 1.
 export function settingsKey(user: UserNumber): string {
-  return user === 1 ? 'ecg-analysis-settings' : `ecg-analysis-settings-u${user}`;
+  return keyPrefix + (user === 1 ? 'ecg-analysis-settings' : `ecg-analysis-settings-u${user}`);
 }
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   alias: '',

@@ -282,3 +282,30 @@ legend { font-size: 0.85rem; color: var(--ink-2); padding: 0 4px; }
 @media print {
   #view-sleep, #view-sleepHistory { display: none !important; }
 }
+
+/* ---------- Sign-in ---------- */
+.auth-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--bg); overflow-y: auto; }
+.auth-overlay[hidden] { display: none !important; }
+.auth-card { width: min(430px, 100%); background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 28px; box-shadow: 0 20px 60px rgb(0 0 0 / 0.12); }
+.auth-card h2 { margin: 0 0 8px; font-size: 1.4rem; }
+.auth-card p { color: var(--ink-2); font-size: 0.9rem; margin: 0 0 18px; }
+.auth-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--accent); margin-bottom: 14px; }
+.auth-step { display: none; }
+.auth-step.active { display: block; }
+.auth-form { display: flex; flex-direction: column; gap: 6px; }
+.auth-form label { font-size: 0.8rem; font-weight: 600; color: var(--ink-2); margin-top: 6px; }
+.auth-form input { width: 100%; font: inherit; padding: 11px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+.auth-form input:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+.auth-form button[type="submit"] { margin-top: 10px; min-height: 46px; }
+.auth-message { font-size: 0.85rem; min-height: 1.2em; margin-top: 6px; color: var(--ink-2); }
+.auth-message.error { color: var(--critical); }
+.auth-links { display: flex; justify-content: space-between; margin-top: 14px; }
+.auth-links button { background: none; border: 0; color: var(--series-1); padding: 4px; min-height: 0; font-size: 0.9rem; }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 4.4rem; }
+.pw-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); min-height: 0; padding: 3px 9px; font-size: 0.8rem; color: var(--ink-2); }
+
+/* ---------- Summary copies ---------- */
+.copy-note { border: 1px solid var(--series-1); border-left-width: 4px; border-radius: 8px; padding: 8px 12px; font-size: 0.88rem; color: var(--ink-2); background: var(--surface); }
+.viewer-label { margin: 0 0 6px; font-size: 0.85rem; }
+.events li.no-strip { cursor: default; opacity: 0.7; }

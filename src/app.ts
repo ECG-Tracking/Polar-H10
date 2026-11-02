@@ -9,6 +9,8 @@ import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
 import { byId, $, $button, $input, $canvas, make, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
+import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
+import { current as account, historyChanged } from './account';
 
 const FS = ECG_FS;
 
@@ -337,6 +339,7 @@ async function stopRecording(): Promise<Session | null> {
     summary: null,
   };
   await store.saveSession(session, samples);
+  historyChanged();
   $('timer').textContent = `Saved ${fmtTime(session.durationS)}`;
   return session;
 }
@@ -380,7 +383,7 @@ async function renderHistory(): Promise<void> {
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
       make('span', 'dur', fmtTime(s.durationS)),
       make('span', 'stats', stats),
-      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : ''].filter(Boolean).join(' · ')),
+      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
     );
     li.addEventListener('click', () => void openReport(s.id));
     list.appendChild(li);
@@ -412,6 +415,7 @@ async function importEdf(): Promise<void> {
       summary: null,
     };
     await store.saveSession(session, samples);
+    historyChanged();
     await openReport(session.id);
   } catch (err) {
     window.alert(`Could not import ${file.name}: ${errorMessage(err)}`);
@@ -422,10 +426,11 @@ async function importEdf(): Promise<void> {
 
 interface CurrentReport {
   session: Session;
-  samples: Int16Array;
+  samples: Int16Array | null; // null for a summary copy
   analysis: Analysis;
   metrics: SessionMetrics;
   events: ReportEvent[];
+  copy: EcgSummary | null; // set for a summary copy from another device
 }
 
 const charts = [...document.querySelectorAll<HTMLElement>('#view-report .chart')].map((f) => new Plot(f));
@@ -453,6 +458,7 @@ async function openReport(id: string): Promise<void> {
   body.hidden = true;
   await new Promise((r) => setTimeout(r, 30)); // let the busy state paint
   const { session, samples } = await store.loadSession(id);
+  if (session?.cloudOnly) { await openSummaryCopy(session); return; }
   if (!session || !samples) { busy.textContent = 'Recording not found.'; return; }
   const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
@@ -460,7 +466,7 @@ async function openReport(id: string): Promise<void> {
     ...analysis.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] })),
     ...session.userEvents.map((e): ReportEvent => ({ t: e.t, type: 'user', label: e.label || 'Marked' })),
   ].sort((a, b) => a.t - b.t);
-  current = { session, samples, analysis, metrics, events };
+  current = { session, samples, analysis, metrics, events, copy: null };
 
   session.summary = { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length };
   store.updateSession(session).catch(() => {});
@@ -473,11 +479,58 @@ async function openReport(id: string): Promise<void> {
   viewer.dispatchEvent(new Event('move'));
 }
 
+/** A recording synced from another device: its stored results, the first 30 s and the event strips. */
+async function openSummaryCopy(session: Session): Promise<void> {
+  const busy = $('reportBusy'), body = $('reportBody');
+  const copy = parseEcgSummary(await store.loadSummaryCopy(session.id));
+  if (!copy) { busy.textContent = 'This summary copy could not be read.'; return; }
+  const stripAnalysis = analyze(base64ToInt16(copy.strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula });
+  // the report's charts use the stored average beat; there are no per-beat values in a summary copy
+  const analysis: Analysis = {
+    ...stripAnalysis, beats: [], events: [],
+    template: copy.template ? Float64Array.from(copy.template) : null, templateMeasure: copy.templateMeasure,
+    templatePre: copy.templatePre, polarity: copy.polarity,
+  };
+  current = { session, samples: null, analysis, metrics: copy.metrics, events: copy.events, copy };
+  renderReport(current);
+  busy.hidden = true;
+  body.hidden = false;
+  charts.forEach((p) => p.draw());
+  showStrip(copy, null);
+}
+
+/** Shows the first 30 s (event null) or the 10 s strip around an event of a summary copy in the viewer. */
+function showStrip(copy: EcgSummary, event: ReportEvent | null): void {
+  const strip = event ? copy.eventStrips.find((s) => Math.abs(s.t - event.t) < 0.01) : copy.strip;
+  if (!strip) return;
+  const a = analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula });
+  const end = strip.start + a.x.length / copy.fs;
+  const marks = copy.events.filter((e) => e.type === 'user' && e.t >= strip.start && e.t <= end).map((e) => ({ ...e, t: e.t - strip.start }));
+  viewer.load(a, marks);
+  if (event) { viewer.span = Math.min(viewer.duration, 10); viewer.center(event.t - strip.start); }
+  const label = $('viewerLabel');
+  label.hidden = false;
+  label.textContent = event
+    ? `Showing the 10 s around “${event.label}” at ${fmtTime(event.t)} (summary copy)`
+    : `Showing the first ${Math.round(a.x.length / copy.fs)} s of the recording (summary copy). Click an event below to see its strip.`;
+  viewer.dispatchEvent(new Event('move'));
+}
+
+
 function renderReport({ session, analysis, metrics: m, events }: CurrentReport): void {
   $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
+  const copy = current?.copy ?? null;
+  const note = $('reportCopyNote');
+  note.hidden = !copy;
+  if (copy) {
+    const aw = copy.analysedWith;
+    note.textContent = `Summary copy from another device: the results, heart-rate trend, average beat, first 30 s and ${copy.eventStrips.length} event strip${copy.eventStrips.length === 1 ? '' : 's'}. `
+      + 'The full ECG stays on the device that recorded it. '
+      + `Analysed with age ${aw.age}, ${aw.sex}, ${aw.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett'} QTc; changing settings here doesn’t recalculate it.`;
+  }
   $('reportMeta').textContent = [
     userLabel(store.sessionUser(session)),
-    store.biodataLine(settings),
+    copy ? 'Summary copy' : store.biodataLine(settings),
     `Duration ${fmtTime(session.durationS)}`,
     `${m.beatCount} beats`,
     // the user label already shows the current alias; only mention one recorded under a different alias
@@ -530,8 +583,14 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
 
   renderOutliers(exercise);
   renderZones(m.zones);
-  renderCharts(analysis, m, maxSeen);
+  renderCharts(analysis, m, maxSeen, copy !== null);
   renderEvents(events);
+  for (const id of ['btnExportEdf', 'btnExportCsv']) {
+    const b = $button(id);
+    b.disabled = copy !== null;
+    b.title = copy ? 'Needs the full ECG, which is on the device that recorded it' : '';
+  }
+  $('viewerLabel').hidden = copy === null;
 }
 
 function renderOutliers(exercise: boolean): void {
@@ -553,7 +612,7 @@ function renderZones(zones: SessionMetrics['zones']): void {
   }));
 }
 
-function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number): void {
+function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number, isCopy = false): void {
   // heart rate over time
   const stride = Math.max(1, Math.ceil(m.hr.length / 1500));
   const hrPts: Point[] = [];
@@ -592,7 +651,7 @@ function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number): v
   const pStride = Math.max(1, Math.ceil(poin.length / 4000));
   poincarePlot?.set({
     type: 'scatter', identity: true, points: poin.filter((_, i) => i % pStride === 0),
-    xLabel: 'RRₙ (ms)', yLabel: 'RRₙ₊₁ (ms)',
+    xLabel: 'RRₙ (ms)', yLabel: 'RRₙ₊₁ (ms)', ...(isCopy ? { empty: 'Not included in summary copies' } : {}),
     tooltip: (p) => `RRₙ ${Math.round(p[0])} ms → <b>${Math.round(p[1])} ms</b>${p[2] ? ' · event' : ''}`,
   });
 
@@ -601,7 +660,7 @@ function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number): v
   const qStride = Math.max(1, Math.ceil(qpts.length / 4000));
   qtcPlot?.set({
     type: 'scatter', points: qpts.filter((_, i) => i % qStride === 0),
-    xLabel: 'RR (ms)', yLabel: 'QTc (ms)', empty: 'No measurable T waves',
+    xLabel: 'RR (ms)', yLabel: 'QTc (ms)', empty: isCopy ? 'Not included in summary copies' : 'No measurable T waves',
     tooltip: (p) => `RR ${Math.round(p[0])} ms · <b>QTc ${Math.round(p[1])} ms</b>`,
   });
 }
@@ -613,9 +672,13 @@ function renderEvents(events: readonly ReportEvent[]): void {
   for (const e of events.slice(0, 500)) {
     const li = make('li');
     li.append(make('span', '', fmtTime(e.t)), make('span', `badge ${e.type}`, e.label));
+    const copy = current?.copy ?? null;
+    const hasStrip = !copy || copy.eventStrips.some((s) => Math.abs(s.t - e.t) < 0.01);
+    if (!hasStrip) { li.classList.add('no-strip'); li.append(make('span', 'muted', 'no strip in summary copy')); }
     li.addEventListener('click', () => {
-      viewer.span = Math.min(viewer.span, 6);
-      viewer.center(e.t);
+      if (!hasStrip) return;
+      if (copy) showStrip(copy, e);
+      else { viewer.span = Math.min(viewer.span, 6); viewer.center(e.t); }
       $canvas('viewerCanvas').scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
     list.appendChild(li);
@@ -624,11 +687,13 @@ function renderEvents(events: readonly ReportEvent[]): void {
 }
 
 $button('btnBack').addEventListener('click', () => show('history'));
+
 $button('btnPrint').addEventListener('click', () => window.print());
 $button('btnDelete').addEventListener('click', () => {
   void (async () => {
     if (!current || !window.confirm('Delete this recording permanently?')) return;
     await store.deleteSession(current.session.id);
+    historyChanged();
     current = null;
     show('history');
   })();
@@ -644,6 +709,7 @@ function fileStem(session: Session): string {
 $button('btnExportEdf').addEventListener('click', () => {
   if (!current) return;
   const { session, samples, events } = current;
+  if (!samples) return;
   download(writeEdf({ samples, fs: session.fs, start: session.start, alias: session.alias, sex: settings.sex, events }), `${fileStem(session)}.edf`);
 });
 $button('btnExportCsv').addEventListener('click', () => {
@@ -660,7 +726,7 @@ $button('btnExportJson').addEventListener('click', () => {
   if (!current) return;
   const { session, metrics, events } = current;
   const { summary: _summary, ...sessionInfo } = session;
-  const out = { app: 'OpenBeat ECG', session: sessionInfo, settings, metrics, referenceRanges: referenceRanges(settings), outliers, events };
+  const out = { app: 'OpenBeat ECG', session: sessionInfo, summaryCopy: current.copy !== null, settings: current.copy?.analysedWith ?? settings, metrics, referenceRanges: referenceRanges(settings), outliers, events };
   download(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `${fileStem(session)}_report.json`);
 });
 
@@ -763,6 +829,11 @@ for (const sel of userSelects) {
   });
 }
 renderUserOptions();
+
+// recordings arrived from (or were deleted on) another device
+account.cloud?.addEventListener('changed', () => {
+  if ($('view-history').classList.contains('active')) void renderHistory();
+});
 
 sleepUI = initSleep({
   user: () => currentUser,

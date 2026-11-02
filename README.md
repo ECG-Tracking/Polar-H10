@@ -11,9 +11,14 @@ Free ECG recording and analysis for the **Polar H10** chest strap. It is an inst
 - **Charts:** HR over time, median beat with Q/J/T-end markers, Poincaré plot, RR vs QTc, and a zoomable/pannable ECG viewer (drag, wheel, pinch) with RR labels and events.
 - **Events:** premature beats, pauses and irregular beat shapes are detected automatically. User marks are shown too.
 - **Export/import:** EDF+ (signal + annotations, opens in EDFBrowser/MATLAB), per-beat CSV, JSON report, print to PDF. EDF files can be imported back.
+- **Sign-in:** email and password (Supabase). Each account has its own data on the device. **Summaries sync** to the account and appear on your other devices: each ECG recording's results, heart-rate trend, average beat, first 30 s and up to 50 event strips, and each night's sleep report. The full ECG, raw sleep data and settings stay on the device that recorded them.
 - **Users 1–9:** choose a user at the top of the Live or Settings screen; each has their own recordings, settings and biodata (age, sex, height, weight, waist, resting and max HR), with BMI and waist-to-height shown. Recordings from before users existed belong to User 1.
 - **Sleep monitor:** overnight recording of heart beats and chest movement. The report shows night sleep, a sleep-stage graph, bed/asleep/wake times, a sleep score, awakenings over the last 7 nights, deep/light/REM shares, heart rate, HRV, breathing rate and regularity, efficiency, and reference or personal ranges. Stages are estimates; SpO₂ isn't available (the H10 has no optical sensor). A **Demo night** shows a full report without recording.
 - **Demo modes** (rest and workout) with a simulated ECG, so everything can be tried without a sensor.
+
+## Supabase setup (once)
+1. **Authentication → Sign In / Providers → Email:** turn off **Confirm email**, then Save.
+2. **SQL Editor → New query:** paste `supabase/setup.sql`, then Run. It creates the `ecg_sessions` and `sleep_nights` tables and the access rules.
 
 ## Develop
 The source is strict TypeScript in `src/` (same compiler settings as the Portfolio Optimizer project). `app.js` is **generated**: never edit it by hand.
@@ -24,7 +29,7 @@ Needs Node.js 18+. On this Mac it is the official build in `~/.local/node` (add 
 |---|---|
 | `npm install` | Installs TypeScript 5.4.5, esbuild 0.21.5 and type definitions into `node_modules/` (not uploaded) |
 | `npm run typecheck` | Strict type check of `src/` and `tests/` |
-| `npm run build` | Bundles `src/app.ts` into `app.js` |
+| `npm run build` | Bundles `src/main.ts` (and everything it uses) into a minified `app.js` |
 | `npm test` | Runs `tests/*.test.ts` with `node --test` |
 | `npm run check` | All three. `publish.command` runs this first and uploads nothing if it fails |
 
@@ -60,7 +65,9 @@ Tips: wet the strap electrodes, close other apps connected to the H10 (Polar Bea
 | `src/sleepsim.ts` | Simulated night |
 | `src/sleepui.ts` | Sleep monitor, sleep history and sleep report |
 | `src/ui.ts` | Shared screen helpers and report tiles |
-| `src/app.ts` | ECG screens, users, settings (entry point of the bundle) |
+| `src/main.ts` | Entry point: sign-in, then starts the app |
+| `src/account.ts`, `src/cloud.ts`, `src/summary.ts` | Supabase account, cloud sync, and what is synced (summaries) |
+| `src/app.ts` | ECG screens, users, settings |
 | `tests/` | Beat detection, metrics, EDF round trip, reference ranges, users, sleep analysis |
 
 The live tiles re-analyse the last 60 s every second. Reports re-analyse the whole raw recording when opened, so changing settings (QTc formula, mains filter, max HR) updates past reports too.
