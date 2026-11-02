@@ -44,7 +44,18 @@ export const STAGE_NAME: Readonly<Record<number, string>> = { 1: 'Light sleep', 
 const STAGE_VAR: Readonly<Record<number, string>> = { 1: 'var(--stage-light)', 2: 'var(--stage-rem)', 3: 'var(--stage-deep)', 4: 'var(--stage-awake)', 5: 'var(--stage-light)' };
 const STAGE_ROW: Readonly<Record<number, number>> = { 4: 0, 2: 1, 1: 2, 5: 2, 3: 3 }; // awake on top, deep at the bottom
 
-export interface NightFigures { deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number; bedMs: number; wokeMs: number }
+export interface NightFigures { deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number; bedMs: number; wokeMs: number; wakeups: number | null }
+
+/** Awake spells between sleep (not before falling asleep or after the last sleep), from the stage list. */
+export function countWakeups(stages: readonly number[]): number {
+  const asleep = (c: number | undefined): boolean => c === 1 || c === 2 || c === 3 || c === 5;
+  const first = stages.findIndex(asleep);
+  let last = -1;
+  for (let i = stages.length - 1; i >= 0; i--) if (asleep(stages[i])) { last = i; break; }
+  let n = 0;
+  for (let i = first + 1; first >= 0 && i <= last; i++) if (stages[i] === 4 && stages[i - 1] !== 4) n++;
+  return n;
+}
 
 export function figures(n: D2Night): NightFigures {
   const count = (c: number): number => n.stages.filter((s) => s === c).length;
@@ -52,7 +63,9 @@ export function figures(n: D2Night): NightFigures {
   const s = n.summary;
   const bedMs = s.bedTime != null ? s.bedTime * 1000 : n.start;
   const wokeMs = s.wakeupTime != null ? s.wakeupTime * 1000 : n.start + n.stages.length * 60000;
-  return { deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs };
+  // the watch's own count when it sends one, otherwise counted from the stages (as Huawei Health shows it)
+  const wakeups = s.wakeCount ?? (n.stages.length ? countWakeups(n.stages) : null);
+  return { deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups };
 }
 
 type Verdict = { text: string; kind: 'normal' | 'high' | 'low' | 'personal' } | null;
@@ -78,7 +91,7 @@ export function tiles(n: D2Night): TileSpec[] {
   const pr = (lo: number | null, hi: number | null, unit: string): string => (lo != null && hi != null && lo > 0 ? `Personal range: ${lo}–${hi}${unit}` : 'Personal range: not set yet');
   const light = pct(f.lightMin), deep = pct(f.deepMin), rem = pct(f.remMin);
   return [
-    { name: 'Times woke up', value: show(s.wakeCount), unit: 'times', verdict: fixed(s.wakeCount, 0, 1), ref: 'References: 0–1 times' },
+    { name: 'Times woke up', value: show(f.wakeups), unit: 'times', verdict: fixed(f.wakeups, 0, 1), ref: s.wakeCount == null && f.wakeups != null ? 'References: 0–1 times · counted from the stages' : 'References: 0–1 times' },
     { name: 'Light sleep', value: show(light), unit: '%', verdict: light == null ? null : light < 55 ? { text: 'Normal', kind: 'normal' } : { text: 'High', kind: 'high' }, ref: 'Reference: <55%' },
     { name: 'Avg heart rate', value: show(s.avgHeartRate), unit: 'bpm', verdict: personal(s.avgHeartRate, s.minHeartRateBaseline, s.maxHeartRateBaseline), ref: pr(s.minHeartRateBaseline, s.maxHeartRateBaseline, ' bpm') },
     { name: 'Night sleep', value: f.sleepMin ? hm(f.sleepMin).replace(' min', '') : '--', unit: 'min', verdict: f.sleepMin ? fixed(f.sleepMin / 60, 6, 10) : null, ref: 'References: 6–10 h' },
@@ -142,11 +155,11 @@ function donut(parts: { min: number; color: string; name: string }[]): SVGSVGEle
 
 function wakeBars(nights: D2Night[]): SVGSVGElement {
   const W = 210, H = 70, n = nights.length, bw = 12;
-  const max = Math.max(3, ...nights.map((x) => x.summary.wakeCount ?? 0));
+  const max = Math.max(3, ...nights.map((x) => figures(x).wakeups ?? 0));
   const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'd2-bars', role: 'img', 'aria-label': 'Times woke up, recent nights' });
   root.appendChild(svg('line', { x1: 0, x2: W, y1: H - 2, y2: H - 2, class: 'd2-row' }));
   nights.forEach((night, k) => {
-    const v = night.summary.wakeCount;
+    const v = figures(night).wakeups;
     const cx = n === 1 ? W / 2 : 8 + (k * (W - 16)) / (n - 1);
     const h = v == null ? 0 : Math.max(4, ((H - 10) * v) / max);
     root.appendChild(svg('rect', { x: cx - bw / 2, y: H - 2 - h, width: bw, height: h, rx: 4, class: v != null && v > 1 ? 'd2-bar-high' : 'd2-bar-ok' },
@@ -379,7 +392,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], act: ReportA
   const wake = el('div', 'd2-wake');
   const wakeHead = el('div', 'row between');
   const first = recent[0], last = recent[recent.length - 1];
-  wakeHead.append(el('span', '', `Times woke up${first && last ? ` (${shortDate(figures(first).wokeMs)}–${shortDate(figures(last).wokeMs)})` : ''}`), el('span', s.wakeCount != null && s.wakeCount > 1 ? 'd2-high' : 'd2-normal', `${s.wakeCount ?? '--'} times`));
+  wakeHead.append(el('span', '', `Times woke up${first && last ? ` (${shortDate(figures(first).wokeMs)}–${shortDate(figures(last).wokeMs)})` : ''}`), el('span', f.wakeups != null && f.wakeups > 1 ? 'd2-high' : 'd2-normal', `${f.wakeups ?? '--'} times`));
   wake.append(wakeHead, wakeBars(recent));
   const mix = el('div', 'd2-mix');
   const parts = [

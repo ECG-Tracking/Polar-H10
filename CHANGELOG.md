@@ -4,6 +4,14 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: times woke up from the stages *(GitHub)*
+Why: the first real night from the watch (6 h 49 min, 82 points, matching Huawei Health) arrived without the watch's "times woke up" number.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts` | When the watch doesn't send it, times woke up is counted from the stage chart (awake spells between falling asleep and the last sleep), as Huawei Health shows it; used in the tile and the 7-night chart; the tile says when it was counted |
+| `tests/d2.test.ts` | New test |
+
 ## 3 Nov 2026 – D2 Link: last login message number *(GitHub)*
 Why: with a saved pairing the watch didn't answer the last login message.
 

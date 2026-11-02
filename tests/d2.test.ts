@@ -191,3 +191,16 @@ test('D2 link: a new pairing is handed over as soon as the watch accepts it', as
   await new D2Link(w2.transport, () => {}).connect(kept, (p) => again.push(p));
   assert.equal(again.length, 0);
 });
+
+import { countWakeups, figures } from '../src/d2/ui';
+
+test('D2 report: times woke up is counted from the stages when the watch does not send it', () => {
+  // awake at the start and end do not count; three spells in between do
+  const stages = [4, 4, 1, 1, 3, 4, 1, 2, 4, 4, 3, 1, 4, 2, 1, 4, 4];
+  assert.equal(countWakeups(stages), 3);
+  assert.equal(countWakeups([4, 4, 4]), 0);
+  const night = { id: 'x', user: 1, start: 0, stages, summary: parseSleepFile(writeSleepFile([night1()]))[0]!.summary, source: 'd2' as const, watch: 'w', downloadedAt: 0 };
+  assert.equal(figures({ ...night, summary: { ...night.summary, wakeCount: null } }).wakeups, 3);
+  assert.equal(figures({ ...night, summary: { ...night.summary, wakeCount: 5 } }).wakeups, 5); // the watch's own count wins
+});
+function night1() { return night; }
