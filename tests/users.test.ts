@@ -18,3 +18,18 @@ test('User 1 keeps the original settings; others get their own', () => {
   assert.equal(settingsKey(2), 'ecg-analysis-settings-u2');
   assert.equal(new Set(USERS.map(settingsKey)).size, 9);
 });
+
+test('biodata: BMI and summary line use only the details given', async () => {
+  const { DEFAULT_SETTINGS, bmi, biodataLine } = await import('../src/store');
+  const base = { ...DEFAULT_SETTINGS, age: 55, sex: 'male' as const };
+  assert.equal(bmi(base), null);
+  assert.equal(biodataLine(base), '55 y · male');
+  const full = { ...base, heightCm: 175, weightKg: 70 };
+  assert.ok(Math.abs((bmi(full) ?? 0) - 22.86) < 0.01);
+  assert.equal(biodataLine(full), '55 y · male · 175 cm · 70 kg');
+  const { waistToHeight } = await import('../src/store');
+  assert.equal(waistToHeight(full), null);
+  const withWaist = { ...full, waistCm: 84 };
+  assert.ok(Math.abs((waistToHeight(withWaist) ?? 0) - 0.48) < 0.001);
+  assert.equal(biodataLine(withWaist), '55 y · male · 175 cm · 70 kg · waist 84 cm');
+});

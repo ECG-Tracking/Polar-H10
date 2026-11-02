@@ -11,7 +11,7 @@ Free ECG recording and analysis for the **Polar H10** chest strap. It is an inst
 - **Charts:** HR over time, median beat with Q/J/T-end markers, Poincaré plot, RR vs QTc, and a zoomable/pannable ECG viewer (drag, wheel, pinch) with RR labels and events.
 - **Events:** premature beats, pauses and irregular beat shapes are detected automatically. User marks are shown too.
 - **Export/import:** EDF+ (signal + annotations, opens in EDFBrowser/MATLAB), per-beat CSV, JSON report, print to PDF. EDF files can be imported back.
-- **Users 1–9:** choose a user at the top of the Live screen; each has their own recordings and settings. Recordings from before users existed belong to User 1.
+- **Users 1–9:** choose a user at the top of the Live or Settings screen; each has their own recordings, settings and biodata (age, sex, height, weight, waist, resting and max HR), with BMI and waist-to-height shown. Recordings from before users existed belong to User 1.
 - **Demo modes** (rest and workout) with a simulated ECG, so everything can be tried without a sensor.
 
 ## Develop

@@ -515,6 +515,7 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
   $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
   $('reportMeta').textContent = [
     userLabel(store.sessionUser(session)),
+    store.biodataLine(settings),
     `Duration ${fmtTime(session.durationS)}`,
     `${m.beatCount} beats`,
     // the user label already shows the current alias; only mention one recorded under a different alias
@@ -703,7 +704,7 @@ function download(blob: Blob, name: string): void {
 $button('btnExportEdf').addEventListener('click', () => {
   if (!current) return;
   const { session, samples, events } = current;
-  download(writeEdf({ samples, fs: session.fs, start: session.start, alias: session.alias, events }), `${fileStem(session)}.edf`);
+  download(writeEdf({ samples, fs: session.fs, start: session.start, alias: session.alias, sex: settings.sex, events }), `${fileStem(session)}.edf`);
 });
 $button('btnExportCsv').addEventListener('click', () => {
   if (!current) return;
@@ -729,11 +730,21 @@ const form = byId('settingsForm', HTMLFormElement);
 type FormField = HTMLInputElement | HTMLSelectElement;
 const isSettingKey = (k: string): k is keyof Settings => k in settings;
 
+/** Biodata that may be left out; 0 means not given. */
+const OPTIONAL_FIELDS: ReadonlySet<string> = new Set(['heightCm', 'weightKg', 'waistCm']);
+
 function fillSettings(): void {
+  $('biodataUser').textContent = `· ${userLabel(currentUser)}`;
+  const b = store.bmi(settings), w = store.waistToHeight(settings);
+  $('bmiLine').textContent = [
+    b ? `BMI ${b.toFixed(1)}` : 'Add height and weight to see BMI.',
+    w ? `Waist-to-height ${w.toFixed(2)} (usual guide: under 0.5)` : '',
+  ].filter(Boolean).join(' · ');
   for (const el of form.elements) {
     if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) || !isSettingKey(el.name)) continue;
     const v = settings[el.name];
     if (el instanceof HTMLInputElement && el.type === 'checkbox') el.checked = Boolean(v);
+    else if (OPTIONAL_FIELDS.has(el.name) && v === 0) el.value = ''; // not given: leave the box empty
     else el.value = String(v);
   }
 }
@@ -760,13 +771,13 @@ form.addEventListener('change', (e) => {
   applyField(el);
   store.saveSettings(currentUser, settings);
   fillSettings();
-  if (el.name === 'alias') renderUserOptions();
+  if (el.name === 'alias') { renderUserOptions(); fillSettings(); }
 });
 fillSettings();
 
 // ---------- Users ----------
 
-const userSelect = byId('userSelect', HTMLSelectElement);
+const userSelects = [byId('userSelect', HTMLSelectElement), byId('settingsUserSelect', HTMLSelectElement)];
 
 /** "User 2" or "User 2 · Anna" when that user has an alias. */
 function userLabel(user: UserNumber): string {
@@ -775,31 +786,38 @@ function userLabel(user: UserNumber): string {
 }
 
 function renderUserOptions(): void {
-  userSelect.replaceChildren(...store.USERS.map((u) => {
-    const o = make('option', '', userLabel(u));
-    o.value = String(u);
-    return o;
-  }));
-  userSelect.value = String(currentUser);
+  for (const sel of userSelects) {
+    sel.replaceChildren(...store.USERS.map((u) => {
+      const o = make('option', '', userLabel(u));
+      o.value = String(u);
+      return o;
+    }));
+    sel.value = String(currentUser);
+  }
 }
 
 /** Switching user is blocked while recording, so a recording can't change owner halfway. */
 function syncUserSelect(): void {
-  userSelect.disabled = rec !== null;
-  userSelect.title = rec ? 'Stop the recording to switch user' : '';
+  for (const sel of userSelects) {
+    sel.disabled = rec !== null;
+    sel.title = rec ? 'Stop the recording to switch user' : '';
+  }
 }
 
-userSelect.addEventListener('change', () => {
-  const next = Number(userSelect.value);
-  if (rec || !store.isUserNumber(next) || next === currentUser) { userSelect.value = String(currentUser); return; }
-  currentUser = next;
-  store.saveCurrentUser(next);
-  settings = store.loadSettings(next);
-  fillSettings();
-  current = null;
-  if ($('view-report').classList.contains('active')) show('history');
-  else if ($('view-history').classList.contains('active')) void renderHistory();
-});
+for (const sel of userSelects) {
+  sel.addEventListener('change', () => {
+    const next = Number(sel.value);
+    if (rec || !store.isUserNumber(next) || next === currentUser) { sel.value = String(currentUser); return; }
+    currentUser = next;
+    store.saveCurrentUser(next);
+    settings = store.loadSettings(next);
+    renderUserOptions(); // keeps both selectors showing the same user
+    fillSettings();
+    current = null;
+    if ($('view-report').classList.contains('active')) show('history');
+    else if ($('view-history').classList.contains('active')) void renderHistory();
+  });
+}
 renderUserOptions();
 
 // ---------- Reference sources ----------

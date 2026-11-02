@@ -1292,7 +1292,7 @@
   function fmtOnset(t) {
     return "+" + (Math.round(t * 1e3) / 1e3).toString();
   }
-  function writeEdf({ samples, fs, start, alias = "X", events = [] }) {
+  function writeEdf({ samples, fs, start, alias = "X", sex, events = [] }) {
     const records = Math.max(1, Math.ceil(samples.length / fs));
     const ns = 2;
     const enc = new TextEncoder();
@@ -1300,7 +1300,7 @@
     const d = new Date(start);
     let h = "";
     h += pad("0", 8);
-    h += pad(`X X X ${clean(alias)}`, 80);
+    h += pad(`X ${sex === "male" ? "M" : sex === "female" ? "F" : "X"} X ${clean(alias)}`, 80);
     h += pad(`Startdate ${two(d.getDate())}-${MONTHS[d.getMonth()] ?? "JAN"}-${d.getFullYear()} X X Polar_H10`, 80);
     h += pad(`${two(d.getDate())}.${two(d.getMonth() + 1)}.${two(d.getFullYear() % 100)}`, 8);
     h += pad(`${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`, 8);
@@ -1508,6 +1508,9 @@
     alias: "",
     age: 40,
     sex: "male",
+    heightCm: 0,
+    weightKg: 0,
+    waistCm: 0,
     hrRest: 60,
     hrMax: 180,
     zoneMin: 110,
@@ -1536,6 +1539,21 @@
       out[key] = v;
     }
     return out;
+  }
+  function bmi(s) {
+    return s.heightCm > 0 && s.weightKg > 0 ? s.weightKg / (s.heightCm / 100) ** 2 : null;
+  }
+  function waistToHeight(s) {
+    return s.heightCm > 0 && s.waistCm > 0 ? s.waistCm / s.heightCm : null;
+  }
+  function biodataLine(s) {
+    return [
+      `${s.age} y`,
+      s.sex,
+      s.heightCm > 0 ? `${s.heightCm} cm` : "",
+      s.weightKg > 0 ? `${s.weightKg} kg` : "",
+      s.waistCm > 0 ? `waist ${s.waistCm} cm` : ""
+    ].filter(Boolean).join(" \xB7 ");
   }
   function loadSettings(user) {
     try {
@@ -2068,6 +2086,7 @@
     $("reportTitle").textContent = new Date(session.start).toLocaleString([], { dateStyle: "full", timeStyle: "short" });
     $("reportMeta").textContent = [
       userLabel(sessionUser(session)),
+      biodataLine(settings),
       `Duration ${fmtTime(session.durationS)}`,
       `${m.beatCount} beats`,
       // the user label already shows the current alias; only mention one recorded under a different alias
@@ -2249,7 +2268,7 @@
   $button("btnExportEdf").addEventListener("click", () => {
     if (!current) return;
     const { session, samples, events } = current;
-    download(writeEdf({ samples, fs: session.fs, start: session.start, alias: session.alias, events }), `${fileStem(session)}.edf`);
+    download(writeEdf({ samples, fs: session.fs, start: session.start, alias: session.alias, sex: settings.sex, events }), `${fileStem(session)}.edf`);
   });
   $button("btnExportCsv").addEventListener("click", () => {
     if (!current) return;
@@ -2281,11 +2300,19 @@
   });
   var form = byId("settingsForm", HTMLFormElement);
   var isSettingKey = (k) => k in settings;
+  var OPTIONAL_FIELDS = /* @__PURE__ */ new Set(["heightCm", "weightKg", "waistCm"]);
   function fillSettings() {
+    $("biodataUser").textContent = `\xB7 ${userLabel(currentUser)}`;
+    const b = bmi(settings), w = waistToHeight(settings);
+    $("bmiLine").textContent = [
+      b ? `BMI ${b.toFixed(1)}` : "Add height and weight to see BMI.",
+      w ? `Waist-to-height ${w.toFixed(2)} (usual guide: under 0.5)` : ""
+    ].filter(Boolean).join(" \xB7 ");
     for (const el of form.elements) {
       if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement) || !isSettingKey(el.name)) continue;
       const v = settings[el.name];
       if (el instanceof HTMLInputElement && el.type === "checkbox") el.checked = Boolean(v);
+      else if (OPTIONAL_FIELDS.has(el.name) && v === 0) el.value = "";
       else el.value = String(v);
     }
   }
@@ -2309,40 +2336,50 @@
     applyField(el);
     saveSettings(currentUser, settings);
     fillSettings();
-    if (el.name === "alias") renderUserOptions();
+    if (el.name === "alias") {
+      renderUserOptions();
+      fillSettings();
+    }
   });
   fillSettings();
-  var userSelect = byId("userSelect", HTMLSelectElement);
+  var userSelects = [byId("userSelect", HTMLSelectElement), byId("settingsUserSelect", HTMLSelectElement)];
   function userLabel(user) {
     const alias = user === currentUser ? settings.alias : loadSettings(user).alias;
     return alias ? `User ${user} \xB7 ${alias}` : `User ${user}`;
   }
   function renderUserOptions() {
-    userSelect.replaceChildren(...USERS.map((u) => {
-      const o = make("option", "", userLabel(u));
-      o.value = String(u);
-      return o;
-    }));
-    userSelect.value = String(currentUser);
+    for (const sel of userSelects) {
+      sel.replaceChildren(...USERS.map((u) => {
+        const o = make("option", "", userLabel(u));
+        o.value = String(u);
+        return o;
+      }));
+      sel.value = String(currentUser);
+    }
   }
   function syncUserSelect() {
-    userSelect.disabled = rec !== null;
-    userSelect.title = rec ? "Stop the recording to switch user" : "";
-  }
-  userSelect.addEventListener("change", () => {
-    const next = Number(userSelect.value);
-    if (rec || !isUserNumber(next) || next === currentUser) {
-      userSelect.value = String(currentUser);
-      return;
+    for (const sel of userSelects) {
+      sel.disabled = rec !== null;
+      sel.title = rec ? "Stop the recording to switch user" : "";
     }
-    currentUser = next;
-    saveCurrentUser(next);
-    settings = loadSettings(next);
-    fillSettings();
-    current = null;
-    if ($("view-report").classList.contains("active")) show("history");
-    else if ($("view-history").classList.contains("active")) void renderHistory();
-  });
+  }
+  for (const sel of userSelects) {
+    sel.addEventListener("change", () => {
+      const next = Number(sel.value);
+      if (rec || !isUserNumber(next) || next === currentUser) {
+        sel.value = String(currentUser);
+        return;
+      }
+      currentUser = next;
+      saveCurrentUser(next);
+      settings = loadSettings(next);
+      renderUserOptions();
+      fillSettings();
+      current = null;
+      if ($("view-report").classList.contains("active")) show("history");
+      else if ($("view-history").classList.contains("active")) void renderHistory();
+    });
+  }
   renderUserOptions();
   $("refSources").replaceChildren(...SOURCES.map(([what, text]) => {
     const li = make("li");

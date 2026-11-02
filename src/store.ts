@@ -116,6 +116,9 @@ export interface Settings {
   alias: string;
   age: number;
   sex: 'male' | 'female';
+  heightCm: number; // 0 = not given
+  weightKg: number; // 0 = not given
+  waistCm: number; // 0 = not given
   hrRest: number;
   hrMax: number;
   zoneMin: number;
@@ -136,6 +139,9 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   alias: '',
   age: 40,
   sex: 'male',
+  heightCm: 0,
+  weightKg: 0,
+  waistCm: 0,
   hrRest: 60,
   hrMax: 180,
   zoneMin: 110,
@@ -167,6 +173,27 @@ function sanitize(saved: unknown): Partial<Settings> {
     out[key] = v;
   }
   return out as Partial<Settings>;
+}
+
+/** Body-mass index from height and weight, or null when either is missing. */
+export function bmi(s: Pick<Settings, 'heightCm' | 'weightKg'>): number | null {
+  return s.heightCm > 0 && s.weightKg > 0 ? s.weightKg / (s.heightCm / 100) ** 2 : null;
+}
+
+/** Waist ÷ height, or null when either is missing. Under 0.5 is the usual guide (NICE 2022). */
+export function waistToHeight(s: Pick<Settings, 'heightCm' | 'waistCm'>): number | null {
+  return s.heightCm > 0 && s.waistCm > 0 ? s.waistCm / s.heightCm : null;
+}
+
+/** One-line biodata summary, e.g. "55 y · male · 175 cm · 70 kg"; only the details given. */
+export function biodataLine(s: Settings): string {
+  return [
+    `${s.age} y`,
+    s.sex,
+    s.heightCm > 0 ? `${s.heightCm} cm` : '',
+    s.weightKg > 0 ? `${s.weightKg} kg` : '',
+    s.waistCm > 0 ? `waist ${s.waistCm} cm` : '',
+  ].filter(Boolean).join(' · ');
 }
 
 export function loadSettings(user: UserNumber): Settings {

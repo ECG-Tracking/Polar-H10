@@ -140,23 +140,58 @@
     <section id="view-settings" class="view">
       <h2>Settings</h2>
       <form id="settingsForm" class="card form">
-        <label>Alias <input name="alias" maxlength="40" placeholder="Optional, avoid personal data"></label>
-        <div class="row">
-          <label>Age <input name="age" type="number" min="5" max="110"></label>
-          <label>Sex <select name="sex"><option value="male">Male</option><option value="female">Female</option></select></label>
-        </div>
-        <div class="row">
-          <label>Resting HR <input name="hrRest" type="number" min="30" max="120"></label>
-          <label>Max HR <input name="hrMax" type="number" min="100" max="230"></label>
-        </div>
-        <div class="row">
-          <label>Zone low (bpm) <input name="zoneMin" type="number" min="40" max="220"></label>
-          <label>Zone high (bpm) <input name="zoneMax" type="number" min="40" max="230"></label>
-        </div>
-        <div class="row">
-          <label>Mains filter <select name="notch"><option value="50">50 Hz</option><option value="60">60 Hz</option><option value="0">Off</option></select></label>
-          <label>QTc formula <select name="qtcFormula"><option value="bazett">Bazett</option><option value="fridericia">Fridericia</option></select></label>
-        </div>
+        <label class="user-pick">
+          <span>User</span>
+          <select id="settingsUserSelect" aria-describedby="settingsUserHint"></select>
+          <span class="muted" id="settingsUserHint">Everything on this page is saved for the chosen user only.</span>
+        </label>
+        <fieldset>
+          <legend>Biodata <span id="biodataUser"></span></legend>
+          <label>Name or alias <input name="alias" maxlength="40" placeholder="Optional, avoid full names"></label>
+          <div class="row">
+            <label>Age (years) <input name="age" type="number" min="5" max="110"></label>
+            <label>Sex <select name="sex"><option value="male">Male</option><option value="female">Female</option></select></label>
+          </div>
+          <div class="row">
+            <label>Height (cm) <input name="heightCm" type="number" min="0" max="250" placeholder="Optional"></label>
+            <label>Weight (kg) <input name="weightKg" type="number" min="0" max="300" step="0.1" placeholder="Optional"></label>
+          </div>
+          <div class="row">
+            <label>Waist circumference (cm) <input name="waistCm" type="number" min="0" max="250" step="0.5" placeholder="Optional"></label>
+            <span class="field-spacer" aria-hidden="true"></span>
+          </div>
+          <details class="howto">
+            <summary>How to measure your waist</summary>
+            <ol>
+              <li>Stand up straight with your feet together and your stomach relaxed. Measure against bare skin or thin clothing.</li>
+              <li>Find the bottom of your lowest rib and the top of your hip bone at your side.</li>
+              <li>Wrap a flexible tape measure around your body halfway between those two points. For most people this is roughly level with the belly button.</li>
+              <li>Keep the tape level all the way round, snug but not pressing into the skin.</li>
+              <li>Breathe out normally and read the measurement at the end of the breath, without pulling your stomach in.</li>
+              <li>Measure twice; if the two readings differ by more than 1 cm, measure again and use the average.</li>
+            </ol>
+          </details>
+          <p class="muted" id="bmiLine"></p>
+          <div class="row">
+            <label>Resting HR (bpm) <input name="hrRest" type="number" min="30" max="120"></label>
+            <label>Max HR (bpm) <input name="hrMax" type="number" min="100" max="230"></label>
+          </div>
+          <p class="muted">Age and sex set the HRV and QTc reference ranges; resting and max HR set the training zones and effort. Max HR becomes 220 − age when you change age.</p>
+        </fieldset>
+        <fieldset>
+          <legend>Training zone alerts</legend>
+          <div class="row">
+            <label>Zone low (bpm) <input name="zoneMin" type="number" min="40" max="220"></label>
+            <label>Zone high (bpm) <input name="zoneMax" type="number" min="40" max="230"></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Analysis</legend>
+          <div class="row">
+            <label>Mains filter <select name="notch"><option value="50">50 Hz</option><option value="60">60 Hz</option><option value="0">Off</option></select></label>
+            <label>QTc formula <select name="qtcFormula"><option value="bazett">Bazett</option><option value="fridericia">Fridericia</option></select></label>
+          </div>
+        </fieldset>
         <fieldset>
           <legend>Alerts while recording</legend>
           <label class="check"><input type="checkbox" name="alertZone"> Heart rate leaves the zone (1 low beep = below, 2 = above)</label>
@@ -165,7 +200,7 @@
           <label class="check"><input type="checkbox" name="vibrate"> Vibrate as well (Android)</label>
           <button type="button" id="btnTestAlert">Test sound</button>
         </fieldset>
-        <p class="muted">Max HR defaults to 220 − age if you change age. Settings stay in this browser.</p>
+        <p class="muted">Settings stay in this browser.</p>
       </form>
       <div class="card">
         <h3>About</h3>

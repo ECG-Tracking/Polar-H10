@@ -16,10 +16,11 @@ export interface EdfWriteInput {
   fs: number;
   start: number; // epoch ms
   alias?: string;
+  sex?: 'male' | 'female';
   events?: readonly EdfEvent[];
 }
 
-export function writeEdf({ samples, fs, start, alias = 'X', events = [] }: EdfWriteInput): Blob {
+export function writeEdf({ samples, fs, start, alias = 'X', sex, events = [] }: EdfWriteInput): Blob {
   const records = Math.max(1, Math.ceil(samples.length / fs));
   const ns = 2;
   const enc = new TextEncoder();
@@ -28,7 +29,8 @@ export function writeEdf({ samples, fs, start, alias = 'X', events = [] }: EdfWr
 
   let h = '';
   h += pad('0', 8);
-  h += pad(`X X X ${clean(alias)}`, 80);
+  // EDF+ patient field: code, sex (M/F/X), birthdate, name
+  h += pad(`X ${sex === 'male' ? 'M' : sex === 'female' ? 'F' : 'X'} X ${clean(alias)}`, 80);
   h += pad(`Startdate ${two(d.getDate())}-${MONTHS[d.getMonth()] ?? 'JAN'}-${d.getFullYear()} X X Polar_H10`, 80);
   h += pad(`${two(d.getDate())}.${two(d.getMonth() + 1)}.${two(d.getFullYear() % 100)}`, 8);
   h += pad(`${two(d.getHours())}.${two(d.getMinutes())}.${two(d.getSeconds())}`, 8);

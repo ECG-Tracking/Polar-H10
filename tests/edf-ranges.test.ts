@@ -7,7 +7,9 @@ test('EDF+ round trip keeps samples, start time, alias and events', async () => 
   const samples = Int16Array.from({ length: 130 * 20 }, (_, i) => Math.round(1000 * Math.sin(i / 7)));
   const start = new Date(2026, 10, 2, 8, 30, 5).getTime();
   const events = [{ t: 12.5, label: 'Marked' }, { t: 12.6, label: 'Premature beat' }];
-  const blob = writeEdf({ samples, fs: 130, start, alias: 'test user', events });
+  const blob = writeEdf({ samples, fs: 130, start, alias: 'test user', sex: 'female', events });
+  const header = new TextDecoder().decode((await blob.arrayBuffer()).slice(8, 88));
+  assert.ok(header.startsWith('X F X test_user'), header);
   const back = readEdf(await blob.arrayBuffer());
   assert.equal(back.fs, 130);
   assert.equal(back.samples.length, samples.length);

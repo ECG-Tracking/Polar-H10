@@ -4,6 +4,15 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Per-user biodata *(GitHub)*
+| File | Change |
+|---|---|
+| `index.html`, `styles.css` | Settings starts with a User selector (kept in step with the one on Live); new "Biodata · User N" section: name or alias, age, sex, height, weight, waist circumference, resting and max HR; "How to measure your waist" guide; settings grouped into Biodata, Training zone alerts, Analysis and Alerts |
+| `src/store.ts` | Height, weight and waist saved per user (blank = not given); BMI and waist-to-height ratio |
+| `src/app.ts` | Shows BMI and waist-to-height (usual guide: under 0.5) under the biodata; report header lists the user's biodata; empty optional fields stay blank |
+| `src/edf.ts` | EDF+ export records sex in the patient field |
+| `tests/` | Biodata and EDF sex tests (14 in total) |
+
 ## 2 Nov 2026 – T/R ratio warnings *(GitHub)*
 | File | Change |
 |---|---|

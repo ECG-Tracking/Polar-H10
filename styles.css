@@ -209,6 +209,11 @@ button.recording { background: var(--ink); border-color: var(--ink); color: var(
 
 .form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--ink-2); flex: 1; margin-bottom: 10px; }
 .form input, .form select { font: inherit; padding: 9px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; }
+.form .field-spacer { flex: 1; }
+.howto { margin: 0 0 10px; font-size: 0.85rem; color: var(--ink-2); }
+.howto summary { cursor: pointer; color: var(--series-1); }
+.howto ol { margin: 6px 0 0; padding-left: 20px; }
+.howto li { margin-bottom: 4px; }
 .form .check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 0.95rem; }
 .form .check input { width: 18px; height: 18px; }
 fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 4px 0 10px; }
