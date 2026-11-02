@@ -13,14 +13,27 @@ Free ECG recording and analysis for the **Polar H10** chest strap. It is an inst
 - **Export/import:** EDF+ (signal + annotations, opens in EDFBrowser/MATLAB), per-beat CSV, JSON report, print to PDF. EDF files can be imported back.
 - **Demo modes** (rest and workout) with a simulated ECG, so everything can be tried without a sensor.
 
-## Run locally
+## Develop
+The source is strict TypeScript in `src/` (same compiler settings as the Portfolio Optimizer project). `app.js` is **generated**: never edit it by hand.
+
+Needs Node.js 18+. On this Mac it is the official build in `~/.local/node` (add `export PATH="$HOME/.local/node/bin:$PATH"` to `~/.zprofile` to use it in Terminal).
+
+| Command | Does |
+|---|---|
+| `npm install` | Installs TypeScript 5.4.5, esbuild 0.21.5 and type definitions into `node_modules/` (not uploaded) |
+| `npm run typecheck` | Strict type check of `src/` and `tests/` |
+| `npm run build` | Bundles `src/app.ts` into `app.js` |
+| `npm test` | Runs `tests/*.test.ts` with `node --test` |
+| `npm run check` | All three. `publish.command` runs this first and uploads nothing if it fails |
+
+Run locally after building:
 ```bash
 python3 -m http.server 8130
 ```
 Open http://localhost:8130 in Chrome or Edge. Web Bluetooth works on `localhost` and on `https://` pages.
 
 ## Use on a phone
-Web Bluetooth needs HTTPS, so host the folder on any static host (GitHub Pages, Netlify, Cloudflare Pages). No build step is needed. Then open it and choose *Install app* / *Add to Home Screen*.
+Web Bluetooth needs HTTPS, so host the folder (after `npm run build`) on any static host (GitHub Pages, Netlify, Cloudflare Pages). Then open it and choose *Install app* / *Add to Home Screen*.
 
 | Platform | Browser |
 |---|---|
@@ -33,13 +46,16 @@ Tips: wet the strap electrodes, close other apps connected to the H10 (Polar Bea
 ## How it works
 | File | Role |
 |---|---|
-| `js/polar.js` | Web Bluetooth: Heart Rate service + Polar PMD ECG stream (130 Hz, µV) |
-| `js/dsp.js` | Zero-phase 0.5–40 Hz band-pass + mains notch, Pan–Tompkins QRS detection with search-back, RR/morphology event classification, beat delineation (QRS onset/J by slope, T end by tangent method), HRV, spectrum, training metrics |
-| `js/sim.js` | Synthetic ECG with respiratory HRV, ectopic beats and noise |
-| `js/charts.js` | Canvas plots, live sweep trace, ECG viewer |
-| `js/edf.js` | EDF+ writer/reader |
-| `js/store.js` | IndexedDB sessions, settings |
-| `js/app.js` | UI |
+| `src/polar.ts` | Web Bluetooth: Heart Rate service + Polar PMD ECG stream (130 Hz, µV) |
+| `src/dsp.ts` | Zero-phase 0.5–40 Hz band-pass + mains notch, Pan–Tompkins QRS detection with search-back, RR/morphology event classification, beat delineation (QRS onset/J by slope, T end by tangent method), HRV, spectrum, training metrics |
+| `src/sim.ts` | Synthetic ECG with respiratory HRV, ectopic beats and noise |
+| `src/charts.ts` | Canvas plots, live sweep trace, ECG viewer |
+| `src/edf.ts` | EDF+ writer/reader |
+| `src/store.ts` | IndexedDB sessions; settings (validated on load) |
+| `src/ranges.ts` | Reference ranges and their sources |
+| `src/util.ts` | Shared helpers |
+| `src/app.ts` | UI (entry point of the bundle) |
+| `tests/` | Beat detection, metrics, EDF round trip, reference ranges |
 
 The live tiles re-analyse the last 60 s every second. Reports re-analyse the whole raw recording when opened, so changing settings (QTc formula, mains filter, max HR) updates past reports too.
 

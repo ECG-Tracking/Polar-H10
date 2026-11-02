@@ -1,0 +1,18 @@
+{
+  "name": "openbeat-ecg",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenBeat ECG — TypeScript source. `npm run build` bundles src/ into app.js, which index.html loads.",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+    "test": "node scripts/test.mjs",
+    "check": "npm run typecheck && npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.39",
+    "@types/web-bluetooth": "0.0.20",
+    "esbuild": "0.21.5",
+    "typescript": "5.4.5"
+  }
+}

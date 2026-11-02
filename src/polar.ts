@@ -1,5 +1,7 @@
 // Polar H10 over Web Bluetooth: standard Heart Rate service + Polar PMD raw ECG stream.
 
+import { errorMessage, sleep } from './util';
+
 const PMD_SERVICE = 'fb005c80-02e7-f387-1cad-8acd2d8df0c8';
 const PMD_CONTROL = 'fb005c81-02e7-f387-1cad-8acd2d8df0c8';
 const PMD_DATA = 'fb005c82-02e7-f387-1cad-8acd2d8df0c8';
@@ -9,7 +11,7 @@ const START_ECG = new Uint8Array([0x02, 0x00, 0x00, 0x01, 0x82, 0x00, 0x01, 0x01
 const STOP_ECG = new Uint8Array([0x03, 0x00]);
 
 // PMD control point error codes
-const PMD_ERRORS = {
+const PMD_ERRORS: Readonly<Record<number, string>> = {
   1: 'invalid op code', 2: 'invalid measurement type', 3: 'not supported', 4: 'invalid length',
   5: 'invalid parameter', 6: 'already running', 7: 'invalid resolution', 8: 'invalid sample rate',
   9: 'invalid range', 10: 'invalid MTU', 11: 'invalid number of channels', 12: 'invalid state',
@@ -18,58 +20,68 @@ const PMD_ERRORS = {
 
 export const ECG_FS = 130;
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export interface EcgDetail { samples: Int32Array } // µV
+export interface HrDetail { hr: number; rr: number[] } // rr in ms
+export interface BatteryDetail { level: number }
+export type ConnectResult = { ecg: true } | { ecg: false; reason: string };
+type Log = (line: string) => void;
+interface ControlReply { op: number; status: number }
 
-export function bluetoothAvailable() {
+export function bluetoothAvailable(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth;
+}
+
+/** DataView carried by a characteristicvaluechanged event, if any. */
+function eventValue(e: Event): DataView | undefined {
+  return (e.target as BluetoothRemoteGATTCharacteristic | null)?.value;
 }
 
 /**
  * Events:
- *  'ecg'        detail: { samples: Int32Array (µV) }
- *  'hr'         detail: { hr, rr: number[] (ms) }
- *  'battery'    detail: { level }
+ *  'ecg'        CustomEvent<EcgDetail>
+ *  'hr'         CustomEvent<HrDetail>
+ *  'battery'    CustomEvent<BatteryDetail>
  *  'disconnect'
  */
 export class PolarH10 extends EventTarget {
-  constructor() {
-    super();
-    this.device = null;
-    this.control = null;
-    this.name = '';
-    this.ecgOk = false;
-    this.ecgPackets = 0;
-    this._reply = null;
-  }
+  device: BluetoothDevice | null = null;
+  name = '';
+  ecgOk = false;
+  private control: BluetoothRemoteGATTCharacteristic | null = null;
+  private ecgPackets = 0;
+  private reply: ((r: ControlReply | null) => void) | null = null;
 
-  /** Connects and starts streaming. `log` receives progress lines. Returns { ecg: boolean, reason? }. */
-  async connect(log = () => {}) {
+  /** Connects and starts streaming. `log` receives progress lines. */
+  async connect(log: Log = () => {}): Promise<ConnectResult> {
     log('Waiting for you to choose the strap and click Pair…');
-    this.device = await navigator.bluetooth.requestDevice({
+    const device = await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: 'Polar H10' }],
       optionalServices: [PMD_SERVICE, 'heart_rate', 'battery_service'],
     });
-    this.name = this.device.name || 'Polar H10';
+    this.device = device;
+    this.name = device.name || 'Polar H10';
     log(`Selected ${this.name}`);
-    this.device.addEventListener('gattserverdisconnected', () => {
+    device.addEventListener('gattserverdisconnected', () => {
       this.dispatchEvent(new Event('disconnect'));
     });
+    const gatt = device.gatt;
+    if (!gatt) throw new Error('this device has no Bluetooth services');
 
-    let server;
+    let server: BluetoothRemoteGATTServer;
     for (let attempt = 1; ; attempt++) {
       try {
         log(attempt === 1 ? 'Connecting…' : `Connecting (attempt ${attempt})…`);
         // on macOS gatt.connect() can hang without ever settling, so give each attempt a deadline
         server = await Promise.race([
-          this.device.gatt.connect(),
-          sleep(10000).then(() => { throw new Error('timed out after 10 s'); }),
+          gatt.connect(),
+          sleep(10000).then((): never => { throw new Error('timed out after 10 s'); }),
         ]);
         break;
       } catch (err) {
-        log(`Connect failed: ${err.message}`);
-        if (this.device.gatt.connected) this.device.gatt.disconnect();
+        log(`Connect failed: ${errorMessage(err)}`);
+        if (gatt.connected) gatt.disconnect();
         if (attempt >= 3) {
-          throw new Error(`${err.message}. Try: forget the H10 in macOS Bluetooth settings, close Polar apps on your phone, then reconnect`);
+          throw new Error(`${errorMessage(err)}. Try: forget the H10 in macOS Bluetooth settings, close Polar apps on your phone, then reconnect`);
         }
         await sleep(1500);
       }
@@ -79,7 +91,10 @@ export class PolarH10 extends EventTarget {
     log('Connected. Starting heart rate…');
     const hrService = await server.getPrimaryService('heart_rate');
     const hrChar = await hrService.getCharacteristic('heart_rate_measurement');
-    hrChar.addEventListener('characteristicvaluechanged', (e) => this._onHeartRate(e.target.value));
+    hrChar.addEventListener('characteristicvaluechanged', (e) => {
+      const dv = eventValue(e);
+      if (dv) this.onHeartRate(dv);
+    });
     await hrChar.startNotifications();
     log('Heart rate OK');
 
@@ -87,41 +102,48 @@ export class PolarH10 extends EventTarget {
       const bat = await server.getPrimaryService('battery_service');
       const level = await bat.getCharacteristic('battery_level');
       const v = await level.readValue();
-      this.dispatchEvent(new CustomEvent('battery', { detail: { level: v.getUint8(0) } }));
+      this.dispatchEvent(new CustomEvent<BatteryDetail>('battery', { detail: { level: v.getUint8(0) } }));
       log(`Battery ${v.getUint8(0)}%`);
     } catch {
       log('Battery level not available');
     }
 
     try {
-      await this._startEcg(server, log);
+      await this.startEcg(server, log);
       this.ecgOk = true;
       return { ecg: true };
     } catch (err) {
-      log(`ECG stream failed: ${err.message}`);
+      log(`ECG stream failed: ${errorMessage(err)}`);
       log('Continuing with heart rate only');
-      return { ecg: false, reason: err.message };
+      return { ecg: false, reason: errorMessage(err) };
     }
   }
 
-  async _startEcg(server, log) {
+  private async startEcg(server: BluetoothRemoteGATTServer, log: Log): Promise<void> {
     log('Starting ECG stream…');
     const pmd = await server.getPrimaryService(PMD_SERVICE);
-    this.control = await pmd.getCharacteristic(PMD_CONTROL);
+    const control = await pmd.getCharacteristic(PMD_CONTROL);
+    this.control = control;
     const data = await pmd.getCharacteristic(PMD_DATA);
-    this.control.addEventListener('characteristicvaluechanged', (e) => this._onControl(e.target.value));
+    control.addEventListener('characteristicvaluechanged', (e) => {
+      const dv = eventValue(e);
+      if (dv) this.onControl(dv);
+    });
     // Indications on the control point must be enabled before commands are accepted.
-    await this.control.startNotifications();
-    data.addEventListener('characteristicvaluechanged', (e) => this._onPmd(e.target.value));
+    await control.startNotifications();
+    data.addEventListener('characteristicvaluechanged', (e) => {
+      const dv = eventValue(e);
+      if (dv) this.onPmd(dv);
+    });
     await data.startNotifications();
 
     // a stream left running by an earlier session makes the start command fail
-    await this._command(STOP_ECG, 1500).catch(() => {});
-    const reply = await this._command(START_ECG, 3000);
+    await this.command(control, STOP_ECG, 1500).catch(() => null);
+    const reply = await this.command(control, START_ECG, 3000);
     if (!reply) {
       log('No reply to the start command; waiting for data…');
     } else if (reply.status !== 0 && reply.status !== 6) {
-      throw new Error(`H10 refused: ${PMD_ERRORS[reply.status] || `code ${reply.status}`}`);
+      throw new Error(`H10 refused: ${PMD_ERRORS[reply.status] ?? `code ${reply.status}`}`);
     }
     for (let i = 0; i < 25 && !this.ecgPackets; i++) await sleep(200);
     if (!this.ecgPackets) throw new Error('no ECG data received (is the strap worn with wet electrodes?)');
@@ -129,47 +151,49 @@ export class PolarH10 extends EventTarget {
   }
 
   /** Writes a control point command and resolves with its reply, or null on timeout. */
-  async _command(bytes, timeoutMs) {
-    const wait = new Promise((resolve) => {
-      this._reply = resolve;
+  private async command(control: BluetoothRemoteGATTCharacteristic, bytes: Uint8Array, timeoutMs: number): Promise<ControlReply | null> {
+    const wait = new Promise<ControlReply | null>((resolve) => {
+      this.reply = resolve;
       setTimeout(() => resolve(null), timeoutMs);
     });
-    if (this.control.writeValueWithResponse) await this.control.writeValueWithResponse(bytes);
-    else await this.control.writeValue(bytes);
+    // older Web Bluetooth implementations (e.g. some iOS browsers) only have writeValue
+    if (typeof control.writeValueWithResponse === 'function') await control.writeValueWithResponse(bytes);
+    else await control.writeValue(bytes);
     const reply = await wait;
-    this._reply = null;
+    this.reply = null;
     return reply;
   }
 
-  async disconnect() {
+  async disconnect(): Promise<void> {
+    const gatt = this.device?.gatt;
     try {
-      if (this.control && this.device?.gatt?.connected) await this.control.writeValueWithResponse(STOP_ECG);
+      if (this.control && gatt?.connected) await this.control.writeValueWithResponse(STOP_ECG);
     } catch {
       // device may already be gone
     }
-    if (this.device?.gatt?.connected) this.device.gatt.disconnect();
+    if (gatt?.connected) gatt.disconnect();
   }
 
-  _onControl(dv) {
+  private onControl(dv: DataView): void {
     // reply: 0xF0, op code, measurement type, status, ...
     if (dv.byteLength < 4 || dv.getUint8(0) !== 0xf0) return;
-    this._reply?.({ op: dv.getUint8(1), status: dv.getUint8(3) });
+    this.reply?.({ op: dv.getUint8(1), status: dv.getUint8(3) });
   }
 
-  _onHeartRate(dv) {
+  private onHeartRate(dv: DataView): void {
     const flags = dv.getUint8(0);
     let i = 1;
-    let hr;
+    let hr: number;
     if (flags & 0x01) { hr = dv.getUint16(i, true); i += 2; } else { hr = dv.getUint8(i); i += 1; }
     if (flags & 0x08) i += 2; // energy expended
-    const rr = [];
+    const rr: number[] = [];
     if (flags & 0x10) {
       for (; i + 1 < dv.byteLength; i += 2) rr.push((dv.getUint16(i, true) / 1024) * 1000);
     }
-    this.dispatchEvent(new CustomEvent('hr', { detail: { hr, rr } }));
+    this.dispatchEvent(new CustomEvent<HrDetail>('hr', { detail: { hr, rr } }));
   }
 
-  _onPmd(dv) {
+  private onPmd(dv: DataView): void {
     // [0] measurement type, [1..8] timestamp (ns), [9] frame type, then 3-byte signed LE samples (µV)
     if (dv.byteLength < 10 || dv.getUint8(0) !== 0x00 || dv.getUint8(9) !== 0x00) return;
     this.ecgPackets++;
@@ -180,6 +204,6 @@ export class PolarH10 extends EventTarget {
       if (v & 0x800000) v -= 0x1000000;
       samples[k] = v;
     }
-    this.dispatchEvent(new CustomEvent('ecg', { detail: { samples } }));
+    this.dispatchEvent(new CustomEvent<EcgDetail>('ecg', { detail: { samples } }));
   }
 }

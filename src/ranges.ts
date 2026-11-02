@@ -1,9 +1,17 @@
 // Reference ranges for report metrics. Values come from published adult norms where they exist;
 // a chest strap is a single, non-standard lead, so ranges marked "approximate" are guides only.
 
+import type { Settings } from './store';
+
+/** At least one bound is set. `rest` = only meaningful for resting recordings. */
+export type Range =
+  ({ lo: number; hi?: number } | { lo?: number; hi: number }) & { rest?: boolean; note?: string };
+
+export type RangeStatus = 'low' | 'high';
+
 // Short-term resting RMSSD (ms) by age, approximating published age trends (Umetani et al. 1998)
-// around the adult normative range of Nunan et al. 2010.
-const RMSSD_BY_AGE = [
+// around the adult normative range of Nunan et al. 2010. Rows: [age below, low, high].
+const RMSSD_BY_AGE: readonly (readonly [number, number, number])[] = [
   [30, 25, 80],
   [40, 20, 65],
   [50, 17, 55],
@@ -11,7 +19,7 @@ const RMSSD_BY_AGE = [
   [Infinity, 12, 40],
 ];
 
-export const SOURCES = [
+export const SOURCES: readonly (readonly [string, string])[] = [
   ['Resting heart rate', 'American Heart Association: 60–100 bpm adults; 40–60 common in trained people.'],
   ['RMSSD, SDNN', 'Nunan D. et al. A quantitative systematic review of normal values for short-term heart rate variability. PACE 2010 (RMSSD 19–75 ms, SDNN 32–93 ms). Age adjustment follows Umetani K. et al., JACC 1998.'],
   ['QRS, QTc', 'AHA/ACCF/HRS recommendations for ECG interpretation (Surawicz 2009; Rautaharju 2009): QRS ≥ 120 ms is wide; QTc ≥ 450 ms (men) / ≥ 460 ms (women) is prolonged.'],
@@ -20,10 +28,14 @@ export const SOURCES = [
   ['Ectopic beats', 'Healthy adults usually have under 1 % ectopic beats on long recordings; flagged beats here also include noise.'],
 ];
 
-/** Ranges keyed by metric name. `rest` = only meaningful for resting recordings. */
-export function referenceRanges(settings) {
+export interface ReferenceRanges {
+  meanHR: Range; hrvScore: Range; rmssd: Range; sdnn: Range; pnn50: Range; pnn200: Range;
+  eventPct: Range; qrs: Range; qtc: Range; tPositive: Range; jPoint: Range; st60: Range; hrr60: Range;
+}
+
+export function referenceRanges(settings: Pick<Settings, 'age' | 'sex'>): ReferenceRanges {
   const age = Number(settings.age) || 40;
-  const [, rLo, rHi] = RMSSD_BY_AGE.find(([maxAge]) => age < maxAge);
+  const [, rLo, rHi] = RMSSD_BY_AGE.find(([maxAge]) => age < maxAge) ?? [Infinity, 12, 40];
   const female = settings.sex === 'female';
   return {
     meanHR: { lo: 40, hi: 100, rest: true },
@@ -42,15 +54,14 @@ export function referenceRanges(settings) {
   };
 }
 
-/** 'low' | 'high' | null */
-export function checkRange(ref, v) {
+export function checkRange(ref: Range | undefined, v: number | null | undefined): RangeStatus | null {
   if (!ref || v == null || !Number.isFinite(v)) return null;
   if (ref.lo != null && v < ref.lo) return 'low';
   if (ref.hi != null && v > ref.hi) return 'high';
   return null;
 }
 
-export function fmtRange(ref) {
+export function fmtRange(ref: Range): string {
   if (ref.lo != null && ref.hi != null) return `${ref.lo}–${ref.hi}`;
   if (ref.lo != null) return `≥ ${ref.lo}`;
   return `≤ ${ref.hi}`;
