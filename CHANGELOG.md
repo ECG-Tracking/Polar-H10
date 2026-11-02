@@ -1,7 +1,12 @@
 # OpenBeat ECG – change history
 
-Newest first. Entries marked *(GitHub)* also appear under **Commits** at github.com/MarketVolatility/ECG.
+Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository github.com/ecg-tracking/Polar-H10).
+Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
+
+## 2 Nov 2026 – Moved to the ecg-tracking account (not yet published)
+- App uploaded to github.com/ecg-tracking/Polar-H10 through the browser; live at https://ecg-tracking.github.io/Polar-H10/
+- `publish.command` now uploads to this new repository (user `ecg-tracking`)
 
 ## 2 Nov 2026 – Upload archive (not yet published)
 | File | Change |
@@ -9,7 +14,7 @@ An exact copy of every upload is kept in the `GitHub uploads` folder (on this Ma
 | `CHANGELOG.md` | New: this history |
 | `publish.command` | Saves a dated copy of each upload into `GitHub uploads/` (stays on this Mac) |
 
-## 2 Nov 2026, 09:34 – Connection reliability *(GitHub: "Update OpenBeat ECG 2026-11-02 09:34")*
+## 2 Nov 2026, 09:34 – Connection reliability *(previous site)*
 Why: in Chrome on macOS, "Connect Polar H10" stayed on "Connecting…" with no reading.
 
 | File | Change |
@@ -22,8 +27,8 @@ Why: in Chrome on macOS, "Connect Polar H10" stayed on "Connecting…" with no r
 | `.gitignore` | New: keeps zips, notes and the publish script off GitHub |
 | `.nojekyll` | New: GitHub Pages serves files unchanged |
 
-## 2 Nov 2026, 08:51 – First upload to GitHub *(GitHub: "Add files via upload")*
-All 15 app files uploaded through the browser; GitHub Pages turned on at https://marketvolatility.github.io/ECG/
+## 2 Nov 2026, 08:51 – First upload to GitHub *(previous site)*
+All 15 app files uploaded through the browser; GitHub Pages turned on
 
 ## 2 Nov 2026, ~08:30 – Testing fixes (before GitHub)
 | File | Change |

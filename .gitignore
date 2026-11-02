@@ -1,0 +1,8 @@
+.claude/
+.DS_Store
+*.zip
+publish.command
+ECG-Polar-H10-study.md
+openbeat-ecg/
+openbeat-ecg-update/
+GitHub uploads/
