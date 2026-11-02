@@ -68,7 +68,7 @@ function startSource(kind, stopFn, label) {
   trace.clear();
   setStatus(label, 'on');
   $('btnRecord').disabled = false;
-  $('btnConnect').hidden = $('btnDemoRest').hidden = $('btnDemoWorkout').hidden = true;
+  $('btnConnect').hidden = $('btnDemoRest').hidden = $('btnDemoWorkout').hidden = $('pairHint').hidden = true;
   $('btnDisconnect').hidden = false;
   tickTimer = setInterval(tick, 1000);
   if (!drawing) {
@@ -89,6 +89,7 @@ async function stopSource(reason) {
   $('btnRecord').disabled = true;
   $('btnEvent').disabled = true;
   $('btnConnect').hidden = $('btnDemoRest').hidden = $('btnDemoWorkout').hidden = false;
+  $('pairHint').hidden = $('btnConnect').disabled;
   $('btnDisconnect').hidden = true;
   for (const id of ['liveHR', 'liveHRV', 'livePNN', 'liveZone']) $(id).textContent = '--';
 }
@@ -118,7 +119,7 @@ $('btnConnect').addEventListener('click', async () => {
       $('btnRecord').disabled = true; // recordings need the ECG stream
     }
   } catch (err) {
-    btLog(`Error: ${err.name}: ${err.message}`);
+    btLog(err.name === 'NotFoundError' ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${err.name}: ${err.message}`);
     setStatus(err.name === 'NotFoundError' ? 'No device selected' : `Connection failed: ${err.message}`, '');
     polar.disconnect();
   }
@@ -673,6 +674,7 @@ $('copyYear').textContent = String(Math.max(2026, new Date().getFullYear()));
 
 if (!bluetoothAvailable() || !window.isSecureContext) {
   $('btnConnect').disabled = true;
+  $('pairHint').hidden = true; // pairing instructions don't apply without Bluetooth
   const note = $('btNote');
   note.hidden = false;
   note.textContent = !window.isSecureContext

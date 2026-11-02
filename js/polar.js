@@ -44,7 +44,7 @@ export class PolarH10 extends EventTarget {
 
   /** Connects and starts streaming. `log` receives progress lines. Returns { ecg: boolean, reason? }. */
   async connect(log = () => {}) {
-    log('Opening device chooser…');
+    log('Waiting for you to choose the strap and click Pair…');
     this.device = await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: 'Polar H10' }],
       optionalServices: [PMD_SERVICE, 'heart_rate', 'battery_service'],
