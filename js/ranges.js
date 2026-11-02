@@ -38,7 +38,6 @@ export function referenceRanges(settings) {
     tPositive: { lo: 90, note: 'approximate' },
     jPoint: { lo: -50, hi: 200, note: 'approximate' },
     st60: { lo: -50, hi: 200, note: 'approximate' },
-    rAmp: { lo: 300, hi: 3000, note: 'signal check' },
     hrr60: { lo: 13 },
   };
 }

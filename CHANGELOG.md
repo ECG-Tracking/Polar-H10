@@ -4,7 +4,16 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
-## 2 Nov 2026 – Reference ranges and copyright (not yet published)
+## 2 Nov 2026 – R amplitude range removed (not yet published)
+Why: R amplitude from a chest strap isn't comparable to 12-lead ECG norms, and the 300–3000 µV range had no published source.
+
+| File | Change |
+|---|---|
+| `js/ranges.js` | Removed the R amplitude range |
+| `js/app.js` | R amplitude still shown (signed, as recorded), labelled "no reference range", never flagged |
+| `sw.js` | Offline cache v5 |
+
+## 2 Nov 2026 – Reference ranges and copyright *(GitHub)*
 | File | Change |
 |---|---|
 | `js/ranges.js` | New: reference ranges for HR, HRV (age-adjusted), pNN50/200, events, QRS, QTc (by sex), T waves, J point, ST, R amplitude, HR recovery, with published sources |
@@ -15,11 +24,11 @@ An exact copy of every upload is kept in the `GitHub uploads` folder (on this Ma
 | `sw.js` | Offline cache v4, includes `js/ranges.js` |
 | `README.md` | Copyright line |
 
-## 2 Nov 2026 – Moved to the ecg-tracking account (not yet published)
+## 2 Nov 2026 – Moved to the ecg-tracking account *(GitHub)*
 - App uploaded to github.com/ecg-tracking/Polar-H10 through the browser; live at https://ecg-tracking.github.io/Polar-H10/
 - `publish.command` now uploads to this new repository (user `ecg-tracking`)
 
-## 2 Nov 2026 – Upload archive (not yet published)
+## 2 Nov 2026 – Upload archive *(GitHub)*
 | File | Change |
 |---|---|
 | `CHANGELOG.md` | New: this history |

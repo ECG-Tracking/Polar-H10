@@ -468,7 +468,7 @@ function renderReport() {
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
-    metric('R amplitude', fmt(m.rAmp), 'µV', '', ref('rAmp', m.rAmp)),
+    metric('R amplitude', fmt(m.rAmp), 'µV', 'no reference range'),
     metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
   );
   const maxSeen = Math.max(0, ...m.hr.filter((v) => v != null));
