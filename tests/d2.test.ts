@@ -167,3 +167,25 @@ test('D2 login replies: JSON with a trailing zero byte (as Java tolerates) is re
   const notJson = new Tlv().put(0x01, Uint8Array.of(0x41, 0x42, 0x00, 0x43, 0x44)).putByte(0x04, 0);
   assert.throws(() => hiChainPayload(notJson), /0x1:5B text\[first 'A' 'B', last 'C' 'D', 1 zero bytes\]/);
 });
+
+test('D2 login replies: the watch numbering its answers 0x8000 + our message (e.g. 32785) is the classic login, not PAKE', () => {
+  const reply = new Tlv().putString(0x01, JSON.stringify({
+    authForm: 0, message: 32785, groupAndModuleVersion: '2.0.1', isDeviceLevel: false,
+    payload: { isoSalt: 'AA', token: 'BB', peerAuthId: 'CC', peerUserType: 0, operationCode: 2, version: {} },
+  })).putByte(0x02, 2).put(0x03, new Uint8Array(8)).putByte(0x04, 0).putByte(0x05, 0);
+  assert.equal(hiChainPayload(reply)['isoSalt'], 'AA');
+});
+
+test('D2 link: a new pairing is handed over as soon as the watch accepts it', async () => {
+  const w = new FakeWatch({ sleepFile: new Uint8Array(0) });
+  const link = new D2Link(w.transport, () => {});
+  const early: Pairing[] = [];
+  const kept = await link.connect(null, (p) => early.push(p));
+  assert.equal(early.length, 1);
+  assert.deepEqual(early[0], kept);
+  // with a saved pairing there is nothing new to hand over
+  const w2 = new FakeWatch({ ...(w.authToken ? { knownToken: w.authToken } : {}) });
+  const again: Pairing[] = [];
+  await new D2Link(w2.transport, () => {}).connect(kept, (p) => again.push(p));
+  assert.equal(again.length, 0);
+});

@@ -4,6 +4,15 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link: login step after pairing *(GitHub)*
+Why: the watch accepted the pairing, then D2 Link wrongly took the next (classic) login reply for Huawei's newer "PAKE" login.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | A reply numbered 0x8000 + our message (e.g. 32785) with isoSalt/token is the classic login, as it is; only replies with an ephemeral key ("epk"/"challenge") count as PAKE. A new pairing is handed over as soon as the watch accepts it |
+| `src/d2/ui.ts` | Saves the pairing at that moment, so a later failure doesn't mean pairing again |
+| `tests/d2.test.ts` | New tests for both |
+
 ## 3 Nov 2026 – New versions load straight away *(GitHub)*
 Why: phones kept using the previous app and D2 Link for up to 10 minutes after publishing (GitHub's browser cache).
 

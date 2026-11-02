@@ -102,8 +102,11 @@ export class D2Link {
 
   // ---------- link set-up and login ----------
 
-  /** Connects, logs in (pairing first if `pairing` is null) and reads the watch details. Returns the pairing to keep. */
-  async connect(pairing: Pairing | null): Promise<Pairing> {
+  /**
+   * Connects, logs in (pairing first if `pairing` is null) and reads the watch details. Returns the pairing to keep.
+   * `onPaired` gets a new pairing as soon as the watch accepts it, so it is kept even if a later step fails.
+   */
+  async connect(pairing: Pairing | null, onPaired: (p: Pairing) => void = () => {}): Promise<Pairing> {
     this.log('Reading the connection settings…');
     const lp = await this.request({ service: DEVICE_CONFIG, command: 0x01, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8000, 'the first message');
     if (lp.has(0x02)) this.params.sliceSize = lp.short(0x02);
@@ -147,7 +150,8 @@ export class D2Link {
       const first = await this.hiChain(1, utf8(authId), pinKey);
       if (!first.authToken) throw new WatchError('Pairing did not return a key.');
       token = first.authToken;
-      this.log('Pairing accepted by the watch.');
+      onPaired({ authId, authToken: hex(token) });
+      this.log('Pairing accepted by the watch (saved on this device).');
     }
     this.log('Logging in…');
     const bind = await this.hiChain(2, utf8(authId), token);
@@ -360,7 +364,8 @@ export function hiChainPayload(tlv: Tlv): Record<string, unknown> {
     const p = (typeof payload === 'object' && payload !== null ? payload : top) as Record<string, unknown>;
     const err = p['errorCode'] ?? top['errorCode'];
     if (typeof err === 'number' && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
-    if ('epk' in p || 'challenge' in p || top['message'] === 32785) {
+    // PAKE replies carry an ephemeral key; classic replies (isoSalt, token…) are numbered 0x8000 + our message, e.g. 32785
+    if (('epk' in p || 'challenge' in p) && !('isoSalt' in p) && !('returnCodeMac' in p) && !('encAuthToken' in p)) {
       throw new WatchError(`This watch uses Huawei’s newer “PAKE” login, which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
     }
     return p;

@@ -255,7 +255,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       log(mode === 'bluetooth' ? 'Connected to the watch’s Bluetooth serial service.' : 'Serial port opened.');
       setStatus('Connected – logging in…', 'busy');
       link = new D2Link(t, log);
-      const kept = await link.connect(store.loadPairing());
+      const kept = await link.connect(store.loadPairing(), (p) => { store.savePairing(p); syncButtons(true); });
       store.savePairing(kept);
       const name = link.info?.name || link.info?.model || 'Huawei Watch D2';
       setStatus(`${name}${link.info?.battery != null ? ` · battery ${link.info.battery}%` : ''} – downloading…`, 'on');

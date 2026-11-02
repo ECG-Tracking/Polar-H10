@@ -507,8 +507,12 @@
       await this.t.close().catch(() => void 0);
     }
     // ---------- link set-up and login ----------
-    /** Connects, logs in (pairing first if `pairing` is null) and reads the watch details. Returns the pairing to keep. */
-    async connect(pairing) {
+    /**
+     * Connects, logs in (pairing first if `pairing` is null) and reads the watch details. Returns the pairing to keep.
+     * `onPaired` gets a new pairing as soon as the watch accepts it, so it is kept even if a later step fails.
+     */
+    async connect(pairing, onPaired = () => {
+    }) {
       this.log("Reading the connection settings\u2026");
       const lp = await this.request({ service: DEVICE_CONFIG, command: 1, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8e3, "the first message");
       if (lp.has(2)) this.params.sliceSize = lp.short(2);
@@ -545,7 +549,8 @@
         const first = await this.hiChain(1, utf8(authId), pinKey);
         if (!first.authToken) throw new WatchError("Pairing did not return a key.");
         token = first.authToken;
-        this.log("Pairing accepted by the watch.");
+        onPaired({ authId, authToken: hex(token) });
+        this.log("Pairing accepted by the watch (saved on this device).");
       }
       this.log("Logging in\u2026");
       const bind = await this.hiChain(2, utf8(authId), token);
@@ -746,7 +751,7 @@
       const p = typeof payload === "object" && payload !== null ? payload : top;
       const err = p["errorCode"] ?? top["errorCode"];
       if (typeof err === "number" && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
-      if ("epk" in p || "challenge" in p || top["message"] === 32785) {
+      if (("epk" in p || "challenge" in p) && !("isoSalt" in p) && !("returnCodeMac" in p) && !("encAuthToken" in p)) {
         throw new WatchError(`This watch uses Huawei\u2019s newer \u201CPAKE\u201D login, which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
       }
       return p;
@@ -1209,7 +1214,10 @@
         log(mode === "bluetooth" ? "Connected to the watch\u2019s Bluetooth serial service." : "Serial port opened.");
         setStatus("Connected \u2013 logging in\u2026", "busy");
         link = new D2Link(t, log);
-        const kept = await link.connect(loadPairing());
+        const kept = await link.connect(loadPairing(), (p) => {
+          savePairing(p);
+          syncButtons(true);
+        });
         savePairing(kept);
         const name = link.info?.name || link.info?.model || "Huawei Watch D2";
         setStatus(`${name}${link.info?.battery != null ? ` \xB7 battery ${link.info.battery}%` : ""} \u2013 downloading\u2026`, "on");
