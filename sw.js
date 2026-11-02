@@ -1,8 +1,8 @@
 // Offline cache: network first for freshness, cache as fallback.
-const CACHE = 'openbeat-v9';
+const CACHE = 'openbeat-v10';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
-  'app.js',
+  'app.js', 'd2link.js',
 ];
 
 self.addEventListener('install', (e) => {

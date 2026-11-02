@@ -24,8 +24,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'settings';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'settings'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'settings';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'settings'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -36,7 +36,35 @@ function show(view: View): void {
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
+  if (view === 'd2') void openD2();
+  // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
+  $('copyRights').textContent = view === 'd2' ? 'Open Source' : 'All rights reserved.';
+  $('d2Licence').hidden = view !== 'd2';
   window.scrollTo(0, 0);
+}
+
+// ---------- D2 Link (a separate, open-source script, loaded on first use) ----------
+
+let d2: { refresh: () => void } | null = null;
+let d2Loading: Promise<void> | null = null;
+
+async function openD2(): Promise<void> {
+  if (d2) { d2.refresh(); return; }
+  d2Loading ??= new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'd2link.js';
+    s.onload = () => resolve();
+    s.onerror = () => { d2Loading = null; reject(new Error('could not load d2link.js')); };
+    document.head.appendChild(s);
+  });
+  try {
+    await d2Loading;
+    const api = window.OpenBeatD2;
+    if (!api) throw new Error('d2link.js did not start');
+    d2 = api.mount($('d2Root'), { account: account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser) });
+  } catch (err) {
+    $('d2Root').replaceChildren(make('p', 'muted', `D2 Link could not be loaded (${errorMessage(err)}). Check the internet connection and reopen the tab.`));
+  }
 }
 for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) {
   b.addEventListener('click', () => { const v = b.dataset['view']; if (isView(v)) show(v); });

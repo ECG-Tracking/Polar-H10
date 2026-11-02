@@ -67,6 +67,7 @@
       <button role="tab" data-view="history">ECG history</button>
       <button role="tab" data-view="sleep">Sleep monitor</button>
       <button role="tab" data-view="sleepHistory">Sleep history</button>
+      <button role="tab" data-view="d2">D2 Link</button>
       <button role="tab" data-view="settings">Settings</button>
     </nav>
   </header>
@@ -310,6 +311,11 @@
     </section>
 
     <!-- SETTINGS -->
+    <!-- D2 LINK (open source: d2link.js, built from src/d2) -->
+    <section id="view-d2" class="view">
+      <div id="d2Root"><p class="muted">Loading D2 Link…</p></div>
+    </section>
+
     <section id="view-settings" class="view">
       <h2>Settings</h2>
       <form id="settingsForm" class="card form">
@@ -401,7 +407,8 @@
 
   <footer class="disclaimer">
     <p>Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</p>
-    <p class="copyright">© <span id="copyYear">2026</span> ECG-Tracking. All rights reserved.</p>
+    <p class="copyright">© <span id="copyYear">2026</span> ECG-Tracking. <span id="copyRights">All rights reserved.</span></p>
+    <p class="copyright" id="d2Licence" hidden>D2 Link is free software under the <a href="LICENSE-D2-LINK.txt">GNU AGPL v3</a>, built on <a href="https://codeberg.org/Freeyourgadget/Gadgetbridge" rel="noopener" target="_blank">Gadgetbridge</a> (© Gadgetbridge contributors). <a href="https://github.com/ECG-Tracking/Polar-H10/tree/main/src/d2" rel="noopener" target="_blank">Source code</a>.</p>
   </footer>
 
   <script src="app.js"></script>

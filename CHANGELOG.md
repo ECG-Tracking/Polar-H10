@@ -4,6 +4,20 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 Link *(GitHub)*
+Why: download sleep from a Huawei Watch D2 straight into the app, shown like Huawei Health's sleep report.
+
+| File | Change |
+|---|---|
+| `src/d2/` (new) | D2 Link, ported from Gadgetbridge's Huawei support: packet framing and encryption, the HiChain pairing/login, the watch's sleep file download and reader, local storage of nights and the pairing, and the D2 Link screen with a Huawei-style night report (stage chart, score and stars, times woke up, deep/light/REM donut, reference tiles) |
+| `d2link.js` (new) | Built from `src/d2` as a separate, readable script that loads when the D2 Link tab is opened |
+| `LICENSE-D2-LINK.txt` (new) | D2 Link is open source under the GNU AGPL v3 (required because it is built on Gadgetbridge); the rest of the app stays "All rights reserved" |
+| `index.html`, `src/app.ts`, `styles.css` | New "D2 Link" tab between Sleep history and Settings; on that tab the footer says "Open Source" with the licence, Gadgetbridge credit and source link |
+| `scripts/build.mjs`, `sw.js` | Builds `d2link.js`; offline cache v10 includes it |
+| `tests/d2.test.ts`, `tests/d2fake.ts` (new) | Packet bytes checked against Gadgetbridge's own test vectors; pairing, login and download tested end to end against a fake watch |
+
+Needs Chrome 117+ on a computer, with the watch paired in the computer's Bluetooth settings. Not yet tested with a real Watch D2.
+
 ## 2 Nov 2026 – Sleep & ECG recording *(GitHub)*
 Why: record a night's sleep and its ECG in one go, and read both in one report.
 

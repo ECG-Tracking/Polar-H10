@@ -1,0 +1,340 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// D2 Link — talks to a Huawei Watch D2: link set-up, HiChain login (pairing), watch details and the sleep file download.
+// Ported from Gadgetbridge's HuaweiSupportProvider, GetHiChainRequest, DeviceConfig and FileDownloadService2C
+// (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
+// Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
+
+import { concat, equal, fromUtf8, hex, randomBytes, u64, unhex, utf8 } from './bytes';
+import { aesCbcDecrypt, aesGcmDecrypt, aesGcmEncrypt, digestSecret, hkdfSha256, hmacSha256, sha256 } from './crypto';
+import { Decoder, defaultParams, decryptBody, encode, open, type InPacket, type OutPacket } from './packet';
+import { Tlv } from './tlv';
+import { SLEEP_DICT } from './sleepfile';
+
+/** A byte pipe to the watch (Web Serial over Bluetooth in the browser, a fake watch in tests). */
+export interface Transport {
+  send(data: Uint8Array): Promise<void>;
+  onData: ((data: Uint8Array) => void) | null;
+  onClose: (() => void) | null;
+  close(): Promise<void>;
+}
+
+/** What the watch remembers about this browser after pairing; kept on this device only. */
+export interface Pairing {
+  authId: string; // our identity: 32 uppercase hex characters
+  authToken: string; // hex, from the first pairing
+}
+
+export interface WatchInfo { model: string; software: string; serial: string; name: string; battery: number | null }
+
+export type Log = (line: string) => void;
+
+const DEVICE_CONFIG = 0x01;
+const FILE_DOWNLOAD = 0x2c;
+const GROUP_ID = '7B0BC0CBCE474F6C238D9661C63400B797B166EA7849B3A370FC73A9A236E989';
+const ZERO4 = new Uint8Array(4);
+
+export class WatchError extends Error {}
+
+interface Waiter { service: number; command: number; resolve: (p: InPacket) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
+
+export class D2Link {
+  readonly params = defaultParams();
+  info: WatchInfo | null = null;
+  private readonly decoder = new Decoder();
+  private waiters: Waiter[] = [];
+  private incoming: Promise<void> = Promise.resolve();
+  private blockListener: ((p: InPacket) => void) | null = null;
+  private closed = false;
+
+  constructor(private readonly t: Transport, private readonly log: Log) {
+    t.onData = (d) => this.onData(d);
+    t.onClose = () => this.fail(new WatchError('The watch disconnected.'));
+  }
+
+  // ---------- sending and receiving ----------
+
+  private onData(d: Uint8Array): void {
+    for (const body of this.decoder.push(d)) {
+      this.incoming = this.incoming.then(async () => {
+        const p = await open(this.params, body);
+        const w = this.waiters.find((x) => x.service === p.service && x.command === p.command);
+        if (w) {
+          this.waiters = this.waiters.filter((x) => x !== w);
+          clearTimeout(w.timer);
+          w.resolve(p);
+        } else if (p.service === FILE_DOWNLOAD && p.command === 0x05) {
+          this.blockListener?.(p);
+        }
+      }).catch((e: unknown) => this.log(`Could not read a packet from the watch: ${e instanceof Error ? e.message : String(e)}`));
+    }
+  }
+
+  private fail(e: Error): void {
+    this.closed = true;
+    for (const w of this.waiters) { clearTimeout(w.timer); w.reject(e); }
+    this.waiters = [];
+  }
+
+  private async send(pkt: OutPacket): Promise<void> {
+    if (this.closed) throw new WatchError('The watch is not connected.');
+    for (const frame of await encode(this.params, pkt)) await this.t.send(frame);
+  }
+
+  /** Sends a request and waits for the watch's answer to the same service and command. */
+  private async request(pkt: OutPacket, timeoutMs = 5000, what = 'the request'): Promise<Tlv> {
+    const answer = new Promise<InPacket>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((x) => x.timer !== timer);
+        reject(new WatchError(`The watch did not answer ${what}.`));
+      }, timeoutMs);
+      this.waiters.push({ service: pkt.service, command: pkt.command, resolve, reject, timer });
+    });
+    await this.send(pkt);
+    const p = await answer;
+    if (!p.tlv) throw new WatchError(`Unexpected answer to ${what}.`);
+    return p.tlv;
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+    await this.t.close().catch(() => undefined);
+  }
+
+  // ---------- link set-up and login ----------
+
+  /** Connects, logs in (pairing first if `pairing` is null) and reads the watch details. Returns the pairing to keep. */
+  async connect(pairing: Pairing | null): Promise<Pairing> {
+    this.log('Reading the connection settings…');
+    const lp = await this.request({ service: DEVICE_CONFIG, command: 0x01, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8000, 'the first message');
+    if (lp.has(0x02)) this.params.sliceSize = lp.short(0x02);
+    const nonceField = lp.bytes(0x05);
+    this.params.authVersion = nonceField[1] ?? 0;
+    this.params.deviceSupportType = lp.has(0x07) ? lp.byte(0x07) : 0;
+    this.params.authAlgo = lp.has(0x08) ? lp.byte(0x08) : 0;
+    this.params.encryptMethod = lp.has(0x0c) ? lp.byte(0x0c) : 0;
+    this.log(`Protocol: auth version ${this.params.authVersion}, support type ${this.params.deviceSupportType}, encryption ${this.params.encryptMethod === 1 ? 'AES-GCM' : this.params.deviceSupportType === 4 ? 'AES-GCM' : 'AES-CBC'}, slice ${this.params.sliceSize} bytes`);
+
+    // classic-Bluetooth watches report whether they are free to log in
+    const st = await this.request({ service: DEVICE_CONFIG, command: 0x16, tlv: new Tlv().put(1), encrypt: false }, 5000, 'the status request')
+      .catch(() => null);
+    const status = st?.has(0x01) ? st.sbyte(0x01) : -1;
+    if (status !== -1 && status !== 0 && status !== 1) throw new WatchError(`The watch is busy (status ${status}). Close Huawei Health on your phone or turn off the phone's Bluetooth, then try again.`);
+
+    const type = this.params.deviceSupportType;
+    if (type !== 1 && type !== 3 && type !== 4) {
+      throw new WatchError(type === 2
+        ? 'This watch uses the "HiChain Lite" login, which D2 Link does not support yet.'
+        : 'This watch uses the older Huawei login, which D2 Link does not support yet.');
+    }
+    const authMode = type === 4 ? 4 : 2;
+    const neg = new Tlv().putByte(0x01, authMode).putByte(0x02, 1);
+    const authId = pairing?.authId ?? hex(randomBytes(16));
+    neg.put(0x05, utf8(authId)).putByte(0x03, 1).putByte(0x04, 0);
+    if (authMode === 4) neg.put(0x06).putString(0x07, 'OpenBeat ECG');
+    if (this.params.encryptMethod === 1) neg.putByte(0x0d, 1);
+    const sn = await this.request({ service: DEVICE_CONFIG, command: 0x33, tlv: neg, encrypt: false }, 5000, 'the security negotiation');
+    const authType = negotiatedAuthType(sn);
+    if (!(authType === 0x0186a0 || authType === 5 || authType === 6)) {
+      throw new WatchError(`The watch asked for login type ${authType}, which D2 Link does not support yet.`);
+    }
+
+    let token = pairing ? unhex(pairing.authToken) : null;
+    if (!token) {
+      this.log('Pairing: asking the watch for its pairing code…');
+      const pin = await this.pinCode();
+      this.log('Pairing: confirm the request on the watch if it asks (you have 60 seconds)…');
+      const pinKey = await sha256(utf8(hex(pin)));
+      const first = await this.hiChain(1, utf8(authId), pinKey);
+      if (!first.authToken) throw new WatchError('Pairing did not return a key.');
+      token = first.authToken;
+      this.log('Pairing accepted by the watch.');
+    }
+    this.log('Logging in…');
+    const bind = await this.hiChain(2, utf8(authId), token);
+    this.params.secretKey = await hkdfSha256(bind.sessionKey, concat(bind.randSelf, bind.randPeer), utf8('hichain_return_key'), 32);
+    this.log('Logged in; the connection is now encrypted.');
+    const kept: Pairing = { authId, authToken: hex(token) };
+
+    await this.readInfo();
+    return kept;
+  }
+
+  private async pinCode(): Promise<Uint8Array> {
+    const r = await this.request({ service: DEVICE_CONFIG, command: 0x2c, tlv: new Tlv().put(1), encrypt: false }, 8000, 'the pairing code request');
+    const message = r.bytes(0x01), iv = r.bytes(0x02);
+    const key = digestSecret(this.params.authVersion);
+    return this.params.encryptMethod === 1 ? aesGcmDecrypt(message, key, iv) : aesCbcDecrypt(message, key, iv);
+  }
+
+  /** One HiChain run: operation 1 pairs with the PIN-derived key and returns the auth token; operation 2 logs in with the token. */
+  private async hiChain(op: 1 | 2, selfId: Uint8Array, key: Uint8Array): Promise<{ authToken: Uint8Array | null; sessionKey: Uint8Array; randSelf: Uint8Array; randPeer: Uint8Array }> {
+    const requestId = Date.now();
+    const seed = randomBytes(32), randSelf = randomBytes(16);
+    const send = async (step: number, payload: Record<string, unknown>, value: Record<string, unknown> = {}): Promise<Tlv> => {
+      const json = hiChainJson(op, step, requestId, selfId, payload, value);
+      const tlv = new Tlv().putString(0x01, json).putByte(0x02, op).put(0x03, u64(requestId));
+      const wait = op === 1 && step === 1 ? 60000 : 10000;
+      return this.request({ service: DEVICE_CONFIG, command: 0x28, tlv, encrypt: false }, wait, `login step ${step}`);
+    };
+    const opExtra = op === 2 ? { pkgName: 'com.huawei.devicegroupmanage', serviceType: GROUP_ID, keyLength: 0x20 } : {};
+    const deviceLevel = op === 2 ? { isDeviceLevel: false } : {};
+
+    // step 1: exchange salts; check the watch's token
+    const r1 = hiChainPayload(await send(1, { isoSalt: hex(randSelf), peerAuthId: hex(selfId), operationCode: op, seed: hex(seed), peerUserType: 0, ...opExtra }, deviceLevel));
+    const randPeer = unhex(str(r1, 'isoSalt')), peerId = unhex(str(r1, 'peerAuthId'));
+    const psk = await hmacSha256(key, seed);
+    const expected = await hmacSha256(psk, concat(randPeer, randSelf, selfId, peerId));
+    if (!equal(expected, unhex(str(r1, 'token')))) {
+      throw new WatchError(op === 1 ? 'The watch rejected the pairing code.' : 'The watch no longer accepts this browser’s pairing. Use “Forget pairing”, then pair again.');
+    }
+
+    // step 2: our token; check the watch's confirmation
+    const selfToken = await hmacSha256(psk, concat(randSelf, randPeer, peerId, selfId));
+    const r2 = hiChainPayload(await send(2, { peerAuthId: hex(selfId), token: hex(selfToken) }, deviceLevel));
+    if (!equal(await hmacSha256(psk, ZERO4), unhex(str(r2, 'returnCodeMac')))) throw new WatchError('The watch’s login confirmation did not match.');
+
+    // step 3: session key; when pairing, the watch sends the auth token encrypted with it
+    const sessionKey = await hkdfSha256(psk, concat(randSelf, randPeer), utf8('hichain_iso_session_key'), 32);
+    let authToken: Uint8Array | null = null;
+    if (op === 1) {
+      const nonce = randomBytes(12), challenge = randomBytes(16);
+      const encData = await aesGcmEncrypt(challenge, sessionKey, nonce, utf8('hichain_iso_exchange'));
+      const r3 = hiChainPayload(await send(3, { nonce: hex(nonce), encData: hex(encData) }));
+      authToken = await aesGcmDecrypt(unhex(str(r3, 'encAuthToken')), sessionKey, unhex(str(r3, 'nonce')), challenge);
+    }
+
+    // step 4: confirm the result
+    const nonce = randomBytes(12);
+    const encResult = await aesGcmEncrypt(ZERO4, sessionKey, nonce, utf8('hichain_iso_result'));
+    const r4 = await send(4, { nonce: hex(nonce), encResult: hex(encResult), operationCode: op });
+    if (r4.has(0x04) && r4.byte(0x04) === 0) {
+      const p = hiChainPayload(r4);
+      if (typeof p['errorCode'] === 'number' && p['errorCode'] !== 0) throw new WatchError(`The watch ended the login with error ${p['errorCode']}.`);
+    }
+    return { authToken, sessionKey, randSelf, randPeer };
+  }
+
+  private async readInfo(): Promise<void> {
+    const tags = [0x01, 0x02, 0x07, 0x09, 0x0a, 0x11, 0x12, 0x16, 0x1a, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23];
+    const pi = await this.request({ service: DEVICE_CONFIG, command: 0x07, tlv: tags.reduce((t, x) => t.put(x), new Tlv()) }, 5000, 'the product information request')
+      .catch((e: unknown) => { this.log(`Watch details not available: ${e instanceof Error ? e.message : String(e)}`); return null; });
+    const s = (t: Tlv | null, tag: number): string => (t?.has(tag) ? t.string(tag).trim() : '');
+    let battery: number | null = null;
+    const bl = await this.request({ service: DEVICE_CONFIG, command: 0x08, tlv: new Tlv().put(1) }, 5000, 'the battery request').catch(() => null);
+    if (bl?.has(0x01)) battery = bl.byte(0x01);
+    this.info = { model: s(pi, 0x0a), software: s(pi, 0x07), serial: s(pi, 0x09), name: s(pi, 0x11), battery };
+    this.log(`Watch: ${this.info.name || this.info.model || 'unknown'}${this.info.software ? `, software ${this.info.software}` : ''}${battery != null ? `, battery ${battery}%` : ''}`);
+  }
+
+  // ---------- sleep download ----------
+
+  /** Downloads the watch's sleep file for [start, end] (seconds since 1970). An empty result means no nights. */
+  async downloadSleep(start: number, end: number, progress: (done: number, total: number) => void = () => {}): Promise<Uint8Array> {
+    this.log('Asking the watch for its sleep records…');
+    const init = new Tlv().putString(0x01, 'sequence_data').putByte(0x02, 0x16).putInt(0x05, start).putInt(0x06, end).putInt(0x0c, SLEEP_DICT);
+    const r = await this.request({ service: FILE_DOWNLOAD, command: 0x01, tlv: init }, 10000, 'the sleep download request');
+    if (!r.has(0x03)) throw new WatchError(r.has(0x7f) ? `The watch refused the sleep download (code ${r.asInt(0x7f)}).` : 'The watch refused the sleep download.');
+    const fileId = r.byte(0x03), size = r.has(0x04) ? r.int(0x04) : 0;
+    if (size === 0) {
+      await this.send({ service: FILE_DOWNLOAD, command: 0x06, tlv: new Tlv().putByte(0x01, fileId).putByte(0x02, 1) });
+      return new Uint8Array(0);
+    }
+    const fi = await this.request({ service: FILE_DOWNLOAD, command: 0x03, tlv: new Tlv().putByte(0x01, fileId).put(2).put(3).put(4).put(5) }, 10000, 'the file information request');
+    const timeoutS = Math.max(5, fi.has(0x02) ? fi.byte(0x02) : 10);
+    const maxBlock = Math.max(1, fi.has(0x04) ? fi.int(0x04) : 4096);
+    const noEncrypt = fi.has(0x05) && fi.bool(0x05);
+    this.log(`Downloading ${(size / 1024).toFixed(1)} KB…`);
+
+    const file = new Uint8Array(size);
+    let received = 0;
+    try {
+      while (received < size) {
+        const blockStart = received, blockSize = Math.min(size - received, maxBlock);
+        await new Promise<void>((resolve, reject) => {
+          let timer = setTimeout(() => reject(new WatchError('The sleep download stopped (no data from the watch).')), timeoutS * 1000);
+          this.blockListener = (p) => {
+            void this.readBlock(p).then((b) => {
+              if (b.fileId !== fileId) return;
+              const at = b.offset >= 0 && b.offset + b.data.length <= size ? b.offset : received;
+              file.set(b.data.slice(0, size - at), at);
+              received = Math.max(received, at + b.data.length);
+              progress(Math.min(received, size), size);
+              clearTimeout(timer);
+              if (received - blockStart >= blockSize || received >= size) resolve();
+              else timer = setTimeout(() => reject(new WatchError('The sleep download stopped (no data from the watch).')), timeoutS * 1000);
+            }, reject);
+          };
+          const req = new Tlv().putByte(0x01, fileId).putInt(0x02, blockStart).putInt(0x03, blockSize);
+          if (fileId === 0x16) req.putInt(0x04, SLEEP_DICT);
+          this.send({ service: FILE_DOWNLOAD, command: 0x04, tlv: req, encrypt: !noEncrypt }).catch(reject);
+        });
+      }
+    } finally {
+      this.blockListener = null;
+    }
+    await this.send({ service: FILE_DOWNLOAD, command: 0x06, tlv: new Tlv().putByte(0x01, fileId).putByte(0x02, 1) });
+    this.log('Sleep records downloaded.');
+    return file;
+  }
+
+  /** A file block: fileId, offset, one spare byte, data; the body may be encrypted. */
+  private async readBlock(p: InPacket): Promise<{ fileId: number; offset: number; data: Uint8Array }> {
+    let b = p.raw;
+    if (b[0] === 0x7c && b[1] === 0x01 && b[2] === 0x01) b = await decryptBody(this.params, Tlv.parse(b));
+    const dv = new DataView(b.buffer, b.byteOffset, b.length);
+    if (b.length < 6) throw new WatchError('A damaged file block arrived.');
+    return { fileId: b[0] ?? 0, offset: dv.getInt32(1), data: b.slice(6) };
+  }
+}
+
+// ---------- HiChain messages ----------
+
+export function hiChainJson(op: number, step: number, requestId: number, selfId: Uint8Array, payload: Record<string, unknown>, extra: Record<string, unknown> = {}): string {
+  const value: Record<string, unknown> = {
+    authForm: 0,
+    payload: { ...payload, version: { minVersion: '1.0.0', currentVersion: '2.0.16' } },
+    groupAndModuleVersion: '2.0.1',
+    message: op === 2 ? step | 0x10 : step,
+    ...extra,
+  };
+  if (op === 1) {
+    const id = fromUtf8(selfId);
+    Object.assign(value, {
+      requestId: String(requestId), groupId: GROUP_ID, groupName: 'health_group_name', groupOp: 2, groupType: 256,
+      peerDeviceId: id, connDeviceId: id, appId: 'com.huawei.health', ownerName: '',
+    });
+  }
+  return JSON.stringify(value);
+}
+
+function hiChainPayload(tlv: Tlv): Record<string, unknown> {
+  if (tlv.has(0x04) && tlv.byte(0x04) !== 0) return {};
+  let value: unknown;
+  try { value = JSON.parse(tlv.string(0x01)); } catch { throw new WatchError('The watch sent an unreadable login message.'); }
+  const payload = typeof value === 'object' && value !== null ? (value as Record<string, unknown>)['payload'] : null;
+  if (typeof payload !== 'object' || payload === null) throw new WatchError('The watch sent an unreadable login message.');
+  const p = payload as Record<string, unknown>;
+  if (typeof p['errorCode'] === 'number' && p['errorCode'] !== 0) throw new WatchError(`The watch refused the login (error ${p['errorCode']}).`);
+  return p;
+}
+
+const str = (p: Record<string, unknown>, k: string): string => {
+  const v = p[k];
+  if (typeof v !== 'string') throw new WatchError(`The watch's login message is missing "${k}".`);
+  return v;
+};
+
+/** Gadgetbridge's reading of the security negotiation answer. */
+export function negotiatedAuthType(t: Tlv): number {
+  let authType = -1, pw = -1;
+  if (t.has(0x01)) {
+    if (t.byte(0x01) === 0x01) authType = 0x0186a0;
+    if (t.byte(0x01) === 0x04) pw = 4;
+  }
+  if (t.has(0x02)) {
+    authType = t.sbyte(0x02);
+    if (pw !== -1) authType ^= pw;
+  }
+  if (t.has(0x7f)) authType = t.sbyte(0x7f);
+  return authType;
+}
