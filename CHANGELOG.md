@@ -1,0 +1,52 @@
+# OpenBeat ECG – change history
+
+Newest first. Entries marked *(GitHub)* also appear under **Commits** at github.com/MarketVolatility/ECG.
+An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
+
+## 2 Nov 2026 – Upload archive (not yet published)
+| File | Change |
+|---|---|
+| `CHANGELOG.md` | New: this history |
+| `publish.command` | Saves a dated copy of each upload into `GitHub uploads/` (stays on this Mac) |
+
+## 2 Nov 2026, 09:34 – Connection reliability *(GitHub: "Update OpenBeat ECG 2026-11-02 09:34")*
+Why: in Chrome on macOS, "Connect Polar H10" stayed on "Connecting…" with no reading.
+
+| File | Change |
+|---|---|
+| `js/polar.js` | Step-by-step connection log; 10 s timeout on each connect attempt with up to 3 retries (macOS can hang silently); stops any ECG stream left running before starting a new one; reads the H10's reply to the start command and reports its error (e.g. "sensor is charging"); checks that ECG data actually arrives; falls back to heart rate only if the ECG stream fails |
+| `js/app.js` | Shows the connection log; heart-rate-only mode (status shows why, recording disabled) |
+| `index.html` | Grey log box under the Connect buttons |
+| `styles.css` | Log box styling |
+| `sw.js` | Offline cache version v1 → v3 so installed copies fetch the new files |
+| `.gitignore` | New: keeps zips, notes and the publish script off GitHub |
+| `.nojekyll` | New: GitHub Pages serves files unchanged |
+
+## 2 Nov 2026, 08:51 – First upload to GitHub *(GitHub: "Add files via upload")*
+All 15 app files uploaded through the browser; GitHub Pages turned on at https://marketvolatility.github.io/ECG/
+
+## 2 Nov 2026, ~08:30 – Testing fixes (before GitHub)
+| File | Change |
+|---|---|
+| `js/dsp.js` | Beat-detector refractory period 250 → 200 ms (standard Pan–Tompkins), so beats at high heart rates aren't missed |
+| `js/sim.js` | Demo signal: no premature beats above 130 bpm (they were unrealistically close together); narrower, more realistic QRS |
+| `styles.css` | Hidden buttons now actually hide (Connect/Demo while streaming); short brand name on small phones; neutral grid colour for report charts |
+| `js/charts.js` | Report charts use the neutral grid instead of ECG-paper pink |
+
+## 2 Nov 2026, ~08:00 – First version built
+| File | Purpose |
+|---|---|
+| `index.html` | Page layout: Live, History, Report, Settings |
+| `styles.css` | Look and feel, light/dark mode, phone layout, print layout |
+| `js/app.js` | App logic: live screen, recording, alerts, reports, exports, settings |
+| `js/polar.js` | Polar H10 Bluetooth connection (heart rate + raw ECG) |
+| `js/dsp.js` | ECG analysis: filters, beat detection, wave measurements, HRV and training metrics |
+| `js/charts.js` | Charts, live trace, zoomable ECG viewer |
+| `js/sim.js` | Simulated ECG for the demo modes |
+| `js/edf.js` | EDF+ export and import |
+| `js/store.js` | Saves recordings and settings on the device |
+| `manifest.webmanifest`, `sw.js`, `icons/` | Installable app and offline support |
+| `README.md` | Description and setup notes |
+
+## 2 Nov 2026, ~07:50 – Research
+`ECG-Polar-H10-study.md` (stays on this Mac): study of the commercial "ECG Analysis for Polar H10" app from its public documentation, and the plan for this free version.

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#c8102e">
+  <meta name="description" content="Free ECG recording and analysis for the Polar H10 chest strap. Runs in your browser; data stays on your device.">
+  <title>OpenBeat ECG</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="28" height="28">
+      <span>OpenBeat ECG</span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="live" aria-selected="true">Live</button>
+      <button role="tab" data-view="history">History</button>
+      <button role="tab" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- LIVE -->
+    <section id="view-live" class="view active">
+      <div class="card connect">
+        <div class="status">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Not connected</span>
+          <span class="muted" id="battery"></span>
+        </div>
+        <div class="row wrap">
+          <button class="primary" id="btnConnect">Connect Polar H10</button>
+          <button id="btnDemoRest">Demo: rest</button>
+          <button id="btnDemoWorkout">Demo: workout</button>
+          <button id="btnDisconnect" hidden>Disconnect</button>
+        </div>
+        <p class="note" id="btNote" hidden></p>
+        <pre class="log" id="btLog" hidden aria-label="Connection log"></pre>
+      </div>
+
+      <div class="tiles">
+        <div class="tile hero"><div class="label">Heart rate</div><div class="value"><span id="liveHR">--</span><small>bpm</small></div></div>
+        <div class="tile"><div class="label">HRV score</div><div class="value" id="liveHRV">--</div><div class="sub" id="liveRMSSD">RMSSD -- ms</div></div>
+        <div class="tile"><div class="label">pNN50</div><div class="value"><span id="livePNN">--</span><small>%</small></div></div>
+        <div class="tile"><div class="label">Events</div><div class="value" id="liveEvents">0</div><div class="sub" id="liveEventPct">recording only</div></div>
+        <div class="tile"><div class="label">Zone</div><div class="value" id="liveZone">--</div><div class="sub" id="liveZonePct">% of max HR</div></div>
+      </div>
+
+      <div class="card trace">
+        <canvas id="liveCanvas" aria-label="Live ECG trace"></canvas>
+      </div>
+
+      <div class="card controls">
+        <div class="timer" id="timer">0:00</div>
+        <div class="row">
+          <button class="primary big" id="btnRecord" disabled>Start</button>
+          <button class="big" id="btnEvent" disabled>Mark event</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="view-history" class="view">
+      <div class="row between">
+        <h2>Recordings</h2>
+        <label class="button">Import EDF<input type="file" id="importFile" accept=".edf,.EDF" hidden></label>
+      </div>
+      <ul class="sessions" id="sessionList"></ul>
+      <p class="muted" id="emptyHistory">No recordings yet. Start one from the Live tab, or import an EDF file.</p>
+    </section>
+
+    <!-- REPORT -->
+    <section id="view-report" class="view">
+      <div class="row between wrap no-print">
+        <button id="btnBack">← Recordings</button>
+        <div class="row wrap">
+          <button id="btnExportEdf">EDF+</button>
+          <button id="btnExportCsv">Beats CSV</button>
+          <button id="btnExportJson">JSON</button>
+          <button id="btnPrint">Print / PDF</button>
+          <button class="danger" id="btnDelete">Delete</button>
+        </div>
+      </div>
+      <div id="reportBusy" class="busy" hidden>Analysing recording…</div>
+      <div id="reportBody">
+        <h2 id="reportTitle"></h2>
+        <p class="muted" id="reportMeta"></p>
+
+        <h3>Rhythm and HRV</h3>
+        <div class="metrics" id="mRhythm"></div>
+        <h3>ECG waves</h3>
+        <div class="metrics" id="mWaves"></div>
+        <h3>Training</h3>
+        <div class="metrics" id="mTraining"></div>
+        <div class="zones" id="zoneBars"></div>
+
+        <div class="grid2">
+          <figure class="chart"><figcaption>Heart rate</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption>Median beat</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption>Poincaré plot (RR<sub>n</sub> vs RR<sub>n+1</sub>)</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption>RR vs QTc</figcaption><canvas></canvas></figure>
+        </div>
+
+        <h3>ECG</h3>
+        <div class="card viewer">
+          <canvas id="viewerCanvas" aria-label="Recorded ECG; drag to pan, scroll or pinch to zoom"></canvas>
+          <div class="row viewer-bar no-print">
+            <button id="zoomOut" aria-label="Zoom out">−</button>
+            <input type="range" id="viewerPos" min="0" max="1000" value="0" aria-label="Position in recording">
+            <button id="zoomIn" aria-label="Zoom in">+</button>
+            <span class="muted" id="viewerTime">0:00</span>
+          </div>
+          <p class="note">Numbers above beats are RR intervals (ms). Red triangles are detected events. Blue ticks mark QRS onset, J point and T end when zoomed in.</p>
+        </div>
+
+        <h3>Events <span class="muted" id="eventCount"></span></h3>
+        <ul class="events" id="eventList"></ul>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view">
+      <h2>Settings</h2>
+      <form id="settingsForm" class="card form">
+        <label>Alias <input name="alias" maxlength="40" placeholder="Optional, avoid personal data"></label>
+        <div class="row">
+          <label>Age <input name="age" type="number" min="5" max="110"></label>
+          <label>Sex <select name="sex"><option value="male">Male</option><option value="female">Female</option></select></label>
+        </div>
+        <div class="row">
+          <label>Resting HR <input name="hrRest" type="number" min="30" max="120"></label>
+          <label>Max HR <input name="hrMax" type="number" min="100" max="230"></label>
+        </div>
+        <div class="row">
+          <label>Zone low (bpm) <input name="zoneMin" type="number" min="40" max="220"></label>
+          <label>Zone high (bpm) <input name="zoneMax" type="number" min="40" max="230"></label>
+        </div>
+        <div class="row">
+          <label>Mains filter <select name="notch"><option value="50">50 Hz</option><option value="60">60 Hz</option><option value="0">Off</option></select></label>
+          <label>QTc formula <select name="qtcFormula"><option value="bazett">Bazett</option><option value="fridericia">Fridericia</option></select></label>
+        </div>
+        <fieldset>
+          <legend>Alerts while recording</legend>
+          <label class="check"><input type="checkbox" name="alertZone"> Heart rate leaves the zone (1 low beep = below, 2 = above)</label>
+          <label class="check"><input type="checkbox" name="alertPnn50"> pNN50 above 45 %</label>
+          <label class="check"><input type="checkbox" name="alertEvents"> Each detected event</label>
+          <label class="check"><input type="checkbox" name="vibrate"> Vibrate as well (Android)</label>
+          <button type="button" id="btnTestAlert">Test sound</button>
+        </fieldset>
+        <p class="muted">Max HR defaults to 220 − age if you change age. Settings stay in this browser.</p>
+      </form>
+      <div class="card">
+        <h3>About</h3>
+        <p>OpenBeat ECG is free and open. Recordings stay on this device (browser storage); nothing is uploaded.</p>
+        <p class="muted">Requires a browser with Web Bluetooth: Chrome or Edge on Windows, macOS, Linux, ChromeOS or Android. On iPhone/iPad use the Bluefy browser. Demo modes work everywhere.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="disclaimer">Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
