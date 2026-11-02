@@ -79,3 +79,13 @@ test('sleep report: all report outputs in a few tens of KB, identical when read 
   assert.equal(b.metrics.awakenings, a.metrics.awakenings);
   assert.equal(b.hr.length, a.hr.length);
 });
+
+test('a sleep & ECG night keeps its link both ways through the cloud', () => {
+  const { session, samples } = recording(12);
+  const ecg = buildEcgSummary({ ...session, sleepId: 'n1' }, samples, DEFAULT_SETTINGS);
+  assert.equal(parseEcgSummary(JSON.parse(JSON.stringify(ecg)))?.sleepId, 'n1');
+  const night = buildSleepReport(simulateNight(4).data, 's1');
+  assert.equal(parseSleepReport(JSON.parse(JSON.stringify(night)))?.ecgId, 's1');
+  // nights and recordings without a link stay without one
+  assert.equal(parseSleepReport(JSON.parse(JSON.stringify(buildSleepReport(simulateNight(4).data))))?.ecgId, undefined);
+});

@@ -43,6 +43,7 @@ export interface EcgSummary {
   strip: Strip;
   eventStrips: (Strip & { t: number })[];
   analysedWith: Pick<Settings, 'age' | 'sex' | 'hrRest' | 'hrMax' | 'qtcFormula' | 'notch'>;
+  sleepId?: string; // recorded together with this sleep night
 }
 
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -85,6 +86,7 @@ export function buildEcgSummary(session: Session, samples: Int16Array, settings:
     strip: cut(0, STRIP_S),
     eventStrips: pickEventStrips(events).map((e) => ({ t: e.t, ...cut(e.t - EVENT_STRIP_S / 2, EVENT_STRIP_S) })),
     analysedWith: { age: settings.age, sex: settings.sex, hrRest: settings.hrRest, hrMax: settings.hrMax, qtcFormula: settings.qtcFormula, notch: settings.notch },
+    ...(session.sleepId ? { sleepId: session.sleepId } : {}),
   };
 }
 
@@ -141,6 +143,7 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
       age: num(aw['age']), sex: aw['sex'] === 'female' ? 'female' : 'male', hrRest: num(aw['hrRest']), hrMax: num(aw['hrMax']),
       qtcFormula: aw['qtcFormula'] === 'fridericia' ? 'fridericia' : 'bazett', notch: num(aw['notch']),
     },
+    ...(typeof v['sleepId'] === 'string' ? { sleepId: v['sleepId'] } : {}),
   };
 }
 
@@ -153,13 +156,15 @@ export interface SleepReport {
   hr: (number | null)[];
   breathing: (number | null)[];
   activity: (number | null)[];
+  ecgId?: string; // the ECG recorded during this night
 }
 
 const STAGE_CODE: Readonly<Record<Stage, string>> = { awake: 'a', rem: 'r', light: 'l', deep: 'd', nodata: 'n' };
 const CODE_STAGE: Readonly<Record<string, Stage>> = { a: 'awake', r: 'rem', l: 'light', d: 'deep', n: 'nodata' };
 
-export function buildSleepReport(data: SleepData): SleepReport {
-  return fromAnalysis(analyzeSleep(data));
+export function buildSleepReport(data: SleepData, ecgId?: string): SleepReport {
+  const rep = fromAnalysis(analyzeSleep(data));
+  return ecgId ? { ...rep, ecgId } : rep;
 }
 
 export function fromAnalysis(a: SleepAnalysis): SleepReport {
@@ -181,5 +186,6 @@ export function parseSleepReport(v: unknown): SleepReport | null {
     hr: arr(v['hr']),
     breathing: arr(v['breathing']),
     activity: arr(v['activity']),
+    ...(typeof v['ecgId'] === 'string' ? { ecgId: v['ecgId'] } : {}),
   };
 }

@@ -15,7 +15,6 @@ import { current as account, historyChanged } from './account';
 const FS = ECG_FS;
 
 let outliers: Outlier[] = [];
-const metric = (k: string, v: string, unit: string, hint = '', ref?: MetricRef | null): HTMLDivElement => metricTile(k, v, unit, hint, ref, outliers);
 
 const RING_S = 60;
 const SPLIT_S = 4 * 3600; // start a new file every 4 h
@@ -383,7 +382,7 @@ async function renderHistory(): Promise<void> {
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
       make('span', 'dur', fmtTime(s.durationS)),
       make('span', 'stats', stats),
-      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
     );
     li.addEventListener('click', () => void openReport(s.id));
     list.appendChild(li);
@@ -517,6 +516,52 @@ function showStrip(copy: EcgSummary, event: ReportEvent | null): void {
 }
 
 
+/** The ECG result tiles (rhythm, waves, training) with reference ranges; out-of-range values go into `sink`. */
+function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivElement[]; waves: HTMLDivElement[]; training: HTMLDivElement[]; exercise: boolean; maxSeen: number } {
+  const metric = (k: string, v: string, unit: string, hint = '', ref?: MetricRef | null): HTMLDivElement => metricTile(k, v, unit, hint, ref, sink);
+  const qtcName = settings.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
+  const R = referenceRanges(settings);
+  // resting norms don't apply when much of the recording was exercise (above 60 % of max HR)
+  const [, , z2, z3, z4, z5] = m.zones;
+  const timed = m.zones.reduce((a, b) => a + b, 0) || 1;
+  const exercise = (z2 + z3 + z4 + z5) / timed > 0.3;
+  const ref = (key: keyof ReferenceRanges, value: number | null | undefined): MetricRef => (exercise && R[key].rest
+    ? { skipped: 'Resting range not applied (exercise)' }
+    : { range: R[key], value });
+  const rhythm = [
+    metric('Mean heart rate', fmt(m.meanHR), 'bpm', 'from normal beats', ref('meanHR', m.meanHR)),
+    metric('HRV score', fmt(m.hrvScore), '', '15 × ln(RMSSD)', ref('hrvScore', m.hrvScore)),
+    metric('RMSSD', fmt(m.rmssd), 'ms', '', ref('rmssd', m.rmssd)),
+    metric('SDNN', fmt(m.sdnn), 'ms', '', ref('sdnn', m.sdnn)),
+    metric('pNN50', fmt(m.pnn50, 1), '%', 'successive Δ > 50 ms', ref('pnn50', m.pnn50)),
+    metric('pNN200', fmt(m.pnn200, 1), '%', 'successive Δ > 200 ms', ref('pnn200', m.pnn200)),
+    metric('Poincaré SD1 / SD2', `${fmt(m.sd1)} / ${fmt(m.sd2)}`, 'ms'),
+    metric('Events', String(m.eventCount), '', `${fmt(m.eventPct, 1)} % of beats`, { range: { ...R.eventPct, note: 'of beats' }, value: m.eventPct, display: `${fmt(m.eventPct, 1)} % of beats` }),
+  ];
+  const waves = [
+    metric('QRS duration', fmt(m.qrs), 'ms', 'median', ref('qrs', m.qrs)),
+    metric('QT', fmt(m.qt), 'ms', 'median'),
+    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
+    metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
+    metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
+    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R size, median', ref('trRatio', m.trRatio)),
+    metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
+    metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
+    metric('R amplitude', fmt(m.rAmp), 'µV', 'no reference range'),
+    metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
+  ];
+  const maxSeen = Math.max(0, ...m.hr.filter((v): v is number => v != null));
+  const rec60 = m.recovery;
+  const training = [
+    metric('Effort (TRIMP)', fmt(m.trimp, 1), '', 'Banister, uses rest/max HR'),
+    metric('HR recovery (60 s)', rec60 ? fmt(rec60.hrr60) : '--', 'bpm',
+      rec60 ? `${fmt(rec60.peak)} → ${fmt(rec60.after60)} bpm` : 'needs ≥1 min above 90 % of max HR',
+      rec60 ? ref('hrr60', rec60.hrr60) : null),
+    metric('Highest HR', maxSeen ? fmt(maxSeen) : '--', 'bpm', `max HR setting ${settings.hrMax}`),
+  ];
+  return { rhythm, waves, training, exercise, maxSeen };
+}
+
 function renderReport({ session, analysis, metrics: m, events }: CurrentReport): void {
   $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
   const copy = current?.copy ?? null;
@@ -536,50 +581,16 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     // the user label already shows the current alias; only mention one recorded under a different alias
     session.alias && !userLabel(store.sessionUser(session)).endsWith(`· ${session.alias}`) && `Alias ${session.alias}`,
     session.source === 'demo' ? 'Demo signal' : session.source === 'import' ? 'Imported EDF' : 'Polar H10',
+    session.sleepId ? 'Recorded with sleep monitor' : '',
     m.nnCount < 30 ? 'Short or noisy recording: HRV values are unreliable' : '',
   ].filter(Boolean).join(' · ');
 
-  const qtcName = settings.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
-  const R = referenceRanges(settings);
-  // resting norms don't apply when much of the recording was exercise (above 60 % of max HR)
-  const [, , z2, z3, z4, z5] = m.zones;
-  const timed = m.zones.reduce((a, b) => a + b, 0) || 1;
-  const exercise = (z2 + z3 + z4 + z5) / timed > 0.3;
-  const ref = (key: keyof ReferenceRanges, value: number | null | undefined): MetricRef => (exercise && R[key].rest
-    ? { skipped: 'Resting range not applied (exercise)' }
-    : { range: R[key], value });
   outliers = [];
-  $('mRhythm').replaceChildren(
-    metric('Mean heart rate', fmt(m.meanHR), 'bpm', 'from normal beats', ref('meanHR', m.meanHR)),
-    metric('HRV score', fmt(m.hrvScore), '', '15 × ln(RMSSD)', ref('hrvScore', m.hrvScore)),
-    metric('RMSSD', fmt(m.rmssd), 'ms', '', ref('rmssd', m.rmssd)),
-    metric('SDNN', fmt(m.sdnn), 'ms', '', ref('sdnn', m.sdnn)),
-    metric('pNN50', fmt(m.pnn50, 1), '%', 'successive Δ > 50 ms', ref('pnn50', m.pnn50)),
-    metric('pNN200', fmt(m.pnn200, 1), '%', 'successive Δ > 200 ms', ref('pnn200', m.pnn200)),
-    metric('Poincaré SD1 / SD2', `${fmt(m.sd1)} / ${fmt(m.sd2)}`, 'ms'),
-    metric('Events', String(m.eventCount), '', `${fmt(m.eventPct, 1)} % of beats`, { range: { ...R.eventPct, note: 'of beats' }, value: m.eventPct, display: `${fmt(m.eventPct, 1)} % of beats` }),
-  );
-  $('mWaves').replaceChildren(
-    metric('QRS duration', fmt(m.qrs), 'ms', 'median', ref('qrs', m.qrs)),
-    metric('QT', fmt(m.qt), 'ms', 'median'),
-    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
-    metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
-    metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
-    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R size, median', ref('trRatio', m.trRatio)),
-    metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
-    metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
-    metric('R amplitude', fmt(m.rAmp), 'µV', 'no reference range'),
-    metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
-  );
-  const maxSeen = Math.max(0, ...m.hr.filter((v): v is number => v != null));
-  const rec60 = m.recovery;
-  $('mTraining').replaceChildren(
-    metric('Effort (TRIMP)', fmt(m.trimp, 1), '', 'Banister, uses rest/max HR'),
-    metric('HR recovery (60 s)', rec60 ? fmt(rec60.hrr60) : '--', 'bpm',
-      rec60 ? `${fmt(rec60.peak)} → ${fmt(rec60.after60)} bpm` : 'needs ≥1 min above 90 % of max HR',
-      rec60 ? ref('hrr60', rec60.hrr60) : null),
-    metric('Highest HR', maxSeen ? fmt(maxSeen) : '--', 'bpm', `max HR setting ${settings.hrMax}`),
-  );
+  const g = ecgTileGroups(m, outliers);
+  $('mRhythm').replaceChildren(...g.rhythm);
+  $('mWaves').replaceChildren(...g.waves);
+  $('mTraining').replaceChildren(...g.training);
+  const exercise = g.exercise, maxSeen = g.maxSeen;
 
   renderOutliers(exercise);
   renderZones(m.zones);
@@ -591,6 +602,40 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     b.title = copy ? 'Needs the full ECG, which is on the device that recorded it' : '';
   }
   $('viewerLabel').hidden = copy === null;
+  // only offer the night's report while that night still exists on this device
+  $button('btnOpenSleep').hidden = true;
+  if (session.sleepId) void store.loadSleep(session.sleepId).then(({ session: night }) => { $button('btnOpenSleep').hidden = !night; });
+}
+
+/** "ECG during the night" in a sleep report: that night's ECG results, with a link to the full ECG report. */
+async function renderNightEcg(box: HTMLElement, ecgId: string): Promise<void> {
+  box.replaceChildren(make('p', 'muted', 'Analysing the night’s ECG…'));
+  await new Promise((r) => setTimeout(r, 30)); // let the message paint before a long analysis
+  const { session, samples } = await store.loadSession(ecgId);
+  if (!session) { box.replaceChildren(make('p', 'muted', 'The ECG recorded this night isn’t on this device (it may have been deleted).')); return; }
+  let m: SessionMetrics;
+  if (session.cloudOnly) {
+    const copy = parseEcgSummary(await store.loadSummaryCopy(ecgId));
+    if (!copy) { box.replaceChildren(make('p', 'muted', 'The night’s ECG summary could not be read.')); return; }
+    m = copy.metrics;
+  } else if (samples) {
+    const a = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
+    m = sessionMetrics(a, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
+  } else {
+    box.replaceChildren(make('p', 'muted', 'The night’s ECG signal is missing.'));
+    return;
+  }
+  const sink: Outlier[] = [];
+  const g = ecgTileGroups(m, sink);
+  const flags = make('div', 'flags');
+  renderOutlierBox(flags, sink, session.cloudOnly ? ['Summary copy from another device, as calculated there.'] : []);
+  const grid = (els: HTMLElement[]): HTMLDivElement => { const d = make('div', 'metrics'); d.append(...els); return d; };
+  const open = make('button', 'no-print', 'Open full ECG report');
+  open.addEventListener('click', () => void openReport(ecgId));
+  box.replaceChildren(
+    make('p', 'muted', [`${fmtTime(session.durationS)} of ECG`, `${m.beatCount} beats`, `${m.eventCount} events`, session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+    flags, make('h4', '', 'Rhythm and HRV'), grid(g.rhythm), make('h4', '', 'ECG waves'), grid(g.waves), open,
+  );
 }
 
 function renderOutliers(exercise: boolean): void {
@@ -687,6 +732,7 @@ function renderEvents(events: readonly ReportEvent[]): void {
 }
 
 $button('btnBack').addEventListener('click', () => show('history'));
+$button('btnOpenSleep').addEventListener('click', () => { const id = current?.session.sleepId; if (id) void sleepUI?.openReport(id); });
 
 $button('btnPrint').addEventListener('click', () => window.print());
 $button('btnDelete').addEventListener('click', () => {
@@ -836,6 +882,7 @@ account.cloud?.addEventListener('changed', () => {
 });
 
 sleepUI = initSleep({
+  renderNightEcg,
   user: () => currentUser,
   userLabel,
   showSleepView: show,

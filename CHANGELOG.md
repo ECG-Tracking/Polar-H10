@@ -4,6 +4,17 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Sleep & ECG recording *(GitHub)*
+Why: record a night's sleep and its ECG in one go, and read both in one report.
+
+| File | Change |
+|---|---|
+| `index.html`, `styles.css` | Sleep monitor: new **Start sleep & ECG recording** button under Start sleep recording; sleep report: new "ECG during the night" section after the sleep results; ECG report: **Open sleep report** button |
+| `src/sleepui.ts` | Connecting from Sleep monitor also starts the ECG stream; the combined recording saves the night plus an ECG recording (if at least 10 min) linked to each other; the night's report shows the ECG results after the sleep output; deleting the night asks whether to delete its ECG too (kept ECGs are unlinked) |
+| `src/app.ts` | The night's ECG section: values outside the range, Rhythm and HRV, ECG waves, and **Open full ECG report**; ECG history marks these recordings "with sleep"; Open sleep report appears only while the night exists |
+| `src/store.ts`, `src/summary.ts`, `src/cloud.ts` | The link between a night and its ECG is stored and synced both ways (no new cloud tables, so setup.sql doesn't need re-running) |
+| `tests/summary.test.ts` | New test: the link survives a trip through the cloud |
+
 ## 2 Nov 2026 – Private notes excluded *(GitHub)*
 | File | Change |
 |---|---|

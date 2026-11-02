@@ -131,6 +131,7 @@
     <section id="view-report" class="view">
       <div class="row between wrap no-print">
         <button id="btnBack">← Recordings</button>
+        <button id="btnOpenSleep" hidden>Open sleep report</button>
         <div class="row wrap">
           <button id="btnExportEdf">EDF+</button>
           <button id="btnExportCsv">Beats CSV</button>
@@ -220,7 +221,8 @@
           <button class="primary big" id="btnSleepStart" disabled>Start sleep recording</button>
           <button class="big" id="btnSleepDim" disabled>Dim screen</button>
         </div>
-        <p class="note">Recording records heart beats and chest movement. The sleep report (stages, breathing, HRV and score) is calculated when you stop.</p>
+        <button class="big" id="btnSleepEcgStart" disabled>Start sleep &amp; ECG recording</button>
+        <p class="note"><b>Start sleep recording</b> records heart beats and chest movement. <b>Start sleep &amp; ECG recording</b> also records the full ECG all night; its report shows the sleep results followed by the night’s ECG results, and the ECG is also saved in ECG history. Reports are calculated when you stop.</p>
       </div>
 
       <div class="card">
@@ -293,6 +295,11 @@
           <figure class="chart"><figcaption>Heart rate through the night</figcaption><canvas></canvas></figure>
           <figure class="chart"><figcaption>Breathing rate through the night</figcaption><canvas></canvas></figure>
         </div>
+
+        <section id="sleepEcgSection" class="night-ecg" hidden>
+          <h3>ECG during the night</h3>
+          <div id="sleepEcgBody"></div>
+        </section>
 
         <details class="card sources">
           <summary>About these results</summary>

@@ -1,18 +1,20 @@
 // Sleep monitor, sleep history and the sleep report.
 
-import { PolarH10, ACC_FS, bluetoothAvailable, type AccDetail, type HrDetail, type BatteryDetail } from './polar';
+import { PolarH10, ACC_FS, ECG_FS, bluetoothAvailable, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
 import { analyzeSleep, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
 import { Plot, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
 import { sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
-import type { SleepSession, UserNumber } from './store';
+import type { Session, SleepSession, UserNumber } from './store';
 import { $, $button, $canvas, make, fmt, fmtHM, metricTile, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
 import { parseSleepReport, toAnalysis } from './summary';
 
 export interface SleepDeps {
+  /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
+  renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
   user: () => UserNumber;
   userLabel: (u: UserNumber) => string;
   showSleepView: (view: 'sleep' | 'sleepHistory' | 'sleepReport') => void;
@@ -26,6 +28,7 @@ const MIN_SAVE_S = 10 * 60;
 
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
+  openReport: (id: string) => Promise<void>;
   isRecording: () => boolean;
   isConnected: () => boolean;
   refreshUser: () => void;
@@ -33,6 +36,8 @@ export function initSleep(deps: SleepDeps): {
   let polar: PolarH10 | null = null;
   let recorder: SleepRecorder | null = null;
   let recUser: UserNumber = deps.user();
+  // "Start sleep & ECG recording": the night's ECG, collected alongside the sleep data
+  let ecg: { chunks: Int16Array[]; n: number } | null = null;
   let tick: ReturnType<typeof setInterval> | null = null;
   let wakeLock: WakeLockSentinel | null = null;
   let reconnecting = false;
@@ -61,8 +66,12 @@ export function initSleep(deps: SleepDeps): {
     $('sleepPairHint').hidden = connected || $button('btnSleepConnect').disabled;
     const start = $button('btnSleepStart');
     start.disabled = !recorder && !(connected && polar?.accOk);
-    start.textContent = recorder ? 'Stop – I’m awake' : 'Start sleep recording';
+    start.textContent = recorder ? (ecg ? 'Stop sleep & ECG – I’m awake' : 'Stop – I’m awake') : 'Start sleep recording';
     start.classList.toggle('recording', recorder !== null);
+    const both = $button('btnSleepEcgStart');
+    both.hidden = recorder !== null;
+    both.disabled = !(connected && polar?.accOk && polar.ecgOk);
+    both.title = connected && !polar?.ecgOk ? 'The ECG stream isn’t running on this connection' : '';
     $button('btnSleepDim').disabled = recorder === null;
   }
 
@@ -80,6 +89,13 @@ export function initSleep(deps: SleepDeps): {
       if (!recorder) $('sleepHR').textContent = String(d.hr);
     });
     p.addEventListener('acc', (e) => recorder?.addAcc((e as CustomEvent<AccDetail>).detail.samples));
+    p.addEventListener('ecg', (e) => {
+      if (!recorder || !ecg) return;
+      const s = (e as CustomEvent<EcgDetail>).detail.samples;
+      const c = Int16Array.from(s, (v) => Math.max(-32768, Math.min(32767, v)));
+      ecg.chunks.push(c);
+      ecg.n += c.length;
+    });
     p.addEventListener('battery', (e) => {
       const lvl = (e as CustomEvent<BatteryDetail>).detail.level;
       $('sleepBattery').textContent = `Battery ${lvl}%${lvl < 50 ? ' – charge it before a full night' : ''}`;
@@ -88,9 +104,10 @@ export function initSleep(deps: SleepDeps): {
     $('sleepLog').textContent = '';
     status('Connecting…', 'busy');
     try {
-      await p.connect(log, { ecg: false, acc: true });
+      // ECG streams too, so either kind of recording can start; it's only kept for sleep & ECG recordings
+      await p.connect(log, { ecg: true, acc: true });
       polar = p;
-      if (p.accOk) status(`${p.name} – heart beats and movement`, 'on');
+      if (p.accOk) status(`${p.name} – heart beats, movement${p.ecgOk ? ' and ECG' : ''}`, 'on');
       else status(`${p.name} – movement unavailable, sleep can't be analysed`, 'busy');
     } catch (err) {
       const cancelled = errorName(err) === 'NotFoundError';
@@ -117,7 +134,7 @@ export function initSleep(deps: SleepDeps): {
       status('Strap disconnected – reconnecting…', 'busy');
       try {
         await polar.reconnect(log);
-        status(`${polar.name} – heart beats and movement`, 'on');
+        status(`${polar.name} – heart beats, movement${polar.ecgOk ? ' and ECG' : ''}`, 'on');
       } catch (err) {
         log(`Reconnect failed: ${errorMessage(err)}`);
         await sleep(15000);
@@ -141,7 +158,8 @@ export function initSleep(deps: SleepDeps): {
     try { wakeLock = 'wakeLock' in navigator ? await navigator.wakeLock.request('screen') : null; } catch { /* not supported */ }
   }
 
-  async function startRecording(): Promise<void> {
+  async function startRecording(withEcg = false): Promise<void> {
+    ecg = withEcg ? { chunks: [], n: 0 } : null;
     recorder = new SleepRecorder(ACC_FS);
     recUser = deps.user();
     gaps = 0;
@@ -161,6 +179,7 @@ export function initSleep(deps: SleepDeps): {
     $('sleepElapsed').textContent = fmtTime(r.elapsedS);
     $('sleepDimClock').textContent = fmtTime(r.elapsedS);
     $('sleepBeats').textContent = String(r.beats);
+    if (ecg) $('sleepGaps').textContent = `${gaps ? `${gaps} gap${gaps > 1 ? 's' : ''} · ` : ''}ECG ${fmtTime(ecg.n / ECG_FS)} recorded`;
     const recent = r.recent(10);
     $('sleepHR').textContent = recent.hr ? String(Math.round(recent.hr)) : '--';
     $('sleepMove').textContent = recent.moving === null ? '--' : recent.moving ? 'Moving' : 'Still';
@@ -169,7 +188,9 @@ export function initSleep(deps: SleepDeps): {
   async function stopRecording(): Promise<void> {
     const r = recorder;
     if (!r) return;
+    const nightEcg = ecg;
     recorder = null;
+    ecg = null;
     if (tick) clearInterval(tick);
     tick = null;
     try { await wakeLock?.release(); } catch { /* ignore */ }
@@ -186,6 +207,18 @@ export function initSleep(deps: SleepDeps): {
       return;
     }
     const session: SleepSession = { id: `n${r.start}`, user: recUser, start: r.start, durationS: data.durationS, source: 'polar', summary: null };
+    if (nightEcg && nightEcg.n >= MIN_SAVE_S * ECG_FS) {
+      // the night's ECG goes into ECG history too, linked both ways
+      const samples = new Int16Array(nightEcg.n);
+      let o = 0;
+      for (const c of nightEcg.chunks) { samples.set(c, o); o += c.length; }
+      const ecgSession: Session = {
+        id: `s${r.start}`, user: recUser, start: r.start, durationS: nightEcg.n / ECG_FS, fs: ECG_FS, alias: store.loadSettings(recUser).alias,
+        source: 'polar', userEvents: [], summary: null, sleepId: session.id,
+      };
+      await store.saveSession(ecgSession, samples);
+      session.ecgId = ecgSession.id;
+    }
     await store.saveSleep(session, data);
     historyChanged();
     await openReport(session.id);
@@ -221,7 +254,7 @@ export function initSleep(deps: SleepDeps): {
         make('span', 'when', `Night of ${new Date(n.start).toLocaleDateString([], { dateStyle: 'medium' })}`),
         make('span', 'dur', s ? fmtHM(s.sleepMin) : fmtTime(n.durationS)),
         make('span', 'stats', s ? `Score ${s.score} · ${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'} · HR ${fmt(s.avgHR)} · HRV ${fmt(s.avgHrv)} ms` : 'Open to analyse'),
-        make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
+        make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
       );
       li.addEventListener('click', () => void openReport(n.id));
       list.appendChild(li);
@@ -270,6 +303,9 @@ export function initSleep(deps: SleepDeps): {
     busy.hidden = true;
     body.hidden = false;
     hypno.draw(); bars.draw(); hrPlot.draw(); brPlot.draw();
+    const ecgSection = $('sleepEcgSection');
+    ecgSection.hidden = !session.ecgId;
+    if (session.ecgId) void deps.renderNightEcg($('sleepEcgBody'), session.ecgId);
     drawDonut($canvas('sleepDonut'), donutParts); // needs the report to be visible to have a size
   }
 
@@ -388,6 +424,7 @@ export function initSleep(deps: SleepDeps): {
   $button('btnSleepDisconnect').addEventListener('click', () => void disconnect());
   $button('btnSleepDemo').addEventListener('click', () => void demoNight());
   $button('btnSleepStart').addEventListener('click', () => void (recorder ? stopRecording() : startRecording()));
+  $button('btnSleepEcgStart').addEventListener('click', () => void (recorder ? stopRecording() : startRecording(true)));
   $button('btnSleepDim').addEventListener('click', () => { $('sleepDim').hidden = false; });
   $('sleepDim').addEventListener('click', () => { $('sleepDim').hidden = true; });
   document.addEventListener('visibilitychange', () => {
@@ -398,6 +435,17 @@ export function initSleep(deps: SleepDeps): {
   $button('btnSleepDelete').addEventListener('click', () => {
     void (async () => {
       if (!current || !window.confirm('Delete this night permanently?')) return;
+      const ecgId = current.session.ecgId;
+      if (ecgId && window.confirm('Also delete the ECG recorded during this night? (Cancel keeps it in ECG history.)')) await store.deleteSession(ecgId);
+      else if (ecgId) {
+        // keep the ECG, but stop it pointing at a night that no longer exists
+        // (a cloud copy may keep the link; the ECG report hides "Open sleep report" when the night is gone)
+        const { session: kept } = await store.loadSession(ecgId);
+        if (kept) {
+          const { sleepId: _gone, ...rest } = kept;
+          await store.updateSession(rest);
+        }
+      }
       await store.deleteSleep(current.session.id);
       historyChanged();
       current = null;
@@ -434,6 +482,7 @@ export function initSleep(deps: SleepDeps): {
 
   return {
     renderHistory,
+    openReport,
     isRecording: () => recorder !== null,
     isConnected: () => polar?.connected ?? false,
     refreshUser,

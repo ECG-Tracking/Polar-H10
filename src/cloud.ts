@@ -165,7 +165,7 @@ export class CloudSync extends EventTarget {
         const session: Session = {
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, fs: r.fs, alias: r.alias,
           source: r.source, userEvents: r.user_events, summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: m.eventCount },
-          synced: true, cloudOnly: true,
+          synced: true, cloudOnly: true, ...(summary.sleepId ? { sleepId: summary.sleepId } : {}),
         };
         await store.saveSummaryCopy(session, summary);
         result.downloaded++;
@@ -203,7 +203,7 @@ export class CloudSync extends EventTarget {
       }
       const { signals } = await store.loadSleep(n.id);
       if (!signals) continue;
-      const report = buildSleepReport({ durationS: n.durationS, ...signals });
+      const report = buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId);
       const ins = await this.client.from(SLEEP_TABLE).upsert({ id: n.id, user_no: n.user, started_at: n.start, duration_s: n.durationS, source: n.source, report });
       if (ins.error) throw new Error(ins.error.message);
       await store.updateSleep({ ...n, synced: true });
@@ -223,7 +223,7 @@ export class CloudSync extends EventTarget {
         await store.saveSleepCopy({
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, source: r.source,
           summary: { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate },
-          synced: true, cloudOnly: true, report,
+          synced: true, cloudOnly: true, report, ...(report.ecgId ? { ecgId: report.ecgId } : {}),
         });
         result.downloaded++;
       }
