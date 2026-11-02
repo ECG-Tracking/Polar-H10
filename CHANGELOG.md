@@ -4,6 +4,18 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 2 Nov 2026 – Users 1–9 *(GitHub)*
+Why: several people can share the app without their recordings being mixed.
+
+| File | Change |
+|---|---|
+| `index.html`, `styles.css` | "User" selector (User 1–9) at the top of the Live screen; History heading shows the user |
+| `src/store.ts` | Recordings carry a user number; History lists only the chosen user's recordings; each user has their own settings (age, sex, heart rates, alias…) |
+| `src/app.ts` | Switching user reloads that user's settings and history; locked while recording; new recordings and EDF imports go to the chosen user; report shows the user |
+| `tests/users.test.ts` | 3 new tests (12 in total) |
+
+Existing data: recordings made before this change and the existing settings belong to **User 1** — nothing is moved or lost.
+
 ## 2 Nov 2026 – Faster publishing *(GitHub)*
 Why: checks now run before you're asked to publish, so publishing happens straight away once you agree.
 

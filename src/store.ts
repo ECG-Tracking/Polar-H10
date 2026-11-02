@@ -6,8 +6,39 @@ export interface UserEvent { t: number; label: string }
 
 export interface SessionSummary { meanHR: number; hrvScore: number; eventCount: number }
 
+// ---------- Users ----------
+
+/** Up to nine people can share the app; each has their own history and settings. */
+export const USERS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+export type UserNumber = (typeof USERS)[number];
+
+export function isUserNumber(v: unknown): v is UserNumber {
+  return typeof v === 'number' && (USERS as readonly number[]).includes(v);
+}
+
+/** Recordings made before users existed belong to User 1. */
+export function sessionUser(s: Pick<Session, 'user'>): UserNumber {
+  return isUserNumber(s.user) ? s.user : 1;
+}
+
+const CURRENT_USER_KEY = 'ecg-analysis-user';
+
+export function loadCurrentUser(): UserNumber {
+  try {
+    const v = Number(localStorage.getItem(CURRENT_USER_KEY));
+    return isUserNumber(v) ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function saveCurrentUser(user: UserNumber): void {
+  try { localStorage.setItem(CURRENT_USER_KEY, String(user)); } catch { /* private mode */ }
+}
+
 export interface Session {
   id: string;
+  user?: UserNumber; // missing on recordings made before users existed (= User 1)
   start: number; // epoch ms
   durationS: number;
   fs: number;
@@ -58,9 +89,10 @@ export async function updateSession(session: Session): Promise<void> {
   await tx(['sessions'], 'readwrite', (t) => { t.objectStore('sessions').put(session); });
 }
 
-export async function listSessions(): Promise<Session[]> {
+/** One user's recordings, newest first. */
+export async function listSessions(user: UserNumber): Promise<Session[]> {
   const all = await tx<Session[]>(['sessions'], 'readonly', (t) => t.objectStore('sessions').getAll());
-  return (all ?? []).sort((a, b) => b.start - a.start);
+  return (all ?? []).filter((s) => sessionUser(s) === user).sort((a, b) => b.start - a.start);
 }
 
 export async function loadSession(id: string): Promise<{ session: Session | undefined; samples: Int16Array | undefined }> {
@@ -96,7 +128,10 @@ export interface Settings {
   vibrate: boolean;
 }
 
-const SETTINGS_KEY = 'ecg-analysis-settings';
+// User 1 keeps the original key, so settings saved before users existed stay with User 1.
+export function settingsKey(user: UserNumber): string {
+  return user === 1 ? 'ecg-analysis-settings' : `ecg-analysis-settings-u${user}`;
+}
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   alias: '',
   age: 40,
@@ -134,14 +169,14 @@ function sanitize(saved: unknown): Partial<Settings> {
   return out as Partial<Settings>;
 }
 
-export function loadSettings(): Settings {
+export function loadSettings(user: UserNumber): Settings {
   try {
-    return { ...DEFAULT_SETTINGS, ...sanitize(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}')) };
+    return { ...DEFAULT_SETTINGS, ...sanitize(JSON.parse(localStorage.getItem(settingsKey(user)) ?? '{}')) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
-export function saveSettings(s: Settings): void {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch { /* private mode */ }
+export function saveSettings(user: UserNumber, s: Settings): void {
+  try { localStorage.setItem(settingsKey(user), JSON.stringify(s)); } catch { /* private mode */ }
 }

@@ -4,7 +4,7 @@ import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analys
 import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
-import type { Session, Settings, UserEvent } from './store';
+import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, checkRange, fmtRange, SOURCES, type Range, type RangeStatus, type ReferenceRanges } from './ranges';
 import { errorMessage, errorName } from './util';
 
@@ -33,7 +33,8 @@ const FS = ECG_FS;
 const RING_S = 60;
 const SPLIT_S = 4 * 3600; // start a new file every 4 h
 
-const settings: Settings = store.loadSettings();
+let currentUser: UserNumber = store.loadCurrentUser();
+let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
@@ -56,6 +57,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) {
 interface Source { kind: 'polar' | 'demo'; stop: () => void | Promise<void> }
 
 interface Recording {
+  user: UserNumber;
   start: number; // epoch ms
   startSample: number; // value of `total` when recording started
   chunks: Int16Array[];
@@ -301,7 +303,8 @@ async function requestWakeLock(): Promise<void> {
 }
 
 async function startRecording(): Promise<void> {
-  rec = { start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [] };
+  rec = { user: currentUser, start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [] };
+  syncUserSelect();
   const btn = $button('btnRecord');
   btn.textContent = 'Stop';
   btn.classList.add('recording');
@@ -321,6 +324,7 @@ async function stopRecording(): Promise<Session | null> {
   $button('btnEvent').disabled = true;
   try { await wakeLock?.release(); } catch { /* ignore */ }
   wakeLock = null;
+  syncUserSelect();
   if (!r || r.n < 10 * FS) {
     $('timer').textContent = 'Too short to save (min 10 s)';
     return null;
@@ -330,6 +334,7 @@ async function stopRecording(): Promise<Session | null> {
   for (const c of r.chunks) { samples.set(c, o); o += c.length; }
   const session: Session = {
     id: `s${r.start}`,
+    user: r.user,
     start: r.start,
     durationS: r.n / FS,
     fs: FS,
@@ -368,7 +373,8 @@ document.addEventListener('visibilitychange', () => {
 async function renderHistory(): Promise<void> {
   const list = $('sessionList');
   let sessions: Session[] = [];
-  try { sessions = await store.listSessions(); } catch { /* storage blocked */ }
+  try { sessions = await store.listSessions(currentUser); } catch { /* storage blocked */ }
+  $('historyUser').textContent = `· ${userLabel(currentUser)}`;
   list.replaceChildren();
   $('emptyHistory').hidden = sessions.length > 0;
   for (const s of sessions) {
@@ -403,6 +409,7 @@ async function importEdf(): Promise<void> {
     const samples = Int16Array.from(edf.samples, clip16);
     const session: Session = {
       id: `s${Date.now()}`,
+      user: currentUser,
       start: edf.start,
       durationS: samples.length / edf.fs,
       fs: edf.fs,
@@ -506,9 +513,11 @@ async function openReport(id: string): Promise<void> {
 function renderReport({ session, analysis, metrics: m, events }: CurrentReport): void {
   $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
   $('reportMeta').textContent = [
+    userLabel(store.sessionUser(session)),
     `Duration ${fmtTime(session.durationS)}`,
     `${m.beatCount} beats`,
-    session.alias && `Alias ${session.alias}`,
+    // the user label already shows the current alias; only mention one recorded under a different alias
+    session.alias && !userLabel(store.sessionUser(session)).endsWith(`· ${session.alias}`) && `Alias ${session.alias}`,
     session.source === 'demo' ? 'Demo signal' : session.source === 'import' ? 'Imported EDF' : 'Polar H10',
     m.nnCount < 30 ? 'Short or noisy recording: HRV values are unreliable' : '',
   ].filter(Boolean).join(' · ');
@@ -746,10 +755,49 @@ form.addEventListener('change', (e) => {
   const el = e.target;
   if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) return;
   applyField(el);
-  store.saveSettings(settings);
+  store.saveSettings(currentUser, settings);
   fillSettings();
+  if (el.name === 'alias') renderUserOptions();
 });
 fillSettings();
+
+// ---------- Users ----------
+
+const userSelect = byId('userSelect', HTMLSelectElement);
+
+/** "User 2" or "User 2 · Anna" when that user has an alias. */
+function userLabel(user: UserNumber): string {
+  const alias = user === currentUser ? settings.alias : store.loadSettings(user).alias;
+  return alias ? `User ${user} · ${alias}` : `User ${user}`;
+}
+
+function renderUserOptions(): void {
+  userSelect.replaceChildren(...store.USERS.map((u) => {
+    const o = make('option', '', userLabel(u));
+    o.value = String(u);
+    return o;
+  }));
+  userSelect.value = String(currentUser);
+}
+
+/** Switching user is blocked while recording, so a recording can't change owner halfway. */
+function syncUserSelect(): void {
+  userSelect.disabled = rec !== null;
+  userSelect.title = rec ? 'Stop the recording to switch user' : '';
+}
+
+userSelect.addEventListener('change', () => {
+  const next = Number(userSelect.value);
+  if (rec || !store.isUserNumber(next) || next === currentUser) { userSelect.value = String(currentUser); return; }
+  currentUser = next;
+  store.saveCurrentUser(next);
+  settings = store.loadSettings(next);
+  fillSettings();
+  current = null;
+  if ($('view-report').classList.contains('active')) show('history');
+  else if ($('view-history').classList.contains('active')) void renderHistory();
+});
+renderUserOptions();
 
 // ---------- Reference sources ----------
 

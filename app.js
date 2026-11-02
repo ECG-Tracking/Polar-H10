@@ -1427,6 +1427,28 @@
 
   // src/store.ts
   var DB_NAME = "ecg-analysis";
+  var USERS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  function isUserNumber(v) {
+    return typeof v === "number" && USERS.includes(v);
+  }
+  function sessionUser(s) {
+    return isUserNumber(s.user) ? s.user : 1;
+  }
+  var CURRENT_USER_KEY = "ecg-analysis-user";
+  function loadCurrentUser() {
+    try {
+      const v = Number(localStorage.getItem(CURRENT_USER_KEY));
+      return isUserNumber(v) ? v : 1;
+    } catch {
+      return 1;
+    }
+  }
+  function saveCurrentUser(user) {
+    try {
+      localStorage.setItem(CURRENT_USER_KEY, String(user));
+    } catch {
+    }
+  }
   var dbPromise = null;
   function open() {
     dbPromise ?? (dbPromise = new Promise((resolve, reject) => {
@@ -1460,9 +1482,9 @@
       t.objectStore("sessions").put(session);
     });
   }
-  async function listSessions() {
+  async function listSessions(user) {
     const all = await tx(["sessions"], "readonly", (t) => t.objectStore("sessions").getAll());
-    return (all ?? []).sort((a, b) => b.start - a.start);
+    return (all ?? []).filter((s) => sessionUser(s) === user).sort((a, b) => b.start - a.start);
   }
   async function loadSession(id) {
     const [session, signal] = await Promise.all([
@@ -1477,7 +1499,9 @@
       t.objectStore("signals").delete(id);
     });
   }
-  var SETTINGS_KEY = "ecg-analysis-settings";
+  function settingsKey(user) {
+    return user === 1 ? "ecg-analysis-settings" : `ecg-analysis-settings-u${user}`;
+  }
   var DEFAULT_SETTINGS = {
     alias: "",
     age: 40,
@@ -1511,16 +1535,16 @@
     }
     return out;
   }
-  function loadSettings() {
+  function loadSettings(user) {
     try {
-      return { ...DEFAULT_SETTINGS, ...sanitize(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}")) };
+      return { ...DEFAULT_SETTINGS, ...sanitize(JSON.parse(localStorage.getItem(settingsKey(user)) ?? "{}")) };
     } catch {
       return { ...DEFAULT_SETTINGS };
     }
   }
-  function saveSettings(s) {
+  function saveSettings(user, s) {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+      localStorage.setItem(settingsKey(user), JSON.stringify(s));
     } catch {
     }
   }
@@ -1592,7 +1616,8 @@
   var FS = ECG_FS;
   var RING_S = 60;
   var SPLIT_S = 4 * 3600;
-  var settings = loadSettings();
+  var currentUser = loadCurrentUser();
+  var settings = loadSettings(currentUser);
   var isView = (v) => v === "live" || v === "history" || v === "report" || v === "settings";
   function show(view) {
     for (const v of document.querySelectorAll(".view")) v.classList.toggle("active", v.id === `view-${view}`);
@@ -1840,7 +1865,8 @@
     }
   }
   async function startRecording() {
-    rec = { start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [] };
+    rec = { user: currentUser, start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [] };
+    syncUserSelect();
     const btn = $button("btnRecord");
     btn.textContent = "Stop";
     btn.classList.add("recording");
@@ -1865,6 +1891,7 @@
     } catch {
     }
     wakeLock = null;
+    syncUserSelect();
     if (!r || r.n < 10 * FS) {
       $("timer").textContent = "Too short to save (min 10 s)";
       return null;
@@ -1877,6 +1904,7 @@
     }
     const session = {
       id: `s${r.start}`,
+      user: r.user,
       start: r.start,
       durationS: r.n / FS,
       fs: FS,
@@ -1911,9 +1939,10 @@
     const list = $("sessionList");
     let sessions = [];
     try {
-      sessions = await listSessions();
+      sessions = await listSessions(currentUser);
     } catch {
     }
+    $("historyUser").textContent = `\xB7 ${userLabel(currentUser)}`;
     list.replaceChildren();
     $("emptyHistory").hidden = sessions.length > 0;
     for (const s of sessions) {
@@ -1942,6 +1971,7 @@
       const samples = Int16Array.from(edf.samples, clip16);
       const session = {
         id: `s${Date.now()}`,
+        user: currentUser,
         start: edf.start,
         durationS: samples.length / edf.fs,
         fs: edf.fs,
@@ -2023,9 +2053,11 @@
   function renderReport({ session, analysis, metrics: m, events }) {
     $("reportTitle").textContent = new Date(session.start).toLocaleString([], { dateStyle: "full", timeStyle: "short" });
     $("reportMeta").textContent = [
+      userLabel(sessionUser(session)),
       `Duration ${fmtTime(session.durationS)}`,
       `${m.beatCount} beats`,
-      session.alias && `Alias ${session.alias}`,
+      // the user label already shows the current alias; only mention one recorded under a different alias
+      session.alias && !userLabel(sessionUser(session)).endsWith(`\xB7 ${session.alias}`) && `Alias ${session.alias}`,
       session.source === "demo" ? "Demo signal" : session.source === "import" ? "Imported EDF" : "Polar H10",
       m.nnCount < 30 ? "Short or noisy recording: HRV values are unreliable" : ""
     ].filter(Boolean).join(" \xB7 ");
@@ -2259,10 +2291,43 @@
     const el = e.target;
     if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) return;
     applyField(el);
-    saveSettings(settings);
+    saveSettings(currentUser, settings);
     fillSettings();
+    if (el.name === "alias") renderUserOptions();
   });
   fillSettings();
+  var userSelect = byId("userSelect", HTMLSelectElement);
+  function userLabel(user) {
+    const alias = user === currentUser ? settings.alias : loadSettings(user).alias;
+    return alias ? `User ${user} \xB7 ${alias}` : `User ${user}`;
+  }
+  function renderUserOptions() {
+    userSelect.replaceChildren(...USERS.map((u) => {
+      const o = make("option", "", userLabel(u));
+      o.value = String(u);
+      return o;
+    }));
+    userSelect.value = String(currentUser);
+  }
+  function syncUserSelect() {
+    userSelect.disabled = rec !== null;
+    userSelect.title = rec ? "Stop the recording to switch user" : "";
+  }
+  userSelect.addEventListener("change", () => {
+    const next = Number(userSelect.value);
+    if (rec || !isUserNumber(next) || next === currentUser) {
+      userSelect.value = String(currentUser);
+      return;
+    }
+    currentUser = next;
+    saveCurrentUser(next);
+    settings = loadSettings(next);
+    fillSettings();
+    current = null;
+    if ($("view-report").classList.contains("active")) show("history");
+    else if ($("view-history").classList.contains("active")) void renderHistory();
+  });
+  renderUserOptions();
   $("refSources").replaceChildren(...SOURCES.map(([what, text]) => {
     const li = make("li");
     li.append(make("b", "", `${what}: `), text);

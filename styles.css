@@ -102,6 +102,10 @@ button.danger { color: var(--critical); }
 button.big { flex: 1; min-height: 56px; font-size: 1.05rem; }
 button.recording { background: var(--ink); border-color: var(--ink); color: var(--surface); }
 
+.user-pick { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.user-pick select { font: inherit; font-weight: 600; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; }
+.user-pick select:disabled { opacity: 0.6; }
+.user-pick .muted { font-weight: 400; font-size: 0.85rem; }
 .status { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 500; }
 .log {
   margin: 10px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto;

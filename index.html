@@ -28,6 +28,11 @@
     <!-- LIVE -->
     <section id="view-live" class="view active">
       <div class="card connect">
+        <label class="user-pick">
+          <span>User</span>
+          <select id="userSelect" aria-describedby="userHint"></select>
+          <span class="muted" id="userHint">Each user has their own recordings and settings.</span>
+        </label>
         <div class="status">
           <span class="dot" id="statusDot"></span>
           <span id="statusText">Not connected</span>
@@ -68,11 +73,11 @@
     <!-- HISTORY -->
     <section id="view-history" class="view">
       <div class="row between">
-        <h2>Recordings</h2>
+        <h2>Recordings <span class="muted" id="historyUser"></span></h2>
         <label class="button">Import EDF<input type="file" id="importFile" accept=".edf,.EDF" hidden></label>
       </div>
       <ul class="sessions" id="sessionList"></ul>
-      <p class="muted" id="emptyHistory">No recordings yet. Start one from the Live tab, or import an EDF file.</p>
+      <p class="muted" id="emptyHistory">No recordings for this user yet. Start one from the Live tab, or import an EDF file.</p>
     </section>
 
     <!-- REPORT -->
