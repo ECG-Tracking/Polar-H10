@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — the screen: pair with the watch, download sleep, and a Huawei Health-style night report.
+// D2 Link — the screen: pair with the watch, download sleep, and a night report in the style of the watch's phone app.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { CloudSetupError, syncNights, type CloudClient } from './cloud';
@@ -32,7 +32,7 @@ const STAGE_ROW: Readonly<Record<number, number>> = { 4: 0, 2: 1, 1: 2, 5: 2, 3:
 
 type Verdict = { text: string; kind: 'normal' | 'high' | 'low' | 'personal' } | null;
 
-/** Huawei Health's references: fixed ranges show Normal/High/Low, personal ranges show Within/Above/Below range. */
+/** The phone app's references: fixed ranges show Normal/High/Low, personal ranges show Within/Above/Below range. */
 function fixed(v: number | null, lo: number, hi: number): Verdict {
   if (v == null || !Number.isFinite(v)) return null;
   if (v < lo) return { text: 'Low', kind: 'low' };
@@ -147,11 +147,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const status = el('div', 'status');
   const dot = el('span', 'dot'), statusText = el('span', '', 'Not connected');
   status.append(dot, statusText);
-  const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome on an Android phone (including Huawei phones) or on a computer; Safari, Firefox and iPhones can’t connect to a Huawei Watch D2.');
+  const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome on an Android phone or on a computer; Safari, Firefox and iPhones can’t connect to a Watch D2.');
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
   const btnSystem = button('Use the computer’s serial port');
-  btnSystem.title = 'If Chrome can’t open the watch: choose the port the computer made for it (on a Mac “cu.HUAWEIWATCHD2-…”)';
+  btnSystem.title = 'If Chrome can’t open the watch: choose the port the computer made for it (on a Mac, the “cu.…” port with the watch’s name)';
   const btnDemo = button('Demo nights');
   const btnForget = button('Forget pairing');
   const days = el('select');
@@ -173,14 +173,14 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   help.appendChild(el('summary', '', 'Before you start (first time)'));
   const steps = el('ol');
   for (const s of [
-    'Use Chrome on an Android phone (Huawei phones work) or on a computer. Safari, Firefox and iPhones can’t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.',
-    'Make sure the watch is not connected to Huawei Health while you do this (disconnect it there, or use a phone without Huawei Health).',
-    'Pair the watch in the phone’s or computer’s Bluetooth settings first (“HUAWEI WATCH D2-…”).',
+    'Use Chrome on an Android phone or on a computer. Safari, Firefox and iPhones can’t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.',
+    'Make sure the watch is not connected to its phone app while you do this (disconnect it there, or use a phone without that app).',
+    'Pair the watch in the phone’s or computer’s Bluetooth settings first (it is listed with “WATCH D2” in its name).',
     'Click “Pair & download sleep” and choose the watch in Chrome’s list. The first time, confirm the pairing on the watch if it asks.',
-    'Afterwards, Huawei Health may need to reconnect to the watch.',
+    'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the Huawei protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped.'));
 
   const listHead = el('h3', '', 'Nights from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
@@ -193,7 +193,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   syncRow.append(syncText, syncButtons2);
   const list = el('ul', 'sessions');
   const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
-  // Nights / Week / Month, like Huawei Health's Day / Week / Month
+  // Nights / Week / Month
   const tabs = el('div', 'd2-tabs');
   tabs.setAttribute('role', 'tablist');
   const tabBtns = (['nights', 'week', 'month'] as const).map((v) => {
@@ -339,7 +339,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       link = new D2Link(t, log);
       const kept = await link.connect(store.loadPairing(), (p) => { store.savePairing(p); syncButtons(true); });
       store.savePairing(kept);
-      const name = link.info?.name || link.info?.model || 'Huawei Watch D2';
+      const name = watchName(link.info?.name || link.info?.model || '');
       setStatus(`${name}${link.info?.battery != null ? ` · battery ${link.info.battery}%` : ''} – downloading…`, 'on');
       const end = Math.floor(Date.now() / 1000), start = end - Number(days.value) * 86400;
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
@@ -359,7 +359,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       progress.textContent = e instanceof DOMException && e.name === 'NotFoundError'
         ? 'If the watch isn’t in the list, pair it in the computer’s Bluetooth settings first (see “Before you start”).'
         : mode === 'system' && e instanceof WatchError && /first message/.test(msg)
-          ? 'The port opened but the watch didn’t answer on it: it is probably not the watch’s Huawei data channel.'
+          ? 'The port opened but the watch didn’t answer on it: it is probably not the watch’s data channel.'
           : '';
     } finally {
       await link?.close();
@@ -412,6 +412,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
 
+/** The watch's name as shown here, without the maker's brand (e.g. "WATCH D2-8F4"). */
+const watchName = (raw: string): string => raw.replace(/^.*?(?=\bwatch\b)/i, '').replace(/\s+/g, ' ').trim() || 'Watch D2';
+
 const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
 
 /** "What made your score": the estimate's parts for this night. */
@@ -448,8 +451,8 @@ function scoreCardFor(n: D2Night, model: ScoreModel): HTMLElement | null {
   }
   card.appendChild(el('p', 'note', `Each hour of sleep up to ${CEILING_H} h adds about ${model.perHour.toFixed(1)} points; each 10% of efficiency about ${(10 * model.perEfficiency).toFixed(1)}; each 10% of deep sleep about ${(10 * model.perDeep).toFixed(1)}.`));
   card.appendChild(el('p', 'note', model.fittedOn
-    ? `Our estimate of how the watch scores sleep, fitted to your ${model.fittedOn} scored nights (typically within ${model.rmse != null ? model.rmse.toFixed(1) : '?'} points of the watch). Huawei doesn't publish its formula.`
-    : `Our starting estimate of how the watch scores sleep (fitted to 30 nights of a Watch D2); it is fitted to your own nights once you have ${MIN_NIGHTS_TO_FIT}. Huawei doesn't publish its formula.`));
+    ? `Our estimate of how the watch scores sleep, fitted to your ${model.fittedOn} scored nights (typically within ${model.rmse != null ? model.rmse.toFixed(1) : '?'} points of the watch). The watch’s maker doesn’t publish its formula.`
+    : `Our starting estimate of how the watch scores sleep (fitted to 30 nights of a Watch D2); it is fitted to your own nights once you have ${MIN_NIGHTS_TO_FIT}. The watch’s maker doesn’t publish its formula.`));
   return card;
 }
 
@@ -472,7 +475,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   right.append(json, del);
   bar.append(back, right);
 
-  // date and night sleep with the stage chart (Huawei's first screen)
+  // date and night sleep with the stage chart
   const top = el('div', 'card d2-night');
   const nav = el('div', 'd2-datenav');
   const prev = button('‹', 'd2-nav'), next = button('›', 'd2-nav');
@@ -494,7 +497,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   top.append(nav, big, hypnogram(f.shown), times, legend);
   if (n.source === 'demo') top.appendChild(el('p', 'note', 'Demo night (made-up data) to show the report layout.'));
 
-  // score, recent awakenings and the stage donut (Huawei's second screen)
+  // score, recent awakenings and the stage donut
   const scoreCard = el('div', 'card d2-score');
   const score = el('div', 'd2-score-main');
   const pts = el('div', 'd2-points');
@@ -539,14 +542,14 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   notes.appendChild(el('summary', '', 'About these numbers'));
   const ul = el('ul');
   for (const line of [
-    `All results are calculated by the watch (${n.watch}) and downloaded as they are; D2 Link doesn’t recalculate them.`,
-    'References are the ones Huawei Health shows for sleep. “Personal range” comes from the watch’s own baseline of your recent nights; until it has enough nights it isn’t set.',
-    'Huawei Health shows the night from falling asleep to waking up; the watch also records when you lay down and got up (see “More from the watch”). “Breathing quality” comes from separate breathing data that D2 Link doesn’t download yet.',
+    `All results are calculated by the watch (${watchName(n.watch)}) and downloaded as they are; D2 Link doesn’t recalculate them.`,
+    'References are the ones the watch’s phone app shows for sleep. “Personal range” comes from the watch’s own baseline of your recent nights; until it has enough nights it isn’t set.',
+    'The phone app shows the night from falling asleep to waking up; the watch also records when you lay down and got up (see “More from the watch”). “Breathing quality” comes from separate breathing data that D2 Link doesn’t download yet.',
     'Not a medical device. Sleep stages from a wrist watch are estimates.',
   ]) ul.appendChild(el('li', '', line));
   notes.appendChild(ul);
 
-  // what the watch sends that Huawei's sleep page doesn't show
+  // what the watch sends that the phone app's sleep page doesn't show
   const more = el('div', 'card d2-more');
   more.appendChild(el('h3', '', 'More from the watch'));
   const moreRows: [string, string][] = [
@@ -561,7 +564,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
     more.appendChild(r);
   }
 
-  // naps that day, as Huawei Health lists them under the night
+  // naps that day, listed under the night
   const napCard = el('div', 'card d2-more');
   napCard.hidden = naps.length === 0;
   napCard.appendChild(el('h3', '', `Naps that day · ${hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))}`));

@@ -5,7 +5,7 @@
 --   • table public.ecg_sessions  – one row per ECG recording: details plus a SUMMARY (results, heart-rate trend,
 --                                  average beat, first 30 s and up to 50 event strips). The whole ECG is not uploaded.
 --   • table public.sleep_nights  – one row per night: the sleep report's numbers and graph data (no raw data)
---   • table public.d2_nights     – one row per night downloaded from a Huawei Watch D2 (D2 Link)
+--   • table public.d2_nights     – one row per night downloaded from a Watch D2 (D2 Link)
 --   • access rules               – every account can only read, add, change and delete its OWN data
 
 -- ---------- ECG recordings ----------
@@ -75,7 +75,7 @@ create policy "sleep_nights: add own"    on public.sleep_nights for insert to au
 create policy "sleep_nights: change own" on public.sleep_nights for update to authenticated using (owner = (select auth.uid())) with check (owner = (select auth.uid()));
 create policy "sleep_nights: delete own" on public.sleep_nights for delete to authenticated using (owner = (select auth.uid()));
 
--- ---------- D2 Link: nights downloaded from a Huawei Watch D2 (the watch's own sleep results) ----------
+-- ---------- D2 Link: nights downloaded from a Watch D2 (the watch's own sleep results) ----------
 create table if not exists public.d2_nights (
   owner      uuid        not null default auth.uid() references auth.users (id) on delete cascade,
   id         text        not null,

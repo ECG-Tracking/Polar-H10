@@ -4,7 +4,7 @@
 
 import type { Transport } from './link';
 
-/** The watch's Bluetooth serial service (Gadgetbridge: HuaweiConstants.UUID_SERVICE_HUAWEI_SDP). */
+/** The watch's Bluetooth serial service (from Gadgetbridge's watch constants). */
 export const D2_SERVICE = '82ff3820-8411-400c-b85a-55bdb32cf060';
 
 // the parts of Web Serial used here (not in TypeScript's DOM types yet)
@@ -25,8 +25,8 @@ export const serialAvailable = (): boolean => serial() !== null;
 
 /**
  * Asks the user to choose the watch (it must already be paired in the computer's Bluetooth settings) and opens it.
- * 'bluetooth': Chrome connects to the watch's Huawei service itself. 'system': any serial port, including the one the
- * computer made for the watch (on a Mac /dev/cu.HUAWEIWATCHD2-…), for when Chrome's own connection times out.
+ * 'bluetooth': Chrome connects to the watch's data service itself. 'system': any serial port, including the one the
+ * computer made for the watch (on a Mac a /dev/cu.… port with the watch's name), for when Chrome's own connection times out.
  */
 export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log: (line: string) => void = () => {}): Promise<Transport> {
   const s = serial();

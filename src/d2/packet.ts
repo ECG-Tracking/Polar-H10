@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — framing of Huawei packets: magic byte, length, slices, CRC, and the encrypted-body wrapper.
-// Ported from Gadgetbridge's HuaweiPacket (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
+// D2 Link — framing of the watch's packets: magic byte, length, slices, CRC, and the encrypted-body wrapper.
+// Ported from Gadgetbridge's packet code (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { concat, crc16, u16 } from './bytes';

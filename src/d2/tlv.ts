@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — tag/length/value fields, the body of every Huawei packet.
-// Ported from Gadgetbridge's HuaweiTLV (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
+// D2 Link — tag/length/value fields, the body of every watch packet.
+// Ported from Gadgetbridge's TLV code (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { concat, fromUtf8, readUint, readVarint, u16, u32, u8, utf8, varint } from './bytes';

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — talks to a Huawei Watch D2: link set-up, HiChain login (pairing), watch details and the sleep file download.
-// Ported from Gadgetbridge's HuaweiSupportProvider, GetHiChainRequest, DeviceConfig and FileDownloadService2C
+// D2 Link — talks to a Watch D2: link set-up, login (pairing), watch details and the sleep file download.
+// Ported from Gadgetbridge's watch support (connection, login, device settings and file download code)
 // (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
@@ -121,13 +121,13 @@ export class D2Link {
     const st = await this.request({ service: DEVICE_CONFIG, command: 0x16, tlv: new Tlv().put(1), encrypt: false }, 5000, 'the status request')
       .catch(() => null);
     const status = st?.has(0x01) ? st.sbyte(0x01) : -1;
-    if (status !== -1 && status !== 0 && status !== 1) throw new WatchError(`The watch is busy (status ${status}). Close Huawei Health on your phone or turn off the phone's Bluetooth, then try again.`);
+    if (status !== -1 && status !== 0 && status !== 1) throw new WatchError(`The watch is busy (status ${status}). Close the watch's app on your phone or turn off the phone's Bluetooth, then try again.`);
 
     const type = this.params.deviceSupportType;
     if (type !== 1 && type !== 3 && type !== 4) {
       throw new WatchError(type === 2
         ? 'This watch uses the "HiChain Lite" login, which D2 Link does not support yet.'
-        : 'This watch uses the older Huawei login, which D2 Link does not support yet.');
+        : 'This watch uses an older login, which D2 Link does not support yet.');
     }
     const authMode = type === 4 ? 4 : 2;
     const neg = new Tlv().putByte(0x01, authMode).putByte(0x02, 1);
@@ -180,6 +180,7 @@ export class D2Link {
       const wait = op === 1 && step === 1 ? 60000 : 10000;
       return this.request({ service: DEVICE_CONFIG, command: 0x28, tlv, encrypt: false }, wait, `login step ${step}`);
     };
+    // the identifiers below are values the watch expects in the login message (protocol constants, not shown to users)
     const opExtra = op === 2 ? { pkgName: 'com.huawei.devicegroupmanage', serviceType: GROUP_ID, keyLength: 0x20 } : {};
     const deviceLevel = op === 2 ? { isDeviceLevel: false } : {};
 
@@ -351,7 +352,7 @@ export function describeReply(tlv: Tlv): string {
 }
 
 /**
- * The JSON payload of a login reply. Huawei watches use one of two layouts (both in Gadgetbridge):
+ * The JSON payload of a login reply. These watches use one of two layouts (both in Gadgetbridge):
  * field 0x04 = type (0 = JSON in 0x01), or field 0x01 = data type (2 = JSON in 0x02).
  */
 export function hiChainPayload(tlv: Tlv): Record<string, unknown> {
@@ -367,7 +368,7 @@ export function hiChainPayload(tlv: Tlv): Record<string, unknown> {
     if (typeof err === 'number' && err !== 0) throw new WatchError(`The watch refused the login (error ${err}).`);
     // PAKE replies carry an ephemeral key; classic replies (isoSalt, token…) are numbered 0x8000 + our message, e.g. 32785
     if (('epk' in p || 'challenge' in p) && !('isoSalt' in p) && !('returnCodeMac' in p) && !('encAuthToken' in p)) {
-      throw new WatchError(`This watch uses Huawei’s newer “PAKE” login, which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
+      throw new WatchError(`This watch uses a newer login (“PAKE”), which D2 Link does not support yet. Reply: ${describeReply(tlv)}`);
     }
     return p;
   }

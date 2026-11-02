@@ -129,7 +129,7 @@ export function renderTrends(box: HTMLElement, nights: readonly D2Night[], perio
     return;
   }
 
-  // averages, like Huawei's week/month summary
+  // averages, like a week/month summary
   const a = averages(inPeriod);
   const tiles = el('div', 'd2-tiles d2-avg');
   const tile = (name: string, value: string, unit: string, sub = ''): void => {

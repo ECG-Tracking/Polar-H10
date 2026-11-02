@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — what a night (or nap) from the watch amounts to: the part Huawei Health shows, stage minutes, awakenings.
+// D2 Link — what a night (or nap) from the watch amounts to: the part the watch's phone app shows, stage minutes, awakenings.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import type { D2Night } from './store';
 
 export interface NightFigures {
   deepMin: number; lightMin: number; remMin: number; awakeMin: number; sleepMin: number;
-  /** Huawei Health's "Bed time": when sleep started (the watch's fallAsleepTime). */
+  /** "Bed time" as the watch's phone app shows it: when sleep started (the watch's fallAsleepTime). */
   bedMs: number;
   /** When you woke up (wakeupTime). */
   wokeMs: number;
   wakeups: number | null;
   /** Lying in bed, from the watch: bedTime to risingTime. */
   inBedFromMs: number; inBedToMs: number;
-  /** The stages Huawei Health shows: from falling asleep to waking up. */
+  /** The stages the phone app shows: from falling asleep to waking up. */
   shown: { start: number; stages: number[] };
 }
 
@@ -32,13 +32,13 @@ export function figures(n: D2Night): NightFigures {
   const s = n.summary;
   const endMs = n.start + n.stages.length * 60000;
   const at = (sec: number | null, fallback: number): number => (sec != null ? Math.min(endMs, Math.max(n.start, sec * 1000)) : fallback);
-  // Huawei Health shows the night from falling asleep to waking up; the watch records from lying down to getting up
+  // the phone app shows the night from falling asleep to waking up; the watch records from lying down to getting up
   const bedMs = at(s.fallAsleepTime, n.start), wokeMs = at(s.wakeupTime, endMs);
   const from = Math.round((bedMs - n.start) / 60000), to = Math.max(from, Math.round((wokeMs - n.start) / 60000));
   const shown = { start: n.start + from * 60000, stages: n.stages.slice(from, to) };
   const count = (c: number): number => shown.stages.filter((x) => x === c).length;
   const deepMin = count(3), lightMin = count(1) + count(5), remMin = count(2), awakeMin = count(4);
-  // the watch's own count when it sends one, otherwise counted from the stages (as Huawei Health shows it)
+  // the watch's own count when it sends one, otherwise counted from the stages (as the phone app shows it)
   const wakeups = s.wakeCount ?? (shown.stages.length ? countWakeups(shown.stages) : null);
   return {
     deepMin, lightMin, remMin, awakeMin, sleepMin: deepMin + lightMin + remMin, bedMs, wokeMs, wakeups,

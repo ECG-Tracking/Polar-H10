@@ -6,7 +6,7 @@ and tests/d2.test.ts and tests/d2fake.ts) is free software: you can redistribute
 under the terms of the GNU Affero General Public License as published by the Free Software Foundation,
 either version 3 of the License, or (at your option) any later version.
 
-D2 Link is a TypeScript port of parts of Gadgetbridge's support for Huawei watches
+D2 Link is a TypeScript port of parts of Gadgetbridge's watch support
 (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors, which is licensed under
 the GNU Affero General Public License v3 or later. Port © 2026 ECG-Tracking.
 

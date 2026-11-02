@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — reads the watch's sleep file ("sequence data", dictionary 700013): the watch's own sleep result per night.
-// Ported from Gadgetbridge's HuaweiSequenceDataFileParser and HuaweiTrueSleepSequenceDataParser
+// Ported from Gadgetbridge's sequence-data and sleep-summary parsers
 // (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 

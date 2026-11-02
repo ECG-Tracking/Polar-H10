@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — an estimate of how the watch builds its sleep score, to explain each night's score.
-// Not Huawei's formula (that stays in the watch): a fit of the watch's scores to three things it measures,
+// Not the maker's formula (that stays in the watch): a fit of the watch's scores to three things it measures,
 //   score ≈ base + perHour × duration + perEfficiency × sleep efficiency (%) + perDeep × deep sleep (%),
 // where duration counts the hours slept up to 8, and each hour beyond 8 counts against.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
@@ -19,7 +19,7 @@ export interface ScoreModel {
   rmse: number | null;
 }
 
-/** Fitted on 30 nights of a Huawei Watch D2 (Oct–Nov 2026): within 1.1 points on average, 3.2 at most. */
+/** Fitted on 30 nights of a Watch D2 (Oct–Nov 2026): within 1.1 points on average, 3.2 at most. */
 export const STARTING_MODEL: ScoreModel = { base: 26.16, perHour: 4.03, perEfficiency: 0.236, perDeep: 0.252, fittedOn: 0, rmse: null };
 
 export interface ScoreInputs { hours: number; durationTerm: number; efficiency: number; deepPct: number }

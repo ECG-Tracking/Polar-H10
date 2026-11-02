@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — byte helpers for the Huawei watch protocol.
+// D2 Link — byte helpers for the watch protocol.
 // Ported from Gadgetbridge (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 

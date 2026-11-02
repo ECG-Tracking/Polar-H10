@@ -55,7 +55,7 @@ export function parseCloudNight(row: unknown): D2Night | null {
   return {
     id: r['id'], user, start: v['start'],
     stages: stages.filter((x): x is number => typeof x === 'number' && Number.isInteger(x) && x >= 0 && x < 16),
-    summary: s, source: 'd2', watch: typeof v['watch'] === 'string' ? v['watch'] : 'Huawei Watch D2',
+    summary: s, source: 'd2', watch: typeof v['watch'] === 'string' ? v['watch'] : 'Watch D2',
     downloadedAt: typeof v['downloadedAt'] === 'number' ? v['downloadedAt'] : 0, synced: true,
   };
 }

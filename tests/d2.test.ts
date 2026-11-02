@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link tests. The byte vectors come from Gadgetbridge's own tests (TestHuaweiPacket), © Gadgetbridge contributors.
+// D2 Link tests. The byte vectors come from Gadgetbridge's own packet tests, © Gadgetbridge contributors.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { crc16, hex, unhex, varint, readVarint } from '../src/d2/bytes';
@@ -115,7 +115,7 @@ for (const deviceSupportType of [4, 3]) {
     const first = await connectFake(w, null);
     assert.ok(first.log.some((l) => l.includes('Pairing accepted')));
     assert.equal(first.link.info?.battery, 77);
-    assert.equal(first.link.info?.name, 'HUAWEI WATCH D2-ABC');
+    assert.equal(first.link.info?.name, 'WATCH D2-ABC');
     assert.ok(w.log.includes('1:7 (encrypted)'), 'requests after login are encrypted');
     const got = await first.link.downloadSleep(bed - 86400, bed + 86400);
     assert.equal(hex(got), hex(file));
@@ -144,7 +144,7 @@ test('D2 link: no nights on the watch gives an empty download', async () => {
 
 import { hiChainPayload, describeReply } from '../src/d2/link';
 
-test('D2 login replies: both Huawei layouts are read; others are described in the log', () => {
+test('D2 login replies: both reply layouts are read; others are described in the log', () => {
   const json = JSON.stringify({ payload: { isoSalt: 'AA', token: 'BB' }, message: 1 });
   // layout 1: field 0x04 = 0, JSON in 0x01
   assert.equal(hiChainPayload(new Tlv().putString(0x01, json).putByte(0x04, 0))['isoSalt'], 'AA');
@@ -207,13 +207,13 @@ test('D2 report: times woke up is counted from the stages when the watch does no
 });
 function night1() { return night; }
 
-test('D2 report: the night is shown from falling asleep to waking up, like Huawei Health', () => {
+test('D2 report: the night is shown from falling asleep to waking up, like the phone app', () => {
   const bedT = 1_800_000_000; // lay down
   const stages = [...Array(6).fill(4), ...Array(60).fill(1), 4, ...Array(40).fill(3), 4, 4, ...Array(30).fill(2), ...Array(2).fill(4)];
   const summary = { ...parseSleepFile(writeSleepFile([night1()]))[0]!.summary,
     bedTime: bedT, fallAsleepTime: bedT + 360, wakeupTime: bedT + (stages.length - 2) * 60, risingTime: bedT + stages.length * 60, wakeCount: null };
   const f = figures({ id: 'y', user: 1, start: bedT * 1000, stages, summary, source: 'd2', watch: 'w', downloadedAt: 0 });
-  assert.equal(f.bedMs, (bedT + 360) * 1000); // Huawei's "Bed time" is when sleep started
+  assert.equal(f.bedMs, (bedT + 360) * 1000); // the phone app's "Bed time" is when sleep started
   assert.equal(f.inBedFromMs, bedT * 1000);
   assert.equal(f.shown.stages.length, stages.length - 8); // the awake minutes before sleep and after waking are left out
   assert.equal(f.sleepMin, 130);

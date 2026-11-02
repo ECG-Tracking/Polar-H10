@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — the encryption building blocks the watch uses, on the browser's built-in Web Crypto.
-// Matches Gadgetbridge's CryptoUtils and HuaweiCrypto (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
+// Matches Gadgetbridge's encryption helpers (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { randomBytes } from './bytes';
@@ -51,7 +51,7 @@ export async function decrypt(gcm: boolean, data: Uint8Array, key: Uint8Array, i
   return gcm ? aesGcmDecrypt(data, key, iv) : aesCbcDecrypt(data, key, iv);
 }
 
-// Fixed secrets from the Huawei protocol; the watch decrypts the pairing PIN with one of them.
+// Fixed secrets from the watch protocol; the watch decrypts the pairing PIN with one of them.
 const DIGEST_SECRET_V1 = Uint8Array.of(0x70, 0xfb, 0x6c, 0x24, 0x03, 0x5f, 0xdb, 0x55, 0x2f, 0x38, 0x89, 0x8a, 0xee, 0xde, 0x3f, 0x69);
 const DIGEST_SECRET_V2 = Uint8Array.of(0x93, 0xac, 0xde, 0xf7, 0x6a, 0xcb, 0x09, 0x85, 0x7d, 0xbf, 0xe5, 0x26, 0x1a, 0xab, 0xcd, 0x78);
 const DIGEST_SECRET_V3 = Uint8Array.of(0x9c, 0x27, 0x63, 0xa9, 0xcc, 0xe1, 0x34, 0x76, 0x6d, 0xe3, 0xff, 0x61, 0x18, 0x20, 0x05, 0x53);

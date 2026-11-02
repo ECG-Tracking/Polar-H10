@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — nights per day and their averages, for the Week and Month views (naps left out, as in Huawei Health).
+// D2 Link — nights per day and their averages, for the Week and Month views (naps left out).
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { dayKey, figures, isNap } from './night';

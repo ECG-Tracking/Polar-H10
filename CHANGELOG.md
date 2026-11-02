@@ -4,6 +4,13 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – Watch maker's name removed *(GitHub)*
+Why: avoid naming the watch's maker anywhere in the app.
+
+| File | Change |
+|---|---|
+| `src/d2/*.ts`, `tests/d2*.ts`, `scripts/build.mjs`, `supabase/setup.sql`, `LICENSE-D2-LINK.txt`, `CHANGELOG.md` | Screen text, connection-log messages, comments and notes now say "the watch", "the watch's phone app" and "Gadgetbridge's watch support"; the watch's own reported name is shown without its brand (e.g. "WATCH D2-8F4"). Two identifiers the watch requires inside its login message are kept as they are (never shown on screen) |
+
 ## 3 Nov 2026 – D2 Link: naps, score explanation, Week and Month *(GitHub)*
 Why: 50 synced records (30 nights, 20 naps) showed how the watch's results fit together.
 
@@ -32,21 +39,21 @@ Why: nights downloaded from the watch on the phone should also be seen on the Ma
 | `src/app.ts` | Passes the signed-in cloud connection to D2 Link (D2 Link's code stays in d2link.js) |
 | `tests/d2.test.ts` | New test for reading nights back from the cloud |
 
-## 3 Nov 2026 – D2 Link report matches Huawei Health *(GitHub)*
-Why: the downloaded night (JSON) showed how Huawei Health builds its sleep page from the watch's record.
+## 3 Nov 2026 – D2 Link report matches the watch's phone app *(GitHub)*
+Why: the downloaded night (JSON) showed how the watch's phone app builds its sleep page from the watch's record.
 
 | File | Change |
 |---|---|
-| `src/d2/ui.ts` | "Bed time" is when sleep started (fallAsleepTime) and the stage chart runs from falling asleep to waking up, as in Huawei Health; durations, percentages and times woke up use that window. "Breathing quality" shows "--" (it isn't in the watch's sleep record; the earlier value was a different field). New "More from the watch" card: time in bed (lying down to getting up), time to fall asleep, sleep efficiency, minutes awake in the night |
+| `src/d2/ui.ts` | "Bed time" is when sleep started (fallAsleepTime) and the stage chart runs from falling asleep to waking up, as in the watch's phone app; durations, percentages and times woke up use that window. "Breathing quality" shows "--" (it isn't in the watch's sleep record; the earlier value was a different field). New "More from the watch" card: time in bed (lying down to getting up), time to fall asleep, sleep efficiency, minutes awake in the night |
 | `styles.css` | Style for the new card |
 | `tests/d2.test.ts` | New test for the night window |
 
 ## 3 Nov 2026 – D2 Link: times woke up from the stages *(GitHub)*
-Why: the first real night from the watch (6 h 49 min, 82 points, matching Huawei Health) arrived without the watch's "times woke up" number.
+Why: the first real night from the watch (6 h 49 min, 82 points, matching the watch's phone app) arrived without the watch's "times woke up" number.
 
 | File | Change |
 |---|---|
-| `src/d2/ui.ts` | When the watch doesn't send it, times woke up is counted from the stage chart (awake spells between falling asleep and the last sleep), as Huawei Health shows it; used in the tile and the 7-night chart; the tile says when it was counted |
+| `src/d2/ui.ts` | When the watch doesn't send it, times woke up is counted from the stage chart (awake spells between falling asleep and the last sleep), as the phone app shows it; used in the tile and the 7-night chart; the tile says when it was counted |
 | `tests/d2.test.ts` | New test |
 
 ## 3 Nov 2026 – D2 Link: last login message number *(GitHub)*
@@ -58,7 +65,7 @@ Why: with a saved pairing the watch didn't answer the last login message.
 | `tests/d2fake.ts`, `tests/d2.test.ts` | The fake watch now ignores messages with the wrong number, like a real watch; tests check the numbers for pairing (1–4) and logging in (0x11–0x13) |
 
 ## 3 Nov 2026 – D2 Link: login step after pairing *(GitHub)*
-Why: the watch accepted the pairing, then D2 Link wrongly took the next (classic) login reply for Huawei's newer "PAKE" login.
+Why: the watch accepted the pairing, then D2 Link wrongly took the next (classic) login reply for a newer "PAKE" login.
 
 | File | Change |
 |---|---|
@@ -89,13 +96,13 @@ Why: the phone kept using the previous D2 Link for up to 10 minutes after publis
 | `scripts/build.mjs`, `src/app.ts` | The app loads `d2link.js?v=<version>`, with the version taken from the file's content, so each published D2 Link is fetched fresh |
 
 ## 3 Nov 2026 – D2 Link: login reply fix *(GitHub)*
-Why: on a Huawei phone the watch connected and sent its pairing code, then D2 Link couldn't read the watch's first login reply.
+Why: on an Android phone the watch connected and sent its pairing code, then D2 Link couldn't read the watch's first login reply.
 
 | File | Change |
 |---|---|
-| `src/d2/link.ts` | Reads both layouts Huawei watches use for login replies (and a payload sent as text); names the newer "PAKE" login if the watch uses it; when a reply still can't be read, the connection log shows its layout (field sizes and JSON keys, no values) |
+| `src/d2/link.ts` | Reads both layouts these watches use for login replies (and a payload sent as text); names the newer "PAKE" login if the watch uses it; when a reply still can't be read, the connection log shows its layout (field sizes and JSON keys, no values) |
 | `src/d2/serial.ts` | The port is fully closed after the watch disconnects, and a port left open by an earlier attempt is closed and reopened ("The port is already open") |
-| `src/d2/ui.ts` | Instructions now say Chrome on an Android phone (Huawei phones work) or a computer; a Mac may not get an answer from the watch |
+| `src/d2/ui.ts` | Instructions now say Chrome on an Android phone (tested) or a computer; a Mac may not get an answer from the watch |
 | `tests/d2.test.ts` | New test for the login reply layouts |
 
 ## 3 Nov 2026 – D2 Link: second way to connect *(GitHub)*
@@ -103,14 +110,14 @@ Why: on a Mac, Chrome found the watch but its own Bluetooth connection timed out
 
 | File | Change |
 |---|---|
-| `src/d2/serial.ts`, `src/d2/ui.ts` | New "Use the computer’s serial port" button: choose the port macOS made for the watch (cu.HUAWEIWATCHD2-…), which skips Chrome's own Bluetooth look-up; the log shows which port was chosen; clearer messages when a port can't be opened or the watch doesn't answer on it |
+| `src/d2/serial.ts`, `src/d2/ui.ts` | New "Use the computer’s serial port" button: choose the port macOS made for the watch (the cu.… port with the watch's name), which skips Chrome's own Bluetooth look-up; the log shows which port was chosen; clearer messages when a port can't be opened or the watch doesn't answer on it |
 
 ## 3 Nov 2026 – D2 Link *(GitHub)*
-Why: download sleep from a Huawei Watch D2 straight into the app, shown like Huawei Health's sleep report.
+Why: download sleep from a Watch D2 straight into the app, shown like the watch's phone app shows it.
 
 | File | Change |
 |---|---|
-| `src/d2/` (new) | D2 Link, ported from Gadgetbridge's Huawei support: packet framing and encryption, the HiChain pairing/login, the watch's sleep file download and reader, local storage of nights and the pairing, and the D2 Link screen with a Huawei-style night report (stage chart, score and stars, times woke up, deep/light/REM donut, reference tiles) |
+| `src/d2/` (new) | D2 Link, ported from Gadgetbridge's watch support: packet framing and encryption, the HiChain pairing/login, the watch's sleep file download and reader, local storage of nights and the pairing, and the D2 Link screen with a night report in the style of the watch's phone app (stage chart, score and stars, times woke up, deep/light/REM donut, reference tiles) |
 | `d2link.js` (new) | Built from `src/d2` as a separate, readable script that loads when the D2 Link tab is opened |
 | `LICENSE-D2-LINK.txt` (new) | D2 Link is open source under the GNU AGPL v3 (required because it is built on Gadgetbridge); the rest of the app stays "All rights reserved" |
 | `index.html`, `src/app.ts`, `styles.css` | New "D2 Link" tab between Sleep history and Settings; on that tab the footer says "Open Source" with the licence, Gadgetbridge credit and source link |
@@ -161,7 +168,7 @@ Why: a login like the Portfolio Optimizer's; ECG and sleep history available on 
 Sizes measured: a 1-hour ECG summary is about 32 KB without events and about 205 KB with all 50 event strips (the full ECG would be about 0.94 MB); an 8-hour night's report is about 13 KB (raw data about 4.7 MB).
 
 ## 2 Nov 2026 – Sleep monitor and sleep history *(GitHub)*
-Why: overnight sleep tracking with the Polar H10, with a report similar to Huawei Health's.
+Why: overnight sleep tracking with the Polar H10, with a report similar to a sleep-tracker app's.
 
 | File | Change |
 |---|---|

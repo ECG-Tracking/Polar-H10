@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// A fake Huawei Watch D2 for tests: the watch's side of link set-up, HiChain login and the sleep download.
+// A fake Watch D2 for tests: the watch's side of link set-up, HiChain login and the sleep download.
 // It follows the same protocol description (Gadgetbridge), so it checks that D2 Link is self-consistent,
 // not that a real watch accepts it.
 import { concat, equal, hex, randomBytes, u32, unhex, utf8 } from '../src/d2/bytes';
@@ -76,7 +76,7 @@ export class FakeWatch {
       return this.reply(1, 0x2c, new Tlv().put(1, await aesCbcEncrypt(this.pin, digestSecret(this.params.authVersion), iv)).put(2, iv), false);
     }
     if (p.service === 1 && p.command === 0x28) return this.hiChain(t);
-    if (p.service === 1 && p.command === 0x07) return this.reply(1, 7, new Tlv().putString(7, '5.0.0.123').putString(9, 'SN123').putString(0x0a, 'WATCH D2').putString(0x11, 'HUAWEI WATCH D2-ABC'));
+    if (p.service === 1 && p.command === 0x07) return this.reply(1, 7, new Tlv().putString(7, '5.0.0.123').putString(9, 'SN123').putString(0x0a, 'WATCH D2').putString(0x11, 'WATCH D2-ABC'));
     if (p.service === 1 && p.command === 0x08) return this.reply(1, 8, new Tlv().putByte(1, 77));
     if (p.service === 0x2c) return this.file(p.command, t);
   }
