@@ -70,6 +70,8 @@ async function openD2(): Promise<void> {
       account: account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser),
       // D2 Link syncs its nights through the signed-in account (table d2_nights)
       cloud: online ? (supabase() as unknown as CloudClient) : null,
+      // Settings → Biodata, sent to the watch as its profile with "Download all data" (only when height and weight are given)
+      profile: () => (settings.heightCm > 0 && settings.weightKg > 0 ? { heightCm: settings.heightCm, weightKg: settings.weightKg, age: settings.age, sex: settings.sex } : null),
     });
   } catch (err) {
     $('d2Root').replaceChildren(make('p', 'muted', `D2 Link could not be loaded (${errorMessage(err)}). Check the internet connection and reopen the tab.`));

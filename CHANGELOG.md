@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.3.3 – D2 Link: set up the watch before downloading all data *(GitHub)*
+Why: the watch refused stress, ECG and workouts (code 100004) and didn’t answer the measurement requests, probably because the phone app’s set-up messages after login were missing.
+
+| File | Change |
+|---|---|
+| `src/d2/setup.ts` (new) | Before “Download all data”, the set-up Gadgetbridge sends after login: supported services, commands and capabilities; time and time zone; settings; acceptance of the watch’s agreements; account; country; main device; profile (from Settings → Biodata, only when height and weight are given); the ECG switch. Each step is optional; the connection log lists what the watch supports (workouts, stress, data sync, ECG, HRV) |
+| `src/d2/ui.ts`, `src/app.ts` | The set-up runs after sleep and before the other data; the app passes the user’s biodata |
+| `tests/d2fake.ts`, `tests/d2extra.test.ts` | The fake watch answers the set-up and can refuse workouts until the agreements were sent; tests for the messages |
+
 ## 3 Nov 2026 – v1.3.2 – D2 Link: activity fixes from the first real download *(GitHub)*
 Why: the first “all data” export from the watch showed calories 1000× too high, a stray day from 2020 and empty totals.
 

@@ -12,6 +12,7 @@ import { writeSleepFile } from './sleepfile-writer';
 import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
+import { setUpWatch, type Profile } from './setup';
 import { activityRecords, ecgRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
 import * as store from './store';
 import type { D2Night } from './store';
@@ -25,6 +26,8 @@ export interface D2Deps {
   userLabel: () => string;
   /** The signed-in account's cloud client, or null when offline: nights then stay on this device until the next sync. */
   cloud: CloudClient | null;
+  /** The user's biodata, sent to the watch as its profile before downloading all data (null if height or weight is missing). */
+  profile?: () => Profile | null;
 }
 
 // ---------- what a night shows ----------
@@ -404,6 +407,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   /** Everything besides sleep; each kind on its own, so one the watch refuses doesn't stop the others. Returns a summary. */
   async function downloadOthers(link: D2Link, start: number, end: number, name: string): Promise<string> {
     const user = deps.user(), parts: string[] = [];
+    progress.textContent = 'Setting up the watch…';
+    log('Sending the set-up messages (supported features, time, agreements, account, profile, ECG)…');
+    await setUpWatch(link, { watchName: name, profile: deps.profile?.() ?? null, log });
     const step = async (what: string, fn: () => Promise<store.D2Record[]>): Promise<void> => {
       progress.textContent = `Downloading ${what}…`;
       try {

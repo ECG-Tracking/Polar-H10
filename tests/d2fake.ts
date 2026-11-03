@@ -31,6 +31,8 @@ export interface FakeWatchOptions {
   readings?: Record<number, { start: number; values: Record<number, number> }[]>;
   /** The data sync service doesn't answer. */
   noDataSync?: boolean;
+  /** Refuse workouts (code 100004) until the agreements were sent, as a watch that wasn't set up might. */
+  refuseUntilAgreed?: boolean;
   workouts?: { number: number; start: number; end: number; kcal: number; type: number; header: Uint8Array; data: Uint8Array }[];
 }
 
@@ -47,6 +49,9 @@ export class FakeWatch {
   private dropped = false;
   /** Acknowledgements the fake got for its data sync messages. */
   readonly acks: number[] = [];
+  /** Set-up messages received ("service:command"). */
+  readonly setup: string[] = [];
+  agreed = false;
 
   constructor(private readonly o: FakeWatchOptions = {}) {
     this.params.deviceSupportType = o.deviceSupportType ?? 4;
@@ -96,6 +101,25 @@ export class FakeWatch {
     if (p.service === 1 && p.command === 0x28) return this.hiChain(t);
     if (p.service === 1 && p.command === 0x07) return this.reply(1, 7, new Tlv().putString(7, '5.0.0.123').putString(9, 'SN123').putString(0x0a, 'WATCH D2').putString(0x11, 'WATCH D2-ABC'));
     if (p.service === 1 && p.command === 0x08) return this.reply(1, 8, new Tlv().putByte(1, 77));
+    if (p.service === 1 && p.command === 0x02) { // every service asked about is supported
+      this.setup.push('1:2');
+      return this.reply(1, 2, new Tlv().put(0x02, new Uint8Array(t.bytes(0x01).length).fill(1)));
+    }
+    if (p.service === 1 && p.command === 0x03) { // every command asked about is supported
+      this.setup.push('1:3');
+      const out = new Tlv();
+      for (const i of Tlv.parse(t.bytes(0x81)).items) {
+        if (i.tag === 0x02) out.put(0x02, i.value);
+        if (i.tag === 0x03) out.put(0x04, new Uint8Array(i.value.length).fill(1));
+      }
+      return this.reply(1, 3, new Tlv().putTlv(0x81, out));
+    }
+    if (p.service === 1 && p.command === 0x37) { this.setup.push('1:37'); return this.reply(1, 0x37, new Tlv().put(0x01, new Uint8Array(32).fill(0xff))); }
+    if (p.service === 1 && p.command === 0x30) { this.setup.push('1:30'); this.agreed = true; return this.reply(1, 0x30, new Tlv().putInt(0x7f, 100000)); }
+    if ((p.service === 1 && [0x05, 0x31, 0x32, 0x3e].includes(p.command)) || p.service === 0x1a || (p.service === 7 && p.command === 0x02) || p.service === 0x23) {
+      this.setup.push(`${p.service.toString(16)}:${p.command.toString(16)}`);
+      return this.reply(p.service, p.command, new Tlv().putInt(0x7f, 100000));
+    }
     if (p.service === 0x2c) return this.file(p.command, t);
     if (p.service === 0x07) return this.fitness(p.command, t);
     if (p.service === 0x34) return this.dataSync(t);
@@ -152,6 +176,7 @@ export class FakeWatch {
 
   private async workout(command: number, t: Tlv): Promise<void> {
     const ws = this.o.workouts ?? [];
+    if (this.o.refuseUntilAgreed && !this.agreed) return this.reply(0x17, command, new Tlv().putInt(0x7f, 100004));
     if (command === 0x07) {
       const c = new Tlv().putShort(0x02, ws.length);
       for (const w of ws) c.putTlv(0x85, new Tlv().putShort(0x06, w.number).putShort(0x07, 1).putShort(0x08, 0));

@@ -154,3 +154,31 @@ test('D2 cloud: a record row is read back; damaged rows are rejected', () => {
   assert.equal(parseCloudRecord({ data: { ...row.data, v: 2 } }), null);
   assert.equal(parseCloudRecord({ data: { ...row.data, data: [1] } }), null);
 });
+
+import { agreementsTlv, parseCommands, setUpWatch, timeFields } from '../src/d2/setup';
+
+test('D2 set-up: the watch is set up like the phone app does; a refusal before it becomes data after it', async () => {
+  const w = new FakeWatch({ refuseUntilAgreed: true, workouts: [{ number: 7, start: day, end: day + 1800, kcal: 210, type: 1, ...workoutBlock() }] });
+  const { link, log } = await connected(w);
+  await assert.rejects(downloadWorkouts(link, 0, day + 9999, (l) => log.push(l)), /code 100004/);
+  const support = await setUpWatch(link, { watchName: 'WATCH D2', profile: { heightCm: 175, weightKg: 70, age: 55, sex: 'male' }, log: (l) => log.push(l), now: new Date(day * 1000) });
+  for (const m of ['1:2', '1:3', '1:37', '1:5', '1:32', '1:31', '1:30', '1a:5', '1:3e', '7:2', '23:10']) assert.ok(w.setup.includes(m), `sent ${m}`);
+  assert.ok(support.commands.get(0x17)?.has(0x01));
+  assert.ok(log.some((l) => /Watch supports: .*workouts yes/.test(l)));
+  assert.equal((await downloadWorkouts(link, 0, day + 9999, (l) => log.push(l))).length, 1);
+});
+
+test('D2 set-up: message formats', () => {
+  // supported commands: one byte per command asked about
+  const asked = new Map([[0x17, [0x01, 0x04, 0x06]]]);
+  const t = new Tlv().putTlv(0x81, new Tlv().putByte(0x02, 0x17).put(0x04, Uint8Array.of(1, 0, 1)));
+  assert.deepEqual([...(parseCommands(t, asked).get(0x17) ?? [])], [0x01, 0x06]);
+  // time: hours + 128 west of UTC, then minutes
+  const f = timeFields(new Date(day * 1000));
+  const off = -new Date(day * 1000).getTimezoneOffset();
+  assert.equal(f.offset >> 8, off < 0 ? Math.floor(-off / 60) + 128 : Math.floor(off / 60));
+  assert.equal(f.seconds, day);
+  // three agreements, each accepted
+  const a = Tlv.parse(agreementsTlv(1).bytes(0x81));
+  assert.deepEqual(a.items.map((i) => Tlv.parse(i.value).string(0x03)), ['software_update_service_statement', 'device_information_management', 'user_license_agreement']);
+});
