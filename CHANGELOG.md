@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.14.1 – About in the sidebar *(GitHub)*
+Why: About belongs in the sidebar’s Account group.
+
+| File | Change |
+|---|---|
+| `index.html`, `src/app.ts`, `src/topbar.ts`, `styles.css` | About is its own page in the left sidebar, under Account below Sync & backups; it is no longer in the top-right Account menu. Search finds it |
+
 ## 4 Nov 2026 – v1.14.0 – Connections carry across pages; Portfolio Optimizer colours; report matches the phone *(GitHub)*
 Why: pair once for all pages; the same colours as Portfolio Optimizer; differences found against the phone’s report for 3–4 Nov.
 

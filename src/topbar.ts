@@ -33,6 +33,7 @@ const KEYWORDS: Readonly<Record<string, string>> = {
   sync: 'synchronised synchronized tracking polar watch blood pressure', syncHistory: 'synchronised synchronized tracking results',
   settings: 'settings biodata age height weight users notch alias',
   backups: 'sync backups backup restore export cloud compare overwrite account',
+  about: 'about browsers requirements bluetooth backed up privacy',
 };
 
 export interface TopbarDeps {
@@ -187,12 +188,7 @@ export function initTopbar(deps: TopbarDeps): void {
     catch (e) { window.alert(`The reset didn’t finish: ${e instanceof Error ? e.message : String(e)}`); reset.disabled = false; reset.textContent = 'Reset my account data'; }
   })());
   foot.append(logOut, reset);
-  // About lives here (moved from the Biodata page)
-  const about = make('details', 'acct-about');
-  about.appendChild(make('summary', 'acct-heading', 'About'));
-  const aboutCard = document.getElementById('aboutCard');
-  if (aboutCard) { aboutCard.querySelector('h3')?.remove(); about.append(...aboutCard.childNodes); aboutCard.remove(); }
-  panel.append(who, userGroup, layout, theme, about, foot);
+  panel.append(who, userGroup, layout, theme, foot);
   wrap.append(btn, panel);
   const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) { avatar.textContent = String(deps.user()); fillUsers(); } };
   btn.addEventListener('click', () => setOpen(panel.hidden));

@@ -565,6 +565,4 @@ body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .flags.has .flags-head { color: var(--abnormal); }
 .d2-warn { border-color: var(--abnormal); }
 .acct-panel { max-height: calc(100vh - 80px); overflow-y: auto; }
-.acct-about summary { cursor: pointer; margin: 0; }
-.acct-about p { font-size: 12px; margin: 6px 0 0; }
 .sessions .dur { min-width: 0; }
