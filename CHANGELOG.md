@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.1 – Recovery centre grouped by category *(GitHub)*
+Why: one long list of deleted items is hard to go through; the other app groups them.
+- Deleted items are now in collapsible groups, as in the other app: ECG recordings, Sleep nights, Watch D2 nights, Watch D2 data, Synchronised tracking and D2 Link download history. Each shows how many items it holds, newest deleted first, 50 to a page.
+
 ## 4 Nov 2026 – v1.15.0 – Recovery centre; a second × on long rows *(GitHub)*
 Why: a delete could not be undone, and on wide tables the × was out of sight until you scrolled to the end of the row.
 - New **Recovery centre** page in the sidebar, under Account (also found through Search). Everything with a × goes there: ECG recordings with their full signal, sleep nights with their raw data, Watch D2 nights and All data rows, Synchronised Tracking results and D2 Link download history.

@@ -8,8 +8,18 @@ import { make } from './ui';
 import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
+/** The groups on the page, in the order of the sidebar. */
+export const CATEGORIES = ['ECG recordings', 'Sleep nights', 'Watch D2 nights', 'Watch D2 data', 'Synchronised tracking', 'D2 Link download history'] as const;
+export type Category = (typeof CATEGORIES)[number];
+
+const PAGE_SIZE = 50;
+// kept while the page is drawn again after each action, as in the other app
+const openGroups = new Set<Category>();
+const groupPages = new Map<Category, number>();
+
 export interface RecoveryItem {
   id: string;
+  category: Category;
   user: number;
   deletedAt: number;
   what: string;
@@ -31,10 +41,10 @@ export function formatSize(bytes: number): string {
 export function describe(item: BinItem): RecoveryItem {
   const base = { id: item.id, user: item.user, deletedAt: item.deletedAt, size: item.size, elsewhere: item.elsewhere === true, from: 'app' as const };
   if (item.kind === 'ecg') {
-    return { ...base, what: 'ECG recording', detail: [dateTime(item.session.start), `${Math.round(item.session.durationS / 60)} min`, item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
+    return { ...base, category: 'ECG recordings', what: 'ECG recording', detail: [dateTime(item.session.start), `${Math.round(item.session.durationS / 60)} min`, item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
   }
-  if (item.kind === 'sleep') return { ...base, what: 'Sleep night', detail: `${dateTime(item.session.start)} · ${(item.session.durationS / 3600).toFixed(1)} h` };
-  return { ...base, what: 'Synchronised tracking', detail: `${dateTime(item.entry.start)} · ${Math.round(item.entry.durationS / 60)} min` };
+  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: 'Sleep night', detail: `${dateTime(item.session.start)} · ${(item.session.durationS / 3600).toFixed(1)} h` };
+  return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', detail: `${dateTime(item.entry.start)} · ${Math.round(item.entry.durationS / 60)} min` };
 }
 
 export interface RecoveryDeps { loadD2: () => Promise<D2Api>; user: () => number }
@@ -72,35 +82,60 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
     try { await fn(); await redo(); } catch (e) { status.textContent = `${doing} didn’t finish: ${errorMessage(e)}.`; }
   };
 
-  if (!items.length) card.appendChild(make('p', 'muted', 'Nothing deleted for this user.'));
-  else {
-    const list = make('ul', 'recovery-list');
-    for (const i of items) {
-      const li = make('li');
-      const text = make('div', 'recovery-text');
-      text.append(make('strong', '', i.what), make('span', 'recovery-detail', i.detail),
-        make('span', 'recovery-when', `Deleted ${dateTime(i.deletedAt)}${i.elsewhere ? ' on another device' : ''} · ${formatSize(i.size)}`));
-      const restore = make('button', 'primary', 'Restore');
-      restore.type = 'button';
-      restore.addEventListener('click', () => void act('Restoring', async () => {
-        if (i.from === 'd2') { await d2?.recovery.restore(account, i.id); syncD2(); }
-        else { await store.restoreBin(i.id); historyChanged(); }
-      }));
-      const purge = make('button', 'recovery-purge', 'Delete permanently');
-      purge.type = 'button';
-      purge.addEventListener('click', () => {
-        if (!window.confirm(`Delete “${i.what}” permanently? This cannot be undone.`)) return;
-        void act('Deleting', async () => {
-          if (i.from === 'd2') await d2?.recovery.purge(account, i.id);
-          else await store.purgeBin(i.id);
-        });
+  const row = (i: RecoveryItem): HTMLLIElement => {
+    const li = make('li');
+    const text = make('div', 'recovery-text');
+    text.append(make('strong', '', i.what), make('span', 'recovery-detail', i.detail),
+      make('span', 'recovery-when', `Deleted ${dateTime(i.deletedAt)}${i.elsewhere ? ' on another device' : ''} · ${formatSize(i.size)}`));
+    const restore = make('button', 'primary', 'Restore');
+    restore.type = 'button';
+    restore.addEventListener('click', () => void act('Restoring', async () => {
+      if (i.from === 'd2') { await d2?.recovery.restore(account, i.id); syncD2(); }
+      else { await store.restoreBin(i.id); historyChanged(); }
+    }));
+    const purge = make('button', 'recovery-purge', 'Delete permanently');
+    purge.type = 'button';
+    purge.addEventListener('click', () => {
+      if (!window.confirm(`Delete “${i.what}” permanently? This cannot be undone.`)) return;
+      void act('Deleting', async () => {
+        if (i.from === 'd2') await d2?.recovery.purge(account, i.id);
+        else await store.purgeBin(i.id);
       });
-      const buttons = make('div', 'recovery-actions');
-      buttons.append(restore, purge);
-      li.append(text, buttons);
-      list.appendChild(li);
+    });
+    const buttons = make('div', 'recovery-actions');
+    buttons.append(restore, purge);
+    li.append(text, buttons);
+    return li;
+  };
+
+  // one collapsible group per category, as in the other app, 50 rows to a page
+  for (const category of CATEGORIES) {
+    const inGroup = items.filter((i) => i.category === category);
+    const group = make('details', 'recovery-group');
+    group.open = openGroups.has(category);
+    group.addEventListener('toggle', () => { if (group.open) openGroups.add(category); else openGroups.delete(category); });
+    group.appendChild(make('summary', '', `${category} · ${inGroup.length} item${inGroup.length === 1 ? '' : 's'}`));
+    const pages = Math.max(1, Math.ceil(inGroup.length / PAGE_SIZE));
+    const page = Math.min(groupPages.get(category) ?? 0, pages - 1);
+    if (!inGroup.length) group.appendChild(make('p', 'muted', 'Nothing deleted here.'));
+    if (pages > 1) {
+      const pager = make('div', 'row recovery-pager');
+      for (const [label, step] of [['Previous', -1], ['Next', 1]] as const) {
+        const b = make('button', '', label);
+        b.type = 'button';
+        b.disabled = page + step < 0 || page + step >= pages;
+        b.addEventListener('click', () => { groupPages.set(category, page + step); void redo(); });
+        pager.appendChild(b);
+      }
+      pager.appendChild(make('span', 'note', `Page ${page + 1} of ${pages}`));
+      group.appendChild(pager);
     }
-    card.appendChild(list);
+    if (inGroup.length) {
+      const list = make('ul', 'recovery-list');
+      for (const i of inGroup.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.appendChild(row(i));
+      group.appendChild(list);
+    }
+    card.appendChild(group);
   }
   root.replaceChildren(card);
 }

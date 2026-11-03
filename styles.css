@@ -570,7 +570,10 @@ body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .sessions .dur { min-width: 0; }
 
 /* Recovery centre */
-.recovery-list { list-style: none; margin: 16px 0 0; padding: 0; }
+.recovery-group { border-top: 1px solid var(--line); padding: 12px 0; }
+.recovery-group summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+.recovery-pager { align-items: center; gap: 8px; margin-top: 10px; }
+.recovery-list { list-style: none; margin: 10px 0 0; padding: 0; }
 .recovery-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
 .recovery-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .recovery-detail, .recovery-when { color: var(--ink-2); font-size: .88rem; overflow-wrap: anywhere; }

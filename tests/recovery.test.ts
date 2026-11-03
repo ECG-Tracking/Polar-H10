@@ -21,7 +21,8 @@ test('recovery: names a deleted blood pressure reading and marks a delete from a
     record: { key: 'reading:1:x', kind: 'reading', id: 'x', user: 1, start: 1000, data: { cls: 10002 }, source: 'd2', watch: 'Watch D2', downloadedAt: 1 },
   };
   const row = describeD2(item);
-  assert.equal(row.what, 'Watch D2: Blood pressure');
+  assert.equal(row.what, 'Blood pressure');
+  assert.equal(row.category, 'Watch D2 data');
   assert.equal(row.elsewhere, true);
   assert.ok(row.size > 0);
 });
