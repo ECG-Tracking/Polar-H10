@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — nights downloaded from the watch and the pairing, kept on this device only (per signed-in account).
+// D2 Link — nights and other data downloaded from the watch, and the pairing, kept on this device (per signed-in account).
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import type { Pairing } from './link';
@@ -23,6 +23,30 @@ export function nightFromData(d: D2NightData, user: number, watch: string): D2Ni
   return { id: `d2-${d.start}`, user, start: d.start * 1000, stages: d.stages, summary: d.summary, source: 'd2', watch, downloadedAt: Date.now() };
 }
 
+/** Kinds of data besides sleep (see extra.ts). */
+export type D2Kind = 'activity' | 'totals' | 'reading' | 'stress' | 'ecg' | 'workout';
+export const D2_KINDS: readonly D2Kind[] = ['activity', 'totals', 'reading', 'stress', 'ecg', 'workout'];
+
+/**
+ * One record of other watch data. `data` holds numbers only (it is what syncs to the cloud); `local` holds the
+ * non-numerical parts (text the watch sent), which stay on this device.
+ */
+export interface D2Record {
+  key: string; // `${kind}:${user}:${id}`
+  kind: D2Kind;
+  id: string; // e.g. the day (activity), or the start time
+  user: number;
+  start: number; // ms since 1970
+  data: Record<string, unknown>;
+  local?: Record<string, unknown>;
+  source: 'd2' | 'demo';
+  watch: string;
+  downloadedAt: number;
+  synced?: boolean;
+}
+
+export const recordKey = (kind: D2Kind, user: number, id: string): string => `${kind}:${user}:${id}`;
+
 let account = 'local';
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -34,19 +58,22 @@ export function useAccount(id: string): void {
 
 function db(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(`d2link-${account}`, 1);
-    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('nights')) req.result.createObjectStore('nights', { keyPath: 'id' }); };
+    const req = indexedDB.open(`d2link-${account}`, 2);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains('nights')) req.result.createObjectStore('nights', { keyPath: 'id' });
+      if (!req.result.objectStoreNames.contains('records')) req.result.createObjectStore('records', { keyPath: 'key' });
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('could not open storage'));
   });
   return dbPromise;
 }
 
-async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void): Promise<T | undefined> {
+async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void, name: 'nights' | 'records' = 'nights'): Promise<T | undefined> {
   const d = await db();
   return new Promise((resolve, reject) => {
-    const t = d.transaction('nights', mode);
-    const r = fn(t.objectStore('nights'));
+    const t = d.transaction(name, mode);
+    const r = fn(t.objectStore(name));
     t.oncomplete = () => resolve(r ? r.result : undefined);
     t.onerror = () => reject(t.error ?? new Error('storage error'));
   });
@@ -69,6 +96,18 @@ export async function deleteNight(id: string, { fromCloud = true }: { fromCloud?
   const existing = (await listAllNights()).find((n) => n.id === id);
   if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes(), id])]);
   await tx('readwrite', (s) => { s.delete(id); });
+}
+
+export async function saveRecords(records: D2Record[]): Promise<void> {
+  await tx('readwrite', (s) => { for (const r of records) s.put(r); }, 'records');
+}
+
+export async function listAllRecords(): Promise<D2Record[]> {
+  return (await tx<D2Record[]>('readonly', (s) => s.getAll() as IDBRequest<D2Record[]>, 'records')) ?? [];
+}
+
+export async function listRecords(user: number, kind?: D2Kind): Promise<D2Record[]> {
+  return (await listAllRecords()).filter((r) => r.user === user && (!kind || r.kind === kind)).sort((a, b) => b.start - a.start);
 }
 
 const tombstoneKey = (): string => `d2link-deleted-${account}`;

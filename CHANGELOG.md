@@ -4,6 +4,19 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.3.0 – D2 Link: download all data *(GitHub)*
+Why: read everything the watch keeps, not only sleep; numbers sync to the other devices.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts`, `styles.css` | New blue button “Pair & download all data” under “Pair & download sleep”, same size (“Download all data” once paired). It downloads sleep and then, each on its own (one the watch refuses doesn’t stop the others): activity per minute (steps, distance, calories, heart rate, resting heart rate, SpO₂), today’s totals, the watch’s measurements (blood pressure, HRV, skin temperature, emotion, sleep apnoea, arterial stiffness, altitude), stress, ECG recordings and workouts |
+| `src/d2/extra.ts` (new) | The requests and readers for those kinds of data, ported from Gadgetbridge. Blood pressure fields are not described there yet, so they are shown by field number |
+| `src/d2/link.ts` | The file download works for any file (sleep, stress, ECG); messages the watch sends on its own reach the data sync |
+| `src/d2/records.ts` (new), `src/d2/store.ts` | Stored per record on the device; activity is kept per day and merged with earlier downloads. Numbers in one part, text the watch sends (e.g. the ECG app version, workout notes) in a part that stays on this device |
+| `src/d2/cloud.ts` | The numbers sync through the general table `user_data` (kinds `d2-…`); the newest download of a record wins. No new SQL needed |
+| `src/d2/dataui.ts` (new) | New “All data” tab: activity per day, each kind of measurement, stress, ECG recordings with a trace, workouts |
+| `tests/d2extra.test.ts` (new), `tests/d2fake.ts` | The fake watch answers all of the above; tests for reading, storing and syncing each kind |
+
 ## 3 Nov 2026 – v1.2.0 – Biodata and settings sync across devices *(GitHub)*
 Why: biodata entered on one device didn't appear on the others; and one general cloud table, so later kinds of data need no further SQL.
 

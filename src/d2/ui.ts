@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — the screen: pair with the watch, download sleep, and a night report in the style of the watch's phone app.
+// D2 Link — the screen: pair with the watch, download sleep (or all its data), and a night report in the style of the watch's phone app.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { CloudSetupError, syncNights, type CloudClient } from './cloud';
+import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
+import { renderAllData } from './dataui';
+import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile } from './extra';
 import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
@@ -10,6 +12,7 @@ import { writeSleepFile } from './sleepfile-writer';
 import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
+import { activityRecords, ecgRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
 import * as store from './store';
 import type { D2Night } from './store';
 import { addDays, dateOf } from './trends';
@@ -150,6 +153,10 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome on an Android phone or on a computer; Safari, Firefox and iPhones can’t connect to a Watch D2.');
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
+  const btnAll = button('Pair & download all data', 'primary big d2-blue');
+  btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure and the watch’s other measurements, stress, ECG recordings and workouts';
+  const goButtons = el('div', 'd2-go');
+  goButtons.append(btnGo, btnAll);
   const btnSystem = button('Use the computer’s serial port');
   btnSystem.title = 'If Chrome can’t open the watch: choose the port the computer made for it (on a Mac, the “cu.…” port with the watch’s name)';
   const btnDemo = button('Demo nights');
@@ -161,7 +168,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const daysLabel = el('label', 'd2-days', 'Download ');
   daysLabel.appendChild(days);
   const actions = el('div', 'row wrap');
-  actions.append(btnGo, daysLabel, btnSystem, btnDemo, btnForget);
+  actions.append(goButtons, daysLabel, btnSystem, btnDemo, btnForget);
   const progress = el('p', 'note');
   const logBox = el('details', 'd2-log');
   logBox.appendChild(el('summary', '', 'Connection log'));
@@ -176,11 +183,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     'Use Chrome on an Android phone or on a computer. Safari, Firefox and iPhones can’t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.',
     'Make sure the watch is not connected to its phone app while you do this (disconnect it there, or use a phone without that app).',
     'Pair the watch in the phone’s or computer’s Bluetooth settings first (it is listed with “WATCH D2” in its name).',
-    'Click “Pair & download sleep” and choose the watch in Chrome’s list. The first time, confirm the pairing on the watch if it asks.',
+    'Click “Pair & download sleep” (or “Pair & download all data”) and choose the watch in Chrome’s list. The first time, confirm the pairing on the watch if it asks.',
     'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. It reads sleep only; ECG and blood pressure stay on the watch. If the watch refuses, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, the watch’s measurements (such as blood pressure, HRV and skin temperature), stress, ECG recordings and workouts; numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
 
   const listHead = el('h3', '', 'Nights from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
@@ -196,15 +203,16 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   // Nights / Week / Month
   const tabs = el('div', 'd2-tabs');
   tabs.setAttribute('role', 'tablist');
-  const tabBtns = (['nights', 'week', 'month'] as const).map((v) => {
-    const b = button(v === 'nights' ? 'Nights' : v === 'week' ? 'Week' : 'Month');
+  const tabBtns = (['nights', 'week', 'month', 'data'] as const).map((v) => {
+    const b = button(v === 'nights' ? 'Nights' : v === 'week' ? 'Week' : v === 'month' ? 'Month' : 'All data');
     b.setAttribute('role', 'tab');
     b.dataset['view'] = v;
     tabs.appendChild(b);
     return b;
   });
   const trendsBox = el('div', 'd2-trends');
-  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox);
+  const dataBox = el('div', 'd2-alldata');
+  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox, dataBox);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -214,7 +222,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const syncButtons = (busy = false): void => {
     const paired = store.loadPairing() != null;
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
+    btnAll.textContent = paired ? 'Download all data' : 'Pair & download all data';
     btnGo.disabled = busy || !serialAvailable();
+    btnAll.disabled = busy || !serialAvailable();
     btnSystem.disabled = busy || !serialAvailable();
     btnForget.hidden = !paired;
     btnForget.disabled = busy;
@@ -261,13 +271,15 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   // ---------- Nights / Week / Month ----------
-  let view: 'nights' | Period = 'nights';
+  let view: 'nights' | 'data' | Period = 'nights';
   let anchor = new Date();
   function showView(): void {
     for (const b of tabBtns) b.setAttribute('aria-selected', String(b.dataset['view'] === view));
     list.hidden = view !== 'nights';
     empty.hidden = view !== 'nights' || nights.length > 0 || napsByDay.size > 0;
-    trendsBox.hidden = view === 'nights';
+    trendsBox.hidden = view === 'nights' || view === 'data';
+    dataBox.hidden = view !== 'data';
+    if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs)); return; }
     if (view === 'nights') return;
     const period = view;
     renderTrends(trendsBox, nights, period, anchor, {
@@ -279,7 +291,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   for (const b of tabBtns) {
     b.addEventListener('click', () => {
       const v = b.dataset['view'];
-      if (v !== 'nights' && v !== 'week' && v !== 'month') return;
+      if (v !== 'nights' && v !== 'week' && v !== 'month' && v !== 'data') return;
       view = v;
       const latest = nights[0];
       anchor = latest ? dateOf(dayKey(latest)) : new Date(); // start at the most recent night
@@ -300,9 +312,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       btnSync.disabled = true;
       syncText.textContent = 'Syncing with the cloud…';
       try {
-        const r = await syncNights(client);
+        const n = await syncNights(client);
+        let rec = { uploaded: 0, downloaded: 0, deleted: 0 };
+        try { rec = await syncRecords(client); } catch (e) { if (e instanceof CloudSetupError) throw e; log(`Sync of the other watch data failed: ${e instanceof Error ? e.message : String(e)}`); }
+        const r = { uploaded: n.uploaded + rec.uploaded, downloaded: n.downloaded + rec.downloaded, deleted: n.deleted };
         const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
-        syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Nights are shared with your other devices; demo nights stay here.`;
+        syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Nights and the watch’s numbers are shared with your other devices; demo nights and text from the watch stay here.`;
         if (r.downloaded || r.deleted) await renderList();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -327,7 +342,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   })());
 
   // ---------- download ----------
-  const download = (mode: 'bluetooth' | 'system'): void => void (async () => {
+  const download = (mode: 'bluetooth' | 'system', all = false): void => void (async () => {
     syncButtons(true);
     progress.textContent = '';
     setStatus('Choose the watch in Chrome’s list…', 'busy');
@@ -351,7 +366,15 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       setStatus(`${name} – done`, 'on');
       await renderList();
       const latest = got.sort((a, b) => b.start - a.start)[0];
-      if (latest) openReport(latest.id);
+      if (all) {
+        setStatus(`${name} – downloading the other data…`, 'on');
+        const counts = await downloadOthers(link, start, end, name);
+        progress.textContent = `${got.length} night${got.length === 1 ? '' : 's'}${counts ? `; ${counts}` : '; no other data'}.`;
+        setStatus(`${name} – done`, 'on');
+        void sync();
+        view = 'data';
+        showView();
+      } else if (latest) openReport(latest.id);
     } catch (e) {
       const msg = e instanceof DOMException && e.name === 'NotFoundError' ? 'No watch was chosen.' : e instanceof Error ? e.message : String(e);
       log(`Stopped: ${msg}`);
@@ -366,7 +389,32 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       syncButtons(false);
     }
   })();
+  /** Everything besides sleep; each kind on its own, so one the watch refuses doesn't stop the others. Returns a summary. */
+  async function downloadOthers(link: D2Link, start: number, end: number, name: string): Promise<string> {
+    const user = deps.user(), parts: string[] = [];
+    const step = async (what: string, fn: () => Promise<store.D2Record[]>): Promise<void> => {
+      progress.textContent = `Downloading ${what}…`;
+      try {
+        const rs = await fn();
+        if (rs.length) { await store.saveRecords(rs); parts.push(`${rs.length} ${what}`); }
+        log(`${what}: ${rs.length} saved.`);
+      } catch (e) {
+        log(`${what}: not downloaded (${e instanceof Error ? e.message : String(e)}).`);
+        if (e instanceof WatchError && /not connected|disconnected/.test(e.message)) throw e;
+      }
+    };
+    const existing = await store.listRecords(user, 'activity');
+    await step('activity days', async () => activityRecords(await downloadActivity(link, start, end, (d, t) => { progress.textContent = `Downloading activity… ${d} of ${t}`; }), user, name, existing));
+    await step('daily totals', async () => [totalsRecord(await downloadTotals(link), user, name)]);
+    await step('measurements', async () => readingRecords(await downloadReadings(link, start * 1000, log), user, name));
+    await step('stress records', async () => stressRecords(parseStressFile(await link.downloadFile({ name: 'rrisqi_data.bin', type: 0x10, start, end, what: 'stress' })), user, name));
+    await step('ECG recordings', async () => ecgRecords(parseEcgFile(await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start, end, what: 'ECG' })), user, name));
+    await step('workouts', async () => workoutRecords(await downloadWorkouts(link, start, end, log), user, name));
+    return parts.join(', ');
+  }
+
   btnGo.addEventListener('click', () => download('bluetooth'));
+  btnAll.addEventListener('click', () => download('bluetooth', true));
   btnSystem.addEventListener('click', () => download('system'));
 
   btnForget.addEventListener('click', () => {

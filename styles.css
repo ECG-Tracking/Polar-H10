@@ -398,3 +398,12 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
 .d2-table th, .d2-table td { text-align: right; padding: 6px 8px; border-top: 1px solid var(--line); white-space: nowrap; }
 .d2-table th:first-child, .d2-table td:first-child { text-align: left; }
 .d2-table th { color: var(--ink-2); font-weight: 600; border-top: 0; }
+/* D2 Link: the two download buttons, one under the other, same size */
+.d2-go { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: min(100%, 260px); }
+.d2-go button.big { flex: none; width: 100%; }
+.d2-alldata .d2-data { margin-bottom: 12px; }
+.d2-alldata h3 { margin-top: 0; }
+.d2-ecg { width: 100%; height: auto; display: block; margin-bottom: 10px; }
+.d2-ecg-head { margin: 10px 0 4px; font-size: 0.9rem; }
+/* "Download all data" is blue (white text ≥ 4.5:1 in both themes) */
+button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff; }

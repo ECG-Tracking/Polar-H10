@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// D2 Link — the "All data" view: activity per day, the watch's measurements, stress, ECG recordings and workouts.
+// Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
+
+import { clock, dayLabel, el, hm, svg } from './dom';
+import { READING_CLASSES, WORKOUT_TYPES, type ActivityMinute } from './extra';
+import { minutesOf } from './records';
+import type { D2Record } from './store';
+import { dateOf } from './trends';
+
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const round = (v: number | null, digits = 0): string => (v == null ? '--' : v.toFixed(digits));
+const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+const when = (ms: number): string => `${dayLabel(ms)} ${clock(ms)}`;
+
+function table(head: string[], rows: string[][]): HTMLElement {
+  const wrap = el('div', 'd2-table-wrap');
+  const t = el('table', 'd2-table');
+  const tr = el('tr');
+  for (const h of head) tr.appendChild(el('th', '', h));
+  t.appendChild(el('thead')).appendChild(tr);
+  const body = el('tbody');
+  for (const r of rows) {
+    const row = el('tr');
+    for (const c of r) row.appendChild(el('td', '', c));
+    body.appendChild(row);
+  }
+  t.appendChild(body);
+  wrap.appendChild(t);
+  return wrap;
+}
+
+function section(title: string, note: string, content: HTMLElement | null): HTMLElement {
+  const s = el('section', 'card d2-data');
+  s.appendChild(el('h3', '', title));
+  if (note) s.appendChild(el('p', 'note', note));
+  if (content) s.appendChild(content);
+  return s;
+}
+
+/** A small line chart of an ECG recording (first 10 seconds at most). */
+function ecgTrace(samples: readonly number[], seconds: number): SVGSVGElement {
+  const W = 600, H = 90;
+  const perS = seconds > 0 ? samples.length / seconds : samples.length;
+  const shown = samples.slice(0, Math.max(2, Math.round(perS * Math.min(10, seconds || 10))));
+  const lo = Math.min(...shown), hi = Math.max(...shown), span = hi - lo || 1;
+  const step = Math.max(1, Math.floor(shown.length / 1200));
+  const pts: string[] = [];
+  for (let i = 0; i < shown.length; i += step) pts.push(`${((i / (shown.length - 1)) * W).toFixed(1)},${(H - 4 - ((shown[i]! - lo) / span) * (H - 8)).toFixed(1)}`);
+  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'd2-ecg', role: 'img', 'aria-label': 'ECG recording' });
+  root.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1.5 }));
+  return root;
+}
+
+export function renderAllData(box: HTMLElement, records: readonly D2Record[]): void {
+  box.replaceChildren();
+  if (!records.length) {
+    box.appendChild(el('p', 'muted', 'No other data yet. Use “Download all data” to read activity, measurements, stress, ECG and workouts from the watch.'));
+    return;
+  }
+  const of = (k: D2Record['kind']): D2Record[] => records.filter((r) => r.kind === k).sort((a, b) => b.start - a.start);
+
+  // activity per day
+  const days = of('activity');
+  const totals = of('totals')[0];
+  if (days.length || totals) {
+    const rows = days.map((r) => {
+      const ms: ActivityMinute[] = minutesOf(r);
+      const vals = (f: (m: ActivityMinute) => number | null): number[] => ms.map(f).filter((v): v is number => v != null);
+      const hr = vals((m) => m.hr), spo2 = vals((m) => m.spo2), rest = vals((m) => m.restingHr);
+      const sum = (xs: number[]): number => xs.reduce((s, x) => s + x, 0);
+      return [
+        dayLabel(dateOf(r.id).getTime()), String(sum(vals((m) => m.steps))), (sum(vals((m) => m.distance)) / 1000).toFixed(2), String(sum(vals((m) => m.kcal))),
+        hr.length ? `${round(mean(hr))} (${Math.min(...hr)}–${Math.max(...hr)})` : '--', rest.length ? String(rest[rest.length - 1]) : '--',
+        spo2.length ? `${round(mean(spo2))} (min ${Math.min(...spo2)})` : '--',
+      ];
+    });
+    const note = totals ? `Today so far (at ${clock(totals.downloadedAt)}): ${num(totals.data['steps']) ?? 0} steps, ${((num(totals.data['distance']) ?? 0) / 1000).toFixed(2)} km, ${num(totals.data['kcal']) ?? 0} kcal.` : '';
+    box.appendChild(section('Activity', note, rows.length ? table(['Day', 'Steps', 'km', 'kcal', 'Heart rate (range)', 'Resting HR', 'SpO₂ % (min)'], rows) : null));
+  }
+
+  // the watch's measurements, by kind
+  const readings = of('reading');
+  const classes = [...new Set(readings.map((r) => num(r.data['cls']) ?? 0))];
+  for (const cls of classes) {
+    const spec = READING_CLASSES[cls];
+    const rs = readings.filter((r) => r.data['cls'] === cls);
+    const fields = [...new Set(rs.flatMap((r) => Object.keys((r.data['values'] as Record<string, number> | undefined) ?? {})))].sort();
+    const withText = rs.some((r) => r.local?.['texts']);
+    const rows = rs.map((r) => {
+      const v = (r.data['values'] as Record<string, number> | undefined) ?? {};
+      const texts = (r.local?.['texts'] as Record<string, string> | undefined) ?? {};
+      const cells = [when(r.start), ...fields.map((f) => (v[f] == null ? '--' : String(Math.round(v[f]! * 100) / 100)))];
+      return withText ? [...cells, Object.values(texts).join(' · ')] : cells;
+    });
+    const head = ['Time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
+    const note = spec && !Object.keys(spec.fields).length ? 'The meaning of these fields isn’t known yet: they are shown by number. Compare with the watch to name them.' : '';
+    box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows)));
+  }
+
+  // stress
+  const stress = of('stress');
+  if (stress.length) {
+    box.appendChild(section('Stress', 'Score and level as the watch measured them.', table(['Time', 'Score', 'Level'], stress.map((r) => [
+      `${when(r.start)}–${clock(num(r.data['end']) ?? r.start)}`, String(num(r.data['score']) ?? '--'), String(num(r.data['level']) ?? '--'),
+    ]))));
+  }
+
+  // ECG recordings
+  const ecgs = of('ecg');
+  if (ecgs.length) {
+    const s = section('ECG recordings', 'Recorded with the watch’s ECG app. Codes are the watch’s own result and symptom codes.', null);
+    for (const r of ecgs) {
+      const end = num(r.data['end']) ?? r.start, secs = (end - r.start) / 1000;
+      const samples = Array.isArray(r.data['samples']) ? (r.data['samples'] as number[]) : [];
+      s.appendChild(el('p', 'd2-ecg-head', `${when(r.start)} · ${Math.round(secs)} s · average ${num(r.data['avgHr']) ?? '--'} bpm · result code ${num(r.data['arrhythmia']) ?? '--'} · symptoms code ${num(r.data['symptoms']) ?? '--'}`));
+      if (samples.length > 1) s.appendChild(ecgTrace(samples, secs));
+    }
+    box.appendChild(s);
+  }
+
+  // workouts
+  const workouts = of('workout');
+  if (workouts.length) {
+    box.appendChild(section('Workouts', '', table(['Start', 'Type', 'Time', 'km', 'kcal', 'Steps', 'Heart rate'], workouts.map((r) => {
+      const t = (r.data['totals'] as Record<string, number> | undefined) ?? {};
+      const samples = Array.isArray(r.data['samples']) ? (r.data['samples'] as Record<string, number>[]) : [];
+      const hr = samples.map((x) => x['hr']).filter((v): v is number => typeof v === 'number' && v > 0 && v < 255);
+      const end = num(r.data['end']) ?? r.start;
+      const type = t['type'];
+      return [
+        when(r.start), type != null ? WORKOUT_TYPES[type] ?? `Type ${type}` : '--', hm((end - r.start) / 60000),
+        t['distance'] != null ? (t['distance'] / 1000).toFixed(2) : '--', t['kcal'] != null ? String(t['kcal']) : '--', t['steps'] != null ? String(t['steps']) : '--',
+        hr.length ? `${round(mean(hr))} avg, ${Math.max(...hr)} max` : t['hrMax'] ? `${t['hrMax']} max` : '--',
+      ];
+    }))));
+  }
+}

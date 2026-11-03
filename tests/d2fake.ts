@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// A fake Watch D2 for tests: the watch's side of link set-up, HiChain login and the sleep download.
+// A fake Watch D2 for tests: the watch's side of link set-up, HiChain login, file downloads, activity, the data
+// dictionary sync and workouts.
 // It follows the same protocol description (Gadgetbridge), so it checks that D2 Link is self-consistent,
 // not that a real watch accepts it.
-import { concat, equal, hex, randomBytes, u32, unhex, utf8 } from '../src/d2/bytes';
+import { concat, equal, hex, randomBytes, readUint, u32, u64, unhex, utf8 } from '../src/d2/bytes';
 import { aesCbcEncrypt, aesGcmDecrypt, aesGcmEncrypt, digestSecret, hkdfSha256, hmacSha256, sha256 } from '../src/d2/crypto';
 import { Decoder, defaultParams, encode, encryptBody, open, type InPacket } from '../src/d2/packet';
 import { Tlv } from '../src/d2/tlv';
@@ -21,6 +22,16 @@ export interface FakeWatchOptions {
   relativeOffsets?: boolean;
   /** Ignore the first block request (the watch was busy). */
   dropFirstBlockRequest?: boolean;
+  /** Other files by file type (0x10 stress, 0x18 ECG). */
+  files?: Record<number, Uint8Array>;
+  /** Activity blocks: start (s) and per-minute [offset, fields]. */
+  activity?: { start: number; minutes: [number, Uint8Array][] }[];
+  totals?: { steps: number; kcal: number; distance: number };
+  /** Data dictionary records by class: start (ms) and number fields. */
+  readings?: Record<number, { start: number; values: Record<number, number> }[]>;
+  /** The data sync service doesn't answer. */
+  noDataSync?: boolean;
+  workouts?: { number: number; start: number; end: number; kcal: number; type: number; header: Uint8Array; data: Uint8Array }[];
 }
 
 export class FakeWatch {
@@ -34,6 +45,8 @@ export class FakeWatch {
   private readonly pin: Uint8Array;
   readonly transport: Transport;
   private dropped = false;
+  /** Acknowledgements the fake got for its data sync messages. */
+  readonly acks: number[] = [];
 
   constructor(private readonly o: FakeWatchOptions = {}) {
     this.params.deviceSupportType = o.deviceSupportType ?? 4;
@@ -84,6 +97,76 @@ export class FakeWatch {
     if (p.service === 1 && p.command === 0x07) return this.reply(1, 7, new Tlv().putString(7, '5.0.0.123').putString(9, 'SN123').putString(0x0a, 'WATCH D2').putString(0x11, 'WATCH D2-ABC'));
     if (p.service === 1 && p.command === 0x08) return this.reply(1, 8, new Tlv().putByte(1, 77));
     if (p.service === 0x2c) return this.file(p.command, t);
+    if (p.service === 0x07) return this.fitness(p.command, t);
+    if (p.service === 0x34) return this.dataSync(t);
+    if (p.service === 0x17) return this.workout(p.command, t);
+  }
+
+  private inner = (t: Tlv): Tlv => Tlv.parse(t.bytes(0x81));
+
+  private async fitness(command: number, t: Tlv): Promise<void> {
+    const blocks = this.o.activity ?? [];
+    if (command === 0x0a) return this.reply(7, 0x0a, new Tlv().putTlv(0x81, new Tlv().putShort(0x02, blocks.length)));
+    if (command === 0x0b) {
+      const i = this.inner(t).short(0x02), b = blocks[i];
+      const c = new Tlv().putShort(0x02, i).putInt(0x03, b?.start ?? 0);
+      for (const [off, data] of b?.minutes ?? []) c.putTlv(0x84, new Tlv().putByte(0x05, off).put(0x06, data));
+      return this.reply(7, 0x0b, new Tlv().putTlv(0x81, c));
+    }
+    if (command === 0x03) {
+      const x = this.o.totals ?? { steps: 0, kcal: 0, distance: 0 };
+      return this.reply(7, 0x03, new Tlv().putTlv(0x81, new Tlv().putTlv(0x83, new Tlv().putInt(0x05, x.steps).putShort(0x06, x.kcal).putInt(0x07, x.distance))));
+    }
+    return undefined;
+  }
+
+  private seq = 100;
+  private async dataSync(t: Tlv): Promise<void> {
+    if (this.o.noDataSync) return;
+    const cmd = t.byte(0x01), seq = t.short(0x02), from = t.string(0x03), to = t.string(0x04);
+    const msg = (c: number, s: number, src: string, dst: string, data: Uint8Array | null, code: number | null): Promise<void> => {
+      const m = new Tlv().putByte(0x01, c).putShort(0x02, s).putString(0x03, src).putString(0x04, dst);
+      if (data) m.put(0x07, data);
+      if (code != null) m.putByte(0x08, code);
+      return this.reply(0x34, 0x01, m);
+    };
+    if (cmd === 3) { this.acks.push(seq); return; }
+    if (cmd === 1) return msg(3, seq, to, from, null, 0xca);
+    if (cmd !== 2) return;
+    await msg(3, seq, to, from, null, 0xca);
+    const req = Tlv.parse(t.bytes(0x07), 1);
+    const cls = readUint(req.bytes(0x02)), since = readUint(req.bytes(0x05));
+    const block = new Tlv();
+    for (const r of (this.o.readings?.[cls] ?? []).filter((x) => x.start >= since)) {
+      const fields = new Tlv();
+      for (const [f, v] of Object.entries(r.values)) {
+        const d = new Uint8Array(8);
+        new DataView(d.buffer).setFloat64(0, v);
+        fields.putTlv(0x88, new Tlv().putInt(0x09, Number(f)).put(0x0a, d));
+      }
+      block.putTlv(0x84, new Tlv().put(0x05, u64(r.start)).put(0x06, u64(r.start + 60000)).putTlv(0x87, fields));
+    }
+    const answer = new Tlv().putByte(0x01, 1).put(0x02, req.bytes(0x02)).putTlv(0x83, block);
+    return msg(2, ++this.seq, to, from, concat(Uint8Array.of(1), answer.serialize()), null);
+  }
+
+  private async workout(command: number, t: Tlv): Promise<void> {
+    const ws = this.o.workouts ?? [];
+    if (command === 0x07) {
+      const c = new Tlv().putShort(0x02, ws.length);
+      for (const w of ws) c.putTlv(0x85, new Tlv().putShort(0x06, w.number).putShort(0x07, 1).putShort(0x08, 0));
+      return this.reply(0x17, 0x07, new Tlv().putTlv(0x81, c));
+    }
+    const n = this.inner(t).short(0x02), w = ws.find((x) => x.number === n);
+    if (!w) return this.reply(0x17, command, new Tlv().putInt(0x7f, 0x1234));
+    if (command === 0x08) {
+      return this.reply(0x17, 0x08, new Tlv().putTlv(0x81, new Tlv().putShort(0x02, n).putInt(0x04, w.start).putInt(0x05, w.end).putInt(0x06, w.kcal)
+        .put(0x0c, Uint8Array.of(70, 150)).putByte(0x14, w.type).putTlv(0xe7, new Tlv().putInt(0x68, 300010027).putString(0x69, 'fresh'))));
+    }
+    if (command === 0x0a) {
+      return this.reply(0x17, 0x0a, new Tlv().putTlv(0x81, new Tlv().putShort(0x02, n).putShort(0x03, 0).put(0x04, w.header).put(0x05, w.data)));
+    }
+    return undefined;
   }
 
   private async hiChain(t: Tlv): Promise<void> {
@@ -132,9 +215,16 @@ export class FakeWatch {
     return undefined;
   }
 
+  private fileOf(type: number): Uint8Array {
+    return type === 0x16 ? this.o.sleepFile ?? new Uint8Array(0) : this.o.files?.[type] ?? new Uint8Array(0);
+  }
+
   private async file(command: number, t: Tlv): Promise<void> {
-    const file = this.o.sleepFile ?? new Uint8Array(0);
-    if (command === 0x01) return this.reply(0x2c, 1, new Tlv().putString(1, t.string(1)).putByte(2, t.byte(2)).putByte(3, 0x16).putInt(4, file.length));
+    const file = this.fileOf(t.byte(1)); // the file id is the file type here
+    if (command === 0x01) {
+      const f = this.fileOf(t.byte(2));
+      return this.reply(0x2c, 1, new Tlv().putString(1, t.string(1)).putByte(2, t.byte(2)).putByte(3, t.byte(2)).putInt(4, f.length));
+    }
     if (command === 0x03) return this.reply(0x2c, 3, new Tlv().putByte(1, t.byte(1)).putByte(2, 5).putShort(3, 0x100).putInt(4, this.o.blockSize ?? 1000).putByte(5, 0));
     if (command === 0x04) {
       if (this.o.dropFirstBlockRequest && !this.dropped) { this.dropped = true; return undefined; }

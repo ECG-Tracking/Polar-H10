@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — talks to a Watch D2: link set-up, login (pairing), watch details and the sleep file download.
+// D2 Link — talks to a Watch D2: link set-up, login (pairing), watch details and file downloads (sleep and others).
 // Ported from Gadgetbridge's watch support (connection, login, device settings and file download code)
 // (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
@@ -32,6 +32,8 @@ const DEVICE_CONFIG = 0x01;
 const FILE_DOWNLOAD = 0x2c;
 const GROUP_ID = '7B0BC0CBCE474F6C238D9661C63400B797B166EA7849B3A370FC73A9A236E989';
 const ZERO4 = new Uint8Array(4);
+/** The phone app id the watch expects in the login message and in data sync requests (a protocol constant, not shown to users). */
+export const HEALTH_APP_ID = 'com.huawei.health';
 
 export class WatchError extends Error {}
 
@@ -44,6 +46,8 @@ export class D2Link {
   private waiters: Waiter[] = [];
   private incoming: Promise<void> = Promise.resolve();
   private blockListener: ((p: InPacket) => void) | null = null;
+  /** Gets messages the watch sends on its own on the given service (e.g. the data sync service). */
+  listener: ((p: InPacket) => void) | null = null;
   private closed = false;
 
   constructor(private readonly t: Transport, private readonly log: Log) {
@@ -64,6 +68,8 @@ export class D2Link {
           w.resolve(p);
         } else if (p.service === FILE_DOWNLOAD && p.command === 0x05) {
           this.blockListener?.(p);
+        } else {
+          this.listener?.(p);
         }
       }).catch((e: unknown) => this.log(`Could not read a packet from the watch: ${e instanceof Error ? e.message : String(e)}`));
     }
@@ -75,13 +81,13 @@ export class D2Link {
     this.waiters = [];
   }
 
-  private async send(pkt: OutPacket): Promise<void> {
+  async send(pkt: OutPacket): Promise<void> {
     if (this.closed) throw new WatchError('The watch is not connected.');
     for (const frame of await encode(this.params, pkt)) await this.t.send(frame);
   }
 
   /** Sends a request and waits for the watch's answer to the same service and command. */
-  private async request(pkt: OutPacket, timeoutMs = 5000, what = 'the request'): Promise<Tlv> {
+  async request(pkt: OutPacket, timeoutMs = 5000, what = 'the request'): Promise<Tlv> {
     const answer = new Promise<InPacket>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.waiters = this.waiters.filter((x) => x.timer !== timer);
@@ -237,9 +243,20 @@ export class D2Link {
   /** Downloads the watch's sleep file for [start, end] (seconds since 1970). An empty result means no nights. */
   async downloadSleep(start: number, end: number, progress: (done: number, total: number) => void = () => {}): Promise<Uint8Array> {
     this.log('Asking the watch for its sleep records…');
-    const init = new Tlv().putString(0x01, 'sequence_data').putByte(0x02, 0x16).putInt(0x05, start).putInt(0x06, end).putInt(0x0c, SLEEP_DICT);
-    const r = await this.request({ service: FILE_DOWNLOAD, command: 0x01, tlv: init }, 10000, 'the sleep download request');
-    if (!r.has(0x03)) throw new WatchError(r.has(0x7f) ? `The watch refused the sleep download (code ${r.asInt(0x7f)}).` : 'The watch refused the sleep download.');
+    const file = await this.downloadFile({ name: 'sequence_data', type: 0x16, start, end, dict: SLEEP_DICT, what: 'sleep' }, progress);
+    if (file.length) this.log('Sleep records downloaded.');
+    return file;
+  }
+
+  /**
+   * Downloads one of the watch's files for [start, end] (seconds since 1970): `type` 0x16 = sequence data (with a
+   * dictionary id), 0x10 = stress (heartbeat intervals), 0x18 = ECG recordings. An empty result means nothing recorded.
+   */
+  async downloadFile(f: { name: string; type: number; start: number; end: number; dict?: number; what: string }, progress: (done: number, total: number) => void = () => {}): Promise<Uint8Array> {
+    const init = new Tlv().putString(0x01, f.name).putByte(0x02, f.type).putInt(0x05, f.start).putInt(0x06, f.end);
+    if (f.dict != null) init.putInt(0x0c, f.dict);
+    const r = await this.request({ service: FILE_DOWNLOAD, command: 0x01, tlv: init }, 10000, `the ${f.what} download request`);
+    if (!r.has(0x03)) throw new WatchError(r.has(0x7f) ? `The watch refused the ${f.what} download (code ${r.asInt(0x7f)}).` : `The watch refused the ${f.what} download.`);
     const fileId = r.byte(0x03), size = r.has(0x04) ? r.int(0x04) : 0;
     if (size === 0) {
       await this.send({ service: FILE_DOWNLOAD, command: 0x06, tlv: new Tlv().putByte(0x01, fileId).putByte(0x02, 1) });
@@ -249,8 +266,7 @@ export class D2Link {
     const timeoutS = Math.max(5, fi.has(0x02) ? fi.byte(0x02) : 10);
     const maxBlock = Math.max(1, fi.has(0x04) ? fi.int(0x04) : 4096);
     const noEncrypt = fi.has(0x05) && fi.bool(0x05);
-    this.log(`Downloading ${(size / 1024).toFixed(1)} KB (blocks of up to ${maxBlock} bytes, ${noEncrypt ? 'unencrypted' : 'encrypted'} requests)…`);
-
+    this.log(`Downloading ${(size / 1024).toFixed(1)} KB of ${f.what} data (blocks of up to ${maxBlock} bytes, ${noEncrypt ? 'unencrypted' : 'encrypted'} requests)…`);
     // Like Gadgetbridge: pieces are appended in the order they arrive (the offset the watch sends is only logged),
     // and a block is done when its bytes have arrived. Pieces are handled one at a time, so order is kept.
     const file = new Uint8Array(size);
@@ -274,7 +290,7 @@ export class D2Link {
         }).catch(reject);
       };
       const req = new Tlv().putByte(0x01, fileId).putInt(0x02, blockStart).putInt(0x03, blockSize);
-      if (fileId === 0x16) req.putInt(0x04, SLEEP_DICT);
+      if (f.dict != null) req.putInt(0x04, f.dict);
       this.send({ service: FILE_DOWNLOAD, command: 0x04, tlv: req, encrypt: !noEncrypt }).catch(reject);
     });
     try {
@@ -286,7 +302,7 @@ export class D2Link {
             break;
           } catch (e) {
             if (!(e instanceof WatchError) || attempt >= 3) {
-              throw new WatchError(`The sleep download stopped (${e instanceof Error ? e.message : String(e)}).`);
+              throw new WatchError(`The ${f.what} download stopped (${e instanceof Error ? e.message : String(e)}).`);
             }
             this.log(`No more data from the watch at ${received} of ${size} bytes; asking again (${attempt + 1} of 3)…`);
           }
@@ -296,7 +312,6 @@ export class D2Link {
       this.blockListener = null;
     }
     await this.send({ service: FILE_DOWNLOAD, command: 0x06, tlv: new Tlv().putByte(0x01, fileId).putByte(0x02, 1) });
-    this.log('Sleep records downloaded.');
     return file;
   }
 
@@ -324,7 +339,7 @@ export function hiChainJson(op: number, step: number, requestId: number, selfId:
     const id = fromUtf8(selfId);
     Object.assign(value, {
       requestId: String(requestId), groupId: GROUP_ID, groupName: 'health_group_name', groupOp: 2, groupType: 256,
-      peerDeviceId: id, connDeviceId: id, appId: 'com.huawei.health', ownerName: '',
+      peerDeviceId: id, connDeviceId: id, appId: HEALTH_APP_ID, ownerName: '',
     });
   }
   return JSON.stringify(value);
