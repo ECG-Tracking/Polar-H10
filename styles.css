@@ -573,10 +573,11 @@ body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .recovery-group { border-top: 1px solid var(--line); padding: 12px 0; }
 .recovery-group summary { cursor: pointer; font-weight: 600; color: var(--ink); }
 .recovery-pager { align-items: center; gap: 8px; margin-top: 10px; }
-.recovery-list { list-style: none; margin: 10px 0 0; padding: 0; }
-.recovery-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
-.recovery-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.recovery-detail, .recovery-when { color: var(--ink-2); font-size: .88rem; overflow-wrap: anywhere; }
-.recovery-when { font-size: .8rem; }
-.recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-button.recovery-purge { color: var(--del); }
+.recovery-table { margin-top: 10px; }
+.recovery-table td, .recovery-table th { white-space: nowrap; }
+button.recovery-restore { padding: 4px 12px; }
+/* Column sorting, as in the other two apps: the header is the button, the sorted column is in the theme colour */
+button.sort-head { all: unset; cursor: pointer; font: inherit; color: inherit; }
+button.sort-head:hover { color: var(--ink); }
+button.sort-head.sorted { color: var(--accent); }
+button.sort-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

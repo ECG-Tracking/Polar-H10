@@ -4,7 +4,8 @@ import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } fro
 import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
 import { analyzeSleep, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
-import { Plot, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
+import { EcgFilter } from './dsp';
+import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
 import { sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
 import type { Session, SleepSession, UserNumber } from './store';
@@ -17,6 +18,8 @@ export interface SleepDeps {
   /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
   renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
   user: () => UserNumber;
+  /** The mains-hum filter chosen in Biodata, for the live trace. */
+  notch: () => number;
   userLabel: (u: UserNumber) => string;
   showSleepView: (view: 'sleep' | 'sleepHistory' | 'sleepReport') => void;
   /** The ECG live screen has the strap; it can only stream to one screen at a time. */
@@ -56,6 +59,21 @@ export function initSleep(deps: SleepDeps): {
 
   function refreshUser(): void {
     $('sleepUser').textContent = deps.userLabel(recorder ? recUser : deps.user());
+  }
+
+  // ---------- live ECG, as on ECG live ----------
+
+  const trace = new LiveTrace($canvas('sleepCanvas'), ECG_FS);
+  let filter = new EcgFilter(ECG_FS, deps.notch());
+  let drawFrame = 0;
+  /** Drawn only while it can be seen: not on other pages or under Dim screen, to save the battery overnight. */
+  function drawLoop(): void {
+    if ($('view-sleep').classList.contains('active') && $('sleepDim').hidden) trace.draw();
+    drawFrame = polar ? requestAnimationFrame(drawLoop) : 0;
+  }
+  function clearTrace(): void {
+    filter = new EcgFilter(ECG_FS, deps.notch());
+    trace.clear();
   }
 
   function syncButtons(): void {
@@ -101,8 +119,9 @@ export function initSleep(deps: SleepDeps): {
       });
       p.addEventListener('acc', (e) => recorder?.addAcc((e as CustomEvent<AccDetail>).detail.samples));
       p.addEventListener('ecg', (e) => {
-        if (!recorder || !ecg) return;
         const s = (e as CustomEvent<EcgDetail>).detail.samples;
+        trace.push(Float32Array.from(s, (v) => filter.process(v)));
+        if (!recorder || !ecg) return;
         const c = Int16Array.from(s, (v) => Math.max(-32768, Math.min(32767, v)));
         ecg.chunks.push(c);
         ecg.n += c.length;
@@ -114,6 +133,7 @@ export function initSleep(deps: SleepDeps): {
       p.addEventListener('disconnect', () => void onDisconnect());
     }
     polar = p;
+    drawFrame ||= requestAnimationFrame(drawLoop);
     if (p.accOk) status(`${p.name} – heart beats, movement${p.ecgOk ? ' and ECG' : ''}`, 'on');
     else status(`${p.name} – movement unavailable, sleep can't be analysed`, 'busy');
     syncButtons();
@@ -123,6 +143,7 @@ export function initSleep(deps: SleepDeps): {
     if (!recorder) {
       status('Sensor disconnected', '');
       polar = null;
+      clearTrace();
       syncButtons();
       return;
     }
@@ -146,6 +167,7 @@ export function initSleep(deps: SleepDeps): {
 
   async function disconnect(): Promise<void> {
     polar = null;
+    clearTrace();
     await disconnectStrap();
     status('Not connected', '');
     $('sleepBattery').textContent = '';

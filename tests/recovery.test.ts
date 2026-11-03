@@ -5,6 +5,7 @@ import type { BinItem } from '../src/store';
 import { binFromText, binToText } from '../src/backups';
 import type { D2BinItem } from '../src/d2/store';
 import { describe as describeD2 } from '../src/d2/recovery';
+import { sortItems, type RecoveryItem } from '../src/recovery';
 
 test('recovery: a restored recording is never marked as synced, so the next sync uploads it', () => {
   assert.deepEqual(restoredCopy({ id: 'a', start: 1, synced: true }, true), { id: 'a', start: 1 });
@@ -23,6 +24,7 @@ test('recovery: names a deleted blood pressure reading and marks a delete from a
   const row = describeD2(item);
   assert.equal(row.what, 'Blood pressure');
   assert.equal(row.category, 'Watch D2 data');
+  assert.equal(row.recorded, 1000);
   assert.equal(row.elsewhere, true);
   assert.ok(row.size > 0);
 });
@@ -34,4 +36,15 @@ test('recovery: a deleted item and its raw signal survive the backup file', () =
   assert.deepEqual(back.item, item);
   assert.deepEqual(back.data?.signals, signals);
   assert.equal(binFromText(binToText({ item })).data, undefined);
+});
+
+test('recovery: the headers sort by date, text or length, with missing lengths last', () => {
+  const item = (id: string, recorded: number, deletedAt: number, length: number | null, detail: string): RecoveryItem =>
+    ({ id, category: 'ECG recordings', user: 1, recorded, deletedAt, what: 'x', length, detail, size: 1, elsewhere: false, from: 'app' });
+  const rows = [item('a', 1, 9, 60, 'beta'), item('b', 3, 8, null, 'alpha'), item('c', 2, 7, 600, 'Gamma')];
+  const ids = (r: RecoveryItem[]): string => r.map((x) => x.id).join('');
+  assert.equal(ids(sortItems(rows, { key: 'recorded', direction: -1 })), 'bca');
+  assert.equal(ids(sortItems(rows, { key: 'deletedAt', direction: 1 })), 'cba');
+  assert.equal(ids(sortItems(rows, { key: 'detail', direction: 1 })), 'bac');
+  assert.equal(ids(sortItems(rows, { key: 'length', direction: -1 })), 'cab');
 });

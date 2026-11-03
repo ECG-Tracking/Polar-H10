@@ -4,25 +4,42 @@
 import { current, historyChanged, supabase } from './account';
 import * as store from './store';
 import type { BinItem } from './store';
-import { make } from './ui';
+import { deleteButton, frontDeletes, make } from './ui';
 import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
-/** The groups on the page, in the order of the sidebar. */
-export const CATEGORIES = ['ECG recordings', 'Sleep nights', 'Watch D2 nights', 'Watch D2 data', 'Synchronised tracking', 'D2 Link download history'] as const;
-export type Category = (typeof CATEGORIES)[number];
+/** The groups on the page, in the order of the sidebar, with the columns each one's original table has. */
+const GROUPS = [
+  { name: 'ECG recordings', first: 'Recorded', length: true, detail: 'Details' },
+  { name: 'Sleep nights', first: 'Recorded', length: true, detail: '' },
+  { name: 'Watch D2 nights', first: 'Recorded', length: true, detail: '' },
+  { name: 'Watch D2 data', first: 'Recorded', length: false, detail: 'Kind' },
+  { name: 'Synchronised tracking', first: 'Recorded', length: true, detail: '' },
+  { name: 'D2 Link download history', first: 'Downloaded', length: false, detail: 'Result' },
+] as const;
+export type Category = (typeof GROUPS)[number]['name'];
+
+export type SortKey = 'recorded' | 'length' | 'detail' | 'deletedAt' | 'elsewhere' | 'size';
+export interface SortOrder { key: SortKey; direction: 1 | -1 }
 
 const PAGE_SIZE = 50;
+/** As in the original tables: the newest recording first. */
+const DEFAULT_SORT: SortOrder = { key: 'recorded', direction: -1 };
 // kept while the page is drawn again after each action, as in the other app
 const openGroups = new Set<Category>();
 const groupPages = new Map<Category, number>();
+const groupSort = new Map<Category, SortOrder>();
 
 export interface RecoveryItem {
   id: string;
   category: Category;
   user: number;
+  /** When it was recorded (a download: when it ran), ms since 1970. */
+  recorded: number;
   deletedAt: number;
   what: string;
+  /** Seconds; null if it has no length. */
+  length: number | null;
   detail: string;
   size: number;
   elsewhere: boolean;
@@ -38,13 +55,25 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 }
 
+const formatLength = (s: number | null): string => (s == null ? '--' : s < 3600 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`);
+
 export function describe(item: BinItem): RecoveryItem {
   const base = { id: item.id, user: item.user, deletedAt: item.deletedAt, size: item.size, elsewhere: item.elsewhere === true, from: 'app' as const };
   if (item.kind === 'ecg') {
-    return { ...base, category: 'ECG recordings', what: 'ECG recording', detail: [dateTime(item.session.start), `${Math.round(item.session.durationS / 60)} min`, item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
+    return { ...base, category: 'ECG recordings', what: 'ECG recording', recorded: item.session.start, length: item.session.durationS, detail: [item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
   }
-  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: 'Sleep night', detail: `${dateTime(item.session.start)} · ${(item.session.durationS / 3600).toFixed(1)} h` };
-  return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', detail: `${dateTime(item.entry.start)} · ${Math.round(item.entry.durationS / 60)} min` };
+  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
+  return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', recorded: item.entry.start, length: item.entry.durationS, detail: '' };
+}
+
+/** Sorts by one column (items without a length go last); equal rows keep the most recently deleted first. */
+export function sortItems(items: readonly RecoveryItem[], { key, direction }: SortOrder): RecoveryItem[] {
+  const value = (i: RecoveryItem): number | string => (key === 'elsewhere' ? Number(i.elsewhere) : i[key] ?? -1);
+  return [...items].sort((a, b) => {
+    const x = value(a), y = value(b);
+    const c = typeof x === 'string' || typeof y === 'string' ? String(x).localeCompare(String(y)) : x - y;
+    return c * direction || b.deletedAt - a.deletedAt;
+  });
 }
 
 export interface RecoveryDeps { loadD2: () => Promise<D2Api>; user: () => number }
@@ -64,7 +93,7 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
     ...(await store.listBin()).map(describe),
     ...(d2 ? (await d2.recovery.list(account)).map((r) => ({ ...r, from: 'd2' as const })) : []),
   ];
-  const items = all.filter((i) => i.user === deps.user()).sort((a, b) => b.deletedAt - a.deletedAt);
+  const items = all.filter((i) => i.user === deps.user());
   const used = all.reduce((s, i) => s + i.size, 0);
 
   const card = make('div', 'card backup-card');
@@ -82,42 +111,34 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
     try { await fn(); await redo(); } catch (e) { status.textContent = `${doing} didn’t finish: ${errorMessage(e)}.`; }
   };
 
-  const row = (i: RecoveryItem): HTMLLIElement => {
-    const li = make('li');
-    const text = make('div', 'recovery-text');
-    text.append(make('strong', '', i.what), make('span', 'recovery-detail', i.detail),
-      make('span', 'recovery-when', `Deleted ${dateTime(i.deletedAt)}${i.elsewhere ? ' on another device' : ''} · ${formatSize(i.size)}`));
-    const restore = make('button', 'primary', 'Restore');
-    restore.type = 'button';
-    restore.addEventListener('click', () => void act('Restoring', async () => {
+  const restoreButton = (i: RecoveryItem): HTMLButtonElement => {
+    const b = make('button', 'primary recovery-restore', 'Restore');
+    b.type = 'button';
+    b.addEventListener('click', () => void act('Restoring', async () => {
       if (i.from === 'd2') { await d2?.recovery.restore(account, i.id); syncD2(); }
       else { await store.restoreBin(i.id); historyChanged(); }
     }));
-    const purge = make('button', 'recovery-purge', 'Delete permanently');
-    purge.type = 'button';
-    purge.addEventListener('click', () => {
-      if (!window.confirm(`Delete “${i.what}” permanently? This cannot be undone.`)) return;
-      void act('Deleting', async () => {
-        if (i.from === 'd2') await d2?.recovery.purge(account, i.id);
-        else await store.purgeBin(i.id);
-      });
-    });
-    const buttons = make('div', 'recovery-actions');
-    buttons.append(restore, purge);
-    li.append(text, buttons);
-    return li;
+    return b;
   };
+  const purgeButton = (i: RecoveryItem): HTMLButtonElement => deleteButton('this item permanently', () => act('Deleting', async () => {
+    if (i.from === 'd2') await d2?.recovery.purge(account, i.id);
+    else await store.purgeBin(i.id);
+  }), `Delete “${i.what}” permanently? This cannot be undone.`);
 
-  // one collapsible group per category, as in the other app, 50 rows to a page
-  for (const category of CATEGORIES) {
-    const inGroup = items.filter((i) => i.category === category);
+  // one collapsible table per category, as in the other app, 50 rows to a page; the headers sort, as in both other apps
+  for (const g of GROUPS) {
+    const category = g.name;
+    const sort = groupSort.get(category) ?? DEFAULT_SORT;
+    const inGroup = sortItems(items.filter((i) => i.category === category), sort);
     const group = make('details', 'recovery-group');
     group.open = openGroups.has(category);
     group.addEventListener('toggle', () => { if (group.open) openGroups.add(category); else openGroups.delete(category); });
     group.appendChild(make('summary', '', `${category} · ${inGroup.length} item${inGroup.length === 1 ? '' : 's'}`));
-    const pages = Math.max(1, Math.ceil(inGroup.length / PAGE_SIZE));
+    card.appendChild(group);
+    if (!inGroup.length) { group.appendChild(make('p', 'muted', 'Nothing deleted here.')); continue; }
+
+    const pages = Math.ceil(inGroup.length / PAGE_SIZE);
     const page = Math.min(groupPages.get(category) ?? 0, pages - 1);
-    if (!inGroup.length) group.appendChild(make('p', 'muted', 'Nothing deleted here.'));
     if (pages > 1) {
       const pager = make('div', 'row recovery-pager');
       for (const [label, step] of [['Previous', -1], ['Next', 1]] as const) {
@@ -130,12 +151,55 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
       pager.appendChild(make('span', 'note', `Page ${page + 1} of ${pages}`));
       group.appendChild(pager);
     }
-    if (inGroup.length) {
-      const list = make('ul', 'recovery-list');
-      for (const i of inGroup.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) list.appendChild(row(i));
-      group.appendChild(list);
+
+    const columns: { key: SortKey; label: string; text: (i: RecoveryItem) => string }[] = [
+      { key: 'recorded', label: g.first, text: (i) => dateTime(i.recorded) },
+      ...(g.length ? [{ key: 'length' as const, label: 'Length', text: (i: RecoveryItem) => formatLength(i.length) }] : []),
+      ...(g.detail ? [{ key: 'detail' as const, label: g.detail, text: (i: RecoveryItem) => i.detail }] : []),
+      { key: 'deletedAt', label: 'Deleted', text: (i) => dateTime(i.deletedAt) },
+      { key: 'elsewhere', label: 'Deleted on', text: (i) => (i.elsewhere ? 'Another device' : 'This device') },
+      { key: 'size', label: 'Size', text: (i) => formatSize(i.size) },
+    ];
+    const wrap = make('div', 'd2-table-wrap');
+    const table = make('table', 'd2-table recovery-table');
+    const hr = make('tr');
+    hr.append(make('th', 'del-col del-front'), make('th'));
+    for (const c of columns) {
+      const th = make('th');
+      th.scope = 'col';
+      const sorted = sort.key === c.key;
+      th.setAttribute('aria-sort', sorted ? (sort.direction < 0 ? 'descending' : 'ascending') : 'none');
+      const b = make('button', sorted ? 'sort-head sorted' : 'sort-head', `${c.label} ${sorted ? (sort.direction < 0 ? '▼' : '▲') : '↕'}`);
+      b.type = 'button';
+      b.title = `Sort by ${c.label.toLowerCase()}`;
+      b.addEventListener('click', () => {
+        groupSort.set(category, { key: c.key, direction: sorted ? (sort.direction < 0 ? 1 : -1) : -1 });
+        groupPages.set(category, 0);
+        void redo();
+      });
+      th.appendChild(b);
+      hr.appendChild(th);
     }
-    card.appendChild(group);
+    hr.appendChild(make('th', 'del-col'));
+    table.appendChild(make('thead')).appendChild(hr);
+    const body = make('tbody');
+    for (const i of inGroup.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)) {
+      const tr = make('tr');
+      const front = make('td', 'del-col del-front');
+      front.appendChild(purgeButton(i));
+      const restore = make('td');
+      restore.appendChild(restoreButton(i));
+      tr.append(front, restore);
+      for (const c of columns) tr.appendChild(make('td', '', c.text(i)));
+      const end = make('td', 'del-col');
+      end.appendChild(purgeButton(i));
+      tr.appendChild(end);
+      body.appendChild(tr);
+    }
+    table.appendChild(body);
+    wrap.appendChild(table);
+    frontDeletes(wrap);
+    group.appendChild(wrap);
   }
   root.replaceChildren(card);
 }

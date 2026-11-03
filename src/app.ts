@@ -1023,6 +1023,7 @@ account.cloud?.addEventListener('changed', () => {
 sleepUI = initSleep({
   renderNightEcg,
   user: () => currentUser,
+  notch: () => settings.notch,
   userLabel,
   showSleepView: show,
   recordingChanged: syncUserSelect,

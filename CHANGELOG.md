@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.2 – Recovery centre tables with sortable columns; live ECG on Sleep monitor *(GitHub)*
+Why: a table is easier to scan than a list, and the order should be yours to choose.
+- Each category in the Recovery centre is now a table. Click a column header to sort by it, and click again to reverse; the sorted column shows ▼ or ▲ in the theme colour.
+- By default each table is sorted by date of recording, newest first, as in its original table (Download history by when the download ran).
+- Restore is at the front of each row. The × deletes permanently, and shows at both ends of the row when the table is wider than the page.
+- Sleep monitor now shows the live ECG trace, the same as ECG live, whenever the Polar H10 is connected. It is only drawn while you can see it, not under Dim screen or on other pages, to save the battery overnight; the recording itself is not affected.
+
 ## 4 Nov 2026 – v1.15.1 – Recovery centre grouped by category *(GitHub)*
 Why: one long list of deleted items is hard to go through; the other app groups them.
 - Deleted items are now in collapsible groups, as in the other app: ECG recordings, Sleep nights, Watch D2 nights, Watch D2 data, Synchronised tracking and D2 Link download history. Each shows how many items it holds, newest deleted first, 50 to a page.
