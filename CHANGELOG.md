@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.1.1 – Copyright note on the D2 Link page *(GitHub)*
+Why: make clear that the app is copyrighted and only D2 Link is open source.
+
+| File | Change |
+|---|---|
+| `index.html`, `src/app.ts` | Every other page says "Copyright © 2026 ECG-Tracking. All rights reserved."; the D2 Link page says "Copyright © 2026 ECG-Tracking.", then "D2 Link: GNU AGPL v3 · Gadgetbridge © contributors · Source code" (links) and "The rest of OpenBeat ECG: all rights reserved." |
+| `THIRD-PARTY-LICENSES.txt` (new) | Licence texts of the open-source libraries included in app.js (Supabase client: MIT; tslib: 0BSD), which their licences require to be kept with the app |
+
 ## 3 Nov 2026 – v1.1.0 – Version number in the app *(GitHub)*
 Why: to see which version a phone or computer has loaded.
 

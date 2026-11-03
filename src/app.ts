@@ -40,7 +40,8 @@ function show(view: View): void {
   if (view === 'sleep') sleepUI?.refreshUser();
   if (view === 'd2') void openD2();
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
-  $('copyRights').textContent = view === 'd2' ? 'Open Source' : 'All rights reserved.';
+  // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
+  $('copyRights').textContent = view === 'd2' ? '' : 'All rights reserved.';
   $('d2Licence').hidden = view !== 'd2';
   window.scrollTo(0, 0);
 }
