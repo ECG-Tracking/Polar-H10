@@ -1,4 +1,4 @@
-// Local persistence: sessions in IndexedDB, settings in localStorage. Nothing leaves the device.
+// Local persistence: sessions in IndexedDB, settings in localStorage. Cloud copies are made by cloud.ts.
 
 // ---------- Accounts ----------
 // Each signed-in account keeps its own database and settings on the device. The first account to sign in
@@ -340,14 +340,33 @@ export function biodataLine(s: Settings): string {
   ].filter(Boolean).join(' · ');
 }
 
+/** Settings from any saved or downloaded value, with defaults for whatever is missing or damaged. */
+export function parseSettings(raw: unknown): Settings {
+  return { ...DEFAULT_SETTINGS, ...sanitize(raw) };
+}
+
 export function loadSettings(user: UserNumber): Settings {
   try {
-    return { ...DEFAULT_SETTINGS, ...sanitize(JSON.parse(localStorage.getItem(settingsKey(user)) ?? '{}')) };
+    return parseSettings(JSON.parse(localStorage.getItem(settingsKey(user)) ?? '{}'));
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
-export function saveSettings(user: UserNumber, s: Settings): void {
-  try { localStorage.setItem(settingsKey(user), JSON.stringify(s)); } catch { /* private mode */ }
+/** Whether this device has saved settings for this user at all. */
+export function hasSavedSettings(user: UserNumber): boolean {
+  try { return localStorage.getItem(settingsKey(user)) !== null; } catch { return false; }
+}
+
+/** When this user's settings were last saved here (ms since 1970); 0 = never, or saved before cloud sync existed. */
+export function settingsSavedAt(user: UserNumber): number {
+  try { const v = Number(localStorage.getItem(`${settingsKey(user)}-saved`)); return Number.isFinite(v) && v > 0 ? v : 0; } catch { return 0; }
+}
+
+/** `savedAt` is now for a change made here; cloud sync passes the time of the copy it stored. */
+export function saveSettings(user: UserNumber, s: Settings, savedAt = Date.now()): void {
+  try {
+    localStorage.setItem(settingsKey(user), JSON.stringify(s));
+    localStorage.setItem(`${settingsKey(user)}-saved`, String(savedAt));
+  } catch { /* private mode */ }
 }

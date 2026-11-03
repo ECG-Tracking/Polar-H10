@@ -859,6 +859,7 @@ form.addEventListener('change', (e) => {
   if (!(el instanceof HTMLInputElement || el instanceof HTMLSelectElement)) return;
   applyField(el);
   store.saveSettings(currentUser, settings);
+  account.cloud?.syncSoon(); // other devices get the change
   fillSettings();
   if (el.name === 'alias') { renderUserOptions(); fillSettings(); }
 });
@@ -912,6 +913,13 @@ for (const sel of userSelects) {
   });
 }
 renderUserOptions();
+
+// settings saved more recently on another device
+account.cloud?.addEventListener('settings', () => {
+  settings = store.loadSettings(currentUser);
+  renderUserOptions();
+  fillSettings();
+});
 
 // recordings arrived from (or were deleted on) another device
 account.cloud?.addEventListener('changed', () => {

@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.2.0 – Biodata and settings sync across devices *(GitHub)*
+Why: biodata entered on one device didn't appear on the others; and one general cloud table, so later kinds of data need no further SQL.
+
+| File | Change |
+|---|---|
+| `supabase/setup.sql` | New general table `user_data` (kind, id, data as JSON, time saved), each account seeing only its own rows. Run it once more in Supabase |
+| `src/cloud.ts` | Each user's biodata and settings sync as kind `settings`; the most recently saved copy wins. Settings saved before this version count as oldest, but fill in anything the cloud copy left empty |
+| `src/store.ts` | Settings remember when they were saved |
+| `src/app.ts` | A change in Settings syncs a couple of seconds later; settings arriving from another device show straight away |
+| `tests/users.test.ts` | Which copy wins, and the fill-in for older settings |
+
 ## 3 Nov 2026 – v1.1.2 – Licences file explained *(GitHub)*
 Why: make clear the third-party licences cover only those libraries, not the app.
 

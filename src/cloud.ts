@@ -2,16 +2,19 @@
 //   • ECG history: table ecg_sessions holds each recording's details and SUMMARY (results, heart-rate trend,
 //     average beat, first 30 s, up to 50 event strips). The whole ECG is never uploaded.
 //   • Sleep history: table sleep_nights holds each night's report outputs (numbers and graph data).
+//   • Everything else: table user_data, one row per (kind, id) with the data as JSON, so new kinds need no new SQL.
+//     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
-import type { Session, SleepSession, UserEvent } from './store';
+import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport } from './summary';
 import { errorMessage } from './util';
 
 const ECG_TABLE = 'ecg_sessions';
 const SLEEP_TABLE = 'sleep_nights';
+const DATA_TABLE = 'user_data';
 
 interface EcgRow {
   id: string;
@@ -56,6 +59,31 @@ export function parseSleepRow(v: unknown): SleepRow | null {
   return { id, user_no: userNo, started_at: started, duration_s: dur, source };
 }
 
+/** One user's settings on this device: `stored` is null when none were ever saved here; `at` 0 = saved before cloud sync. */
+export interface LocalSettings { stored: Settings | null; at: number }
+export interface CloudSettings { data: unknown; at: number }
+export interface SettingsPlan { keep?: { settings: Settings; at: number }; upload?: { settings: Settings; at: number } }
+
+/** Decides which copy of one user's settings wins: the most recently saved. Settings saved before sync existed
+ *  count as oldest, but their entries fill in anything the cloud copy left at the default (e.g. height on one device). */
+export function planSettings(local: LocalSettings, cloud: CloudSettings | null, now: number): SettingsPlan {
+  if (!cloud) return local.stored ? { upload: { settings: local.stored, at: local.at || 1 } } : {};
+  const fromCloud = store.parseSettings(cloud.data);
+  if (cloud.at > local.at) {
+    if (local.at === 0 && local.stored) {
+      const merged = { ...fromCloud } as Record<keyof Settings, unknown>;
+      for (const k of Object.keys(store.DEFAULT_SETTINGS) as (keyof Settings)[]) {
+        if (fromCloud[k] === store.DEFAULT_SETTINGS[k] && local.stored[k] !== store.DEFAULT_SETTINGS[k]) merged[k] = local.stored[k];
+      }
+      const m = merged as unknown as Settings;
+      if (JSON.stringify(m) !== JSON.stringify(fromCloud)) return { keep: { settings: m, at: now }, upload: { settings: m, at: now } };
+    }
+    return { keep: { settings: fromCloud, at: cloud.at } };
+  }
+  if (local.stored && local.at > cloud.at) return { upload: { settings: local.stored, at: local.at } };
+  return {};
+}
+
 export interface SyncResult { ok: boolean; uploaded: number; downloaded: number; deleted: number; reason?: string }
 
 /** Plain-language reason for a failed sync. */
@@ -97,6 +125,7 @@ export class CloudSync extends EventTarget {
     try {
       await this.syncEcg(result);
       await this.syncSleep(result);
+      await this.syncSettings();
     } catch (err) {
       result.ok = false;
       result.reason = describe(err);
@@ -106,6 +135,33 @@ export class CloudSync extends EventTarget {
     this.dispatchEvent(new Event('synced'));
     if (result.downloaded || result.deleted) this.dispatchEvent(new Event('changed'));
     return result;
+  }
+
+  // ---------- settings (table user_data, kind 'settings') ----------
+
+  /** Fires 'settings' when a newer copy from another device replaced this device's. */
+  private async syncSettings(): Promise<void> {
+    const { data, error } = await this.client.from(DATA_TABLE).select('id, data, saved_at').eq('kind', 'settings');
+    if (error) throw new Error(error.message);
+    const inCloud = new Map<string, CloudSettings>();
+    for (const row of (data as unknown[] | null) ?? []) {
+      const r = row as Obj, at = finiteNum(r, 'saved_at');
+      if (typeof r['id'] === 'string' && at !== null) inCloud.set(r['id'], { data: r['data'], at });
+    }
+    const uploads: { kind: string; id: string; data: Settings; saved_at: number }[] = [];
+    let replaced = false;
+    for (const u of store.USERS as readonly UserNumber[]) {
+      const local = { stored: store.hasSavedSettings(u) ? store.loadSettings(u) : null, at: store.settingsSavedAt(u) };
+      const plan = planSettings(local, inCloud.get(String(u)) ?? null, Date.now());
+      if (plan.upload) uploads.push({ kind: 'settings', id: String(u), data: plan.upload.settings, saved_at: plan.upload.at });
+      if (plan.keep) { store.saveSettings(u, plan.keep.settings, plan.keep.at); replaced = true; }
+      else if (plan.upload && plan.upload.at !== local.at) store.saveSettings(u, plan.upload.settings, plan.upload.at);
+    }
+    if (uploads.length) {
+      const ins = await this.client.from(DATA_TABLE).upsert(uploads);
+      if (ins.error) throw new Error(ins.error.message);
+    }
+    if (replaced) this.dispatchEvent(new Event('settings'));
   }
 
   // ---------- ECG ----------
