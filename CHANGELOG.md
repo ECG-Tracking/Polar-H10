@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.12.1 – Disclaimer on two lines *(GitHub)*
+Why: the second sentence was split in the middle (“Do not / use for diagnosis”).
+
+| File | Change |
+|---|---|
+| `index.html` | The disclaimer’s second sentence (“Do not use for diagnosis; see a doctor about symptoms.”) starts on its own line |
+
 ## 3 Nov 2026 – v1.12.0 – Sync & backups; Settings renamed Biodata *(GitHub)*
 Why: back up and restore the whole account, and compare or repair the copies on this device and in the cloud, as in Portfolio Optimizer.
 
