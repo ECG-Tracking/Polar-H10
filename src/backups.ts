@@ -8,6 +8,7 @@ import type { Session, SleepSession, SleepSignals, UserNumber } from './store';
 import { download, make } from './ui';
 import { errorMessage } from './util';
 import { versionText } from './version';
+import { withReadings } from './synctrack';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
 const TABLES = ['ecg_sessions', 'sleep_nights', 'd2_nights', 'user_data'] as const;
@@ -73,7 +74,17 @@ async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<Acc
   };
 }
 
+/** Gives every tracking in the history the blood pressure readings already on this device (as opening its page does). */
+async function fillTrackingBp(d2: D2Api | null): Promise<void> {
+  const a = current.account;
+  if (!d2 || !a) return;
+  try {
+    for (const e of withReadings(store.loadSyncHistory(), await d2.backup.storedBloodPressure(a.id))) store.saveSyncEntry(e);
+  } catch { /* the backup still goes ahead with the history as it is */ }
+}
+
 export async function makeBackup(d2: D2Api | null): Promise<AccountBackup> {
+  await fillTrackingBp(d2); // so the backup's tracking history is up to date
   return { app: 'OpenBeat ECG', kind: 'openbeat-account-backup', v: 1, ...(await collect(true, d2)) };
 }
 

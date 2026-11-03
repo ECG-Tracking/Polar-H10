@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.12.3 – Backups bring the tracking history up to date first *(GitHub)*
+Why: a backup made straight from Sync & backups missed readings that opening a tracking page would have added.
+
+| File | Change |
+|---|---|
+| `src/backups.ts` | “Backup Account” first gives every tracking the blood pressure readings already on this device (within one hour of its start), as opening Synchronised Tracking does, then makes the backup |
+
 ## 3 Nov 2026 – v1.12.2 – Tracking history: blood pressure from readings already on the device; no watch account ID in backups *(GitHub)*
 Why: the backup showed the 16:27 tracking with only its first reading, although the 16:33 and 16:50 readings had been downloaded; and the watch account ID should not be in backup files.
 
