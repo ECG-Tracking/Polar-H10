@@ -7,7 +7,7 @@ import { Plot, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, S
 import { sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
 import type { Session, SleepSession, UserNumber } from './store';
-import { $, $button, $canvas, make, fmt, fmtHM, metricTile, renderOutliers, download, type Outlier, type MetricRef } from './ui';
+import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, metricTile, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
 import { parseSleepReport, toAnalysis } from './summary';
@@ -256,6 +256,7 @@ export function initSleep(deps: SleepDeps): {
         make('span', 'stats', s ? `Score ${s.score} · ${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'} · HR ${fmt(s.avgHR)} · HRV ${fmt(s.avgHrv)} ms` : 'Open to analyse'),
         make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
       );
+      li.appendChild(deleteButton('this night', async () => { await deleteNight(n); void renderHistory(); }, 'Delete this night permanently? It is also removed from your other devices.'));
       li.addEventListener('click', () => void openReport(n.id));
       list.appendChild(li);
     }
@@ -432,22 +433,26 @@ export function initSleep(deps: SleepDeps): {
   });
   $button('btnSleepBack').addEventListener('click', () => deps.showSleepView('sleepHistory'));
   $button('btnSleepPrint').addEventListener('click', () => window.print());
+  /** Deletes a night (after the caller asked); its ECG is deleted too only if the user says so. */
+  async function deleteNight(night: SleepSession): Promise<void> {
+    const ecgId = night.ecgId;
+    if (ecgId && window.confirm('Also delete the ECG recorded during this night? (Cancel keeps it in ECG history.)')) await store.deleteSession(ecgId);
+    else if (ecgId) {
+      // keep the ECG, but stop it pointing at a night that no longer exists
+      // (a cloud copy may keep the link; the ECG report hides "Open sleep report" when the night is gone)
+      const { session: kept } = await store.loadSession(ecgId);
+      if (kept) {
+        const { sleepId: _gone, ...rest } = kept;
+        await store.updateSession(rest);
+      }
+    }
+    await store.deleteSleep(night.id);
+    historyChanged();
+  }
   $button('btnSleepDelete').addEventListener('click', () => {
     void (async () => {
       if (!current || !window.confirm('Delete this night permanently?')) return;
-      const ecgId = current.session.ecgId;
-      if (ecgId && window.confirm('Also delete the ECG recorded during this night? (Cancel keeps it in ECG history.)')) await store.deleteSession(ecgId);
-      else if (ecgId) {
-        // keep the ECG, but stop it pointing at a night that no longer exists
-        // (a cloud copy may keep the link; the ECG report hides "Open sleep report" when the night is gone)
-        const { session: kept } = await store.loadSession(ecgId);
-        if (kept) {
-          const { sleepId: _gone, ...rest } = kept;
-          await store.updateSession(rest);
-        }
-      }
-      await store.deleteSleep(current.session.id);
-      historyChanged();
+      await deleteNight(current.session);
       current = null;
       deps.showSleepView('sleepHistory');
     })();

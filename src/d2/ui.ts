@@ -11,7 +11,7 @@ import { D2Link, WatchError } from './link';
 import { openMacBridge, openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
-import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
+import { button, clock, dayLabel, deleteButton, el, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import { setUpWatch, type Profile } from './setup';
@@ -30,6 +30,10 @@ export interface D2Deps {
   cloud: CloudClient | null;
   /** The user's biodata, sent to the watch as its profile before downloading all data (null if height or weight is missing). */
   profile?: () => Profile | null;
+  /** Where the downloaded data goes ("D2 Link History"); without it, it is shown below the connection. */
+  historyRoot?: HTMLElement;
+  /** Shows the history page (after a download, or to open a night). */
+  showHistory?: () => void;
 }
 
 // ---------- what a night shows ----------
@@ -143,9 +147,15 @@ function wakeBars(nights: D2Night[]): SVGSVGElement {
 export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } {
   store.useAccount(deps.account);
   root.replaceChildren();
-  const home = el('div', 'd2-home'), report = el('div', 'd2-report');
+  // two pages: D2 Link (connect and download) and D2 Link History (the nights and other data, and a night's report)
+  const home = el('div', 'd2-home');
+  root.append(home);
+  const histRoot = deps.historyRoot ?? root;
+  if (deps.historyRoot) histRoot.replaceChildren();
+  const histHome = el('div', 'd2-home'), report = el('div', 'd2-report');
   report.hidden = true;
-  root.append(home, report);
+  histRoot.append(histHome, report);
+  const toHistory = (): void => deps.showHistory?.();
 
   // header and connection card
   const title = el('h2', '', 'D2 Link ');
@@ -255,19 +265,22 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const wrap = el('div', 'd2-table-wrap');
     const t = el('table', 'd2-table d2-history-table');
     const hr = el('tr');
-    for (const h of ['When', 'Download', 'Dates', 'Result']) hr.appendChild(el('th', '', h));
+    for (const h of ['When', 'Download', 'Dates', 'Result', '']) hr.appendChild(el('th', '', h));
     t.appendChild(el('thead')).appendChild(hr);
     const body = el('tbody');
     for (const e of entries) {
       const tr = el('tr', 'd2-history-main');
       for (const c of [`${day(e.at)} ${clock(e.at)}`, `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      const delTd = el('td', 'del-col');
+      delTd.appendChild(deleteButton('this download from the history', () => { store.removeDownloadLog(e.at); renderHistory(); }, 'Remove this download from the history? (The data it downloaded is kept.)'));
+      tr.appendChild(delTd);
       if (!e.ok) tr.classList.add('d2-history-failed');
       // what came back, on its own full-width row
       const got = e.items.filter((i) => i.count != null).map((i) => `${i.count} ${i.what}`).join(' · ');
       const missed = e.items.filter((i) => i.count == null).map((i) => `${i.what}${i.note ? ` (${i.note})` : ''}`);
       const detail = el('tr', 'd2-history-detail');
       const td = el('td', '', `${got ? `Downloaded: ${got}` : 'Nothing downloaded'}${missed.length ? `. Not downloaded: ${missed.join(', ')}` : ''}${e.watch ? ` · ${e.watch}` : ''}`);
-      td.colSpan = 4;
+      td.colSpan = 5;
       detail.appendChild(td);
       body.append(tr, detail);
     }
@@ -303,7 +316,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const trendsBox = el('div', 'd2-trends');
   const dataBox = el('div', 'd2-alldata');
   const graphsBox = el('div', 'd2-alldata d2-graphs');
-  home.append(title, card, help, history, listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
+  const histTitle = el('h2', '', 'D2 Link History ');
+  const histUserTag = el('span', 'muted');
+  histTitle.appendChild(histUserTag);
+  home.append(title, card, help, history);
+  histHome.append(...(deps.historyRoot ? [histTitle] : []), listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -330,6 +347,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   let model: ScoreModel = fitScoreModel([]);
   async function renderList(): Promise<void> {
     userTag.textContent = `· ${deps.userLabel()}`;
+    histUserTag.textContent = `· ${deps.userLabel()}`;
     const all = await store.listNights(deps.user());
     nights = all.filter((n) => !isNap(n));
     model = fitScoreModel(nights.filter((n) => n.source !== 'demo'));
@@ -346,7 +364,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const li = el('li');
       const left = el('div');
       left.append(el('div', 'when', `Night of ${dayLabel(f.wokeMs)}`), el('div', 'stats', `${clock(f.bedMs)}–${clock(f.wokeMs)} · ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : 'no score'}${naps.length ? ` · + ${naps.length} nap${naps.length > 1 ? 's' : ''}` : ''}${n.source === 'demo' ? ' · demo' : ''}`));
-      li.append(left, el('div', 'dur', f.sleepMin ? hm(f.sleepMin) : '--'));
+      li.append(left, el('div', 'dur', f.sleepMin ? hm(f.sleepMin) : '--'), deleteButton('this night', () => removeNights([n]),
+        n.synced ? 'Delete this night from this device and from your other devices?' : 'Delete this night from this device?'));
       li.addEventListener('click', () => openReport(n.id));
       return { ms: f.wokeMs, li };
     });
@@ -356,7 +375,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const li = el('li', 'd2-naps-only');
       const left = el('div');
       left.append(el('div', 'when', `Naps on ${dayLabel(figures(naps[0]).wokeMs)}`), el('div', 'stats', naps.map(napText).join(' · ')));
-      li.append(left, el('div', 'dur', hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))));
+      li.append(left, el('div', 'dur', hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))), deleteButton(`these naps`, () => removeNights(naps), `Delete ${naps.length === 1 ? 'this nap' : `these ${naps.length} naps`}?`));
       rows.push({ ms: figures(naps[0]).wokeMs, li });
     }
     list.replaceChildren(...rows.sort((a, b) => b.ms - a.ms).map((r) => r.li));
@@ -376,7 +395,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     trendsBox.hidden = view === 'nights' || view === 'data' || view === 'graphs';
     dataBox.hidden = view !== 'data';
     graphsBox.hidden = view !== 'graphs';
-    if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs)); return; }
+    if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs, () => { showView(); void sync(); })); return; }
     if (view === 'graphs') {
       void Promise.all([store.listNights(deps.user()), store.listRecords(deps.user())]).then(([ns, rs]) => renderGraphs(graphsBox, ns, rs, range, (r) => {
         range = r;
@@ -499,6 +518,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
         void sync();
         view = 'data';
         showView();
+        toHistory();
       } else if (latest) openReport(latest.id);
       entry.ok = true;
       entry.result = 'Done';
@@ -566,13 +586,19 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     if (latest) openReport(latest.id);
   })());
 
+  async function removeNights(ns: readonly D2Night[]): Promise<void> {
+    for (const n of ns) await store.deleteNight(n.id);
+    await renderList();
+    void sync();
+  }
+
   // ---------- report ----------
   function openReport(id: string): void {
     const i = nights.findIndex((n) => n.id === id);
     const n = nights[i];
     if (!n) return;
     renderReport(report, n, nights, napsByDay.get(dayKey(n)) ?? [], model, {
-      back: () => { report.hidden = true; home.hidden = false; window.scrollTo(0, 0); },
+      back: () => { report.hidden = true; histHome.hidden = false; window.scrollTo(0, 0); },
       older: nights[i + 1] ? () => openReport(nights[i + 1]!.id) : null,
       newer: i > 0 ? () => openReport(nights[i - 1]!.id) : null,
       remove: async () => {
@@ -580,18 +606,19 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
         await store.deleteNight(n.id);
         await renderList();
         void sync();
-        report.hidden = true; home.hidden = false;
+        report.hidden = true; histHome.hidden = false;
       },
     });
-    home.hidden = true;
+    histHome.hidden = true;
     report.hidden = false;
+    toHistory();
     window.scrollTo(0, 0);
   }
 
   syncButtons();
   renderHistory();
   void renderList().then(sync);
-  return { refresh: () => { report.hidden = true; home.hidden = false; renderHistory(); void renderList().then(sync); } };
+  return { refresh: () => { report.hidden = true; histHome.hidden = false; renderHistory(); void renderList().then(sync); } };
 }
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }

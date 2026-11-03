@@ -4,6 +4,19 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.9.0 – History pages, delete ×, every blood pressure reading, tab bar *(GitHub)*
+Why: blood pressure taken after the tracking ended was missing from the history; separate pages for the histories; delete rows; all tabs visible.
+
+| File | Change |
+|---|---|
+| `src/synctrack.ts`, `src/store.ts` | Every blood pressure reading taken on the watch within one hour of the start is kept with its tracking (checked every minute for the whole hour); when the watch connects, recent trackings (last two days) get readings they are missing. RMSSD and SDNN leave out beats more than 20% away from the previous one (extra or missed beats), for both devices; “Beats used” counts the beats that were used |
+| `index.html`, `src/app.ts`, `src/synctrack.ts` | New tab “Synchronised Tracking History” (the history table moved there) next to “Synchronised Tracking” |
+| `src/d2/ui.ts`, `index.html`, `src/app.ts` | New tab “D2 Link History”: the nights, Week, Month, All data, Graphs and a night’s report; “D2 Link” keeps pairing, downloading and the download history. After a download the history opens |
+| `src/store.ts`, `src/summary.ts`, `src/cloud.ts`, `src/app.ts` | ECG history notes “from synchronised tracking” on recordings made there (also on earlier ones, and on other devices’ copies) |
+| `src/ui.ts`, `src/d2/dom.ts`, `src/app.ts`, `src/sleepui.ts`, `src/d2/ui.ts`, `src/d2/dataui.ts`, `src/synctrack.ts`, `styles.css` | A dark red × on each row of ECG history, Sleep history, D2 Link’s nights, every All data table, the download history and the tracking history: it asks, then deletes (from the other devices too, where the data syncs) |
+| `src/d2/store.ts`, `src/d2/cloud.ts` | Deleted D2 records are removed from the cloud and from the other devices. The cloud’s record list is read in pages of 1000 (it has more than 3000 records) |
+| `styles.css`, `index.html` | Tab bar: all eleven tabs visible, wrapped in groups (ECG · Sleep · D2 Link · Synchronised Tracking · Settings) with dividers; under the logo on narrower screens; the header scrolls away on phones |
+
 ## 3 Nov 2026 – v1.8.1 – History of Synchronised Tracking *(GitHub)*
 Why: see every synchronised tracking and its results together.
 

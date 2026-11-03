@@ -4,6 +4,7 @@ import { hrFrom, mmss, rmssd, sdnn, usable } from '../src/synctrack';
 
 test('synchronised tracking: heart rate and HRV from beat intervals', () => {
   assert.deepEqual(usable([250, 800, 2500, 900]), [800, 900], 'impossible intervals are left out');
+  assert.deepEqual(usable([800, 810, 400, 1200, 790]), [800, 810, 790], 'an extra or missed beat (over 20% off) is left out');
   assert.equal(hrFrom([1000, 1000, 1000]), 60);
   assert.equal(hrFrom([]), null);
   assert.equal(rmssd([800, 810, 790, 800]), Math.sqrt((100 + 400 + 100) / 3));

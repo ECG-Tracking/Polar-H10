@@ -71,6 +71,7 @@ export interface Session {
   synced?: boolean; // its summary is in the account's cloud copy
   cloudOnly?: boolean; // a summary copy from another device: no signal on this device
   sleepId?: string; // recorded together with this sleep night ("Start sleep & ECG recording")
+  syncTracking?: boolean; // recorded during a synchronised tracking (Polar H10 with the Watch D2)
 }
 
 interface SignalRecord { id: string; samples: Int16Array } // µV
@@ -374,6 +375,11 @@ export function saveSettings(user: UserNumber, s: Settings, savedAt = Date.now()
 // ---------- Synchronised tracking history (this device) ----------
 
 /** One synchronised tracking: when, how long, both devices' results, the blood pressure taken and the saved ECG. */
+export interface SyncBp { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
+
+/** Blood pressure readings of an entry (older entries kept only the first). */
+export const syncBps = (e: SyncTrackingEntry): SyncBp[] => e.bps ?? (e.bp ? [e.bp] : []);
+
 export interface SyncTrackingEntry {
   id: string; // `t${start}`
   user: UserNumber;
@@ -381,7 +387,10 @@ export interface SyncTrackingEntry {
   durationS: number;
   polar: { hr: number | null; rmssd: number | null; sdnn: number | null; beats: number } | null; // null = not connected
   watch: { hr: number | null; rmssd: number | null; sdnn: number | null; beats: number } | null;
-  bp: { at: number; systolic: number | null; diastolic: number | null; pulse: number | null } | null;
+  /** The first blood pressure reading (kept for entries saved before `bps`). */
+  bp: SyncBp | null;
+  /** Every blood pressure reading taken on the watch within one hour of the start. */
+  bps?: SyncBp[];
   ecgId: string | null; // the recording saved to ECG history
 }
 
@@ -393,6 +402,10 @@ export function loadSyncHistory(): SyncTrackingEntry[] {
     const v: unknown = JSON.parse(localStorage.getItem(syncKey()) ?? '[]');
     return Array.isArray(v) ? v.filter((e): e is SyncTrackingEntry => typeof e === 'object' && e !== null && typeof (e as SyncTrackingEntry).start === 'number' && typeof (e as SyncTrackingEntry).id === 'string') : [];
   } catch { return []; }
+}
+
+export function removeSyncEntry(id: string): void {
+  try { localStorage.setItem(syncKey(), JSON.stringify(loadSyncHistory().filter((x) => x.id !== id))); } catch { /* storage unavailable */ }
 }
 
 /** Adds an entry, or replaces the one with the same id (e.g. when its blood pressure arrives later). Newest first. */

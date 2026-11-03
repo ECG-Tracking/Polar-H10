@@ -65,11 +65,13 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-view="live" aria-selected="true">ECG live</button>
       <button role="tab" data-view="history">ECG history</button>
-      <button role="tab" data-view="sleep">Sleep monitor</button>
+      <button role="tab" data-view="sleep" class="group-start">Sleep monitor</button>
       <button role="tab" data-view="sleepHistory">Sleep history</button>
-      <button role="tab" data-view="d2">D2 Link</button>
-      <button role="tab" data-view="sync">Synchronised tracking</button>
-      <button role="tab" data-view="settings">Settings</button>
+      <button role="tab" data-view="d2" class="group-start">D2 Link</button>
+      <button role="tab" data-view="d2History">D2 Link History</button>
+      <button role="tab" data-view="sync" class="group-start">Synchronised Tracking</button>
+      <button role="tab" data-view="syncHistory">Synchronised Tracking History</button>
+      <button role="tab" data-view="settings" class="group-start">Settings</button>
     </nav>
   </header>
 
@@ -317,8 +319,16 @@
       <div id="d2Root"><p class="muted">Loading D2 Link…</p></div>
     </section>
 
+    <section id="view-d2History" class="view">
+      <div id="d2HistoryRoot"><p class="muted">Loading D2 Link…</p></div>
+    </section>
+
     <section id="view-sync" class="view">
       <div id="syncRoot"></div>
+    </section>
+
+    <section id="view-syncHistory" class="view">
+      <div id="syncHistoryRoot"></div>
     </section>
 
     <section id="view-settings" class="view">

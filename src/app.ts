@@ -6,7 +6,7 @@ import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
-import { byId, $, $button, $input, $canvas, make, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
+import { byId, $, $button, $input, $canvas, make, deleteButton, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
@@ -28,8 +28,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'sync' | 'settings';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'sync', 'settings'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -40,12 +40,14 @@ function show(view: View): void {
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
-  if (view === 'd2') void openD2();
-  if (view === 'sync') openSync();
+  if (view === 'd2' || view === 'd2History') void openD2();
+  if (view === 'sync' || view === 'syncHistory') openSync();
+  if (view === 'syncHistory') syncUI?.refreshHistory();
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
-  $('copyRights').textContent = view === 'd2' ? '' : 'All rights reserved.';
-  $('d2Licence').hidden = view !== 'd2';
+  const d2Page = view === 'd2' || view === 'd2History';
+  $('copyRights').textContent = d2Page ? '' : 'All rights reserved.';
+  $('d2Licence').hidden = !d2Page;
   window.scrollTo(0, 0);
 }
 
@@ -54,6 +56,8 @@ function show(view: View): void {
 declare const __D2_VERSION__: string; // set by scripts/build.mjs
 let d2: { refresh: () => void } | null = null;
 let d2Loading: Promise<void> | null = null;
+/** D2 Link switched to its history page itself (e.g. to show a night): keep what it shows. */
+let d2KeepPage = false;
 
 /** Loads d2link.js once (D2 Link's page and the watch for synchronised tracking). */
 async function loadD2(): Promise<D2Api> {
@@ -77,7 +81,7 @@ const biodataProfile = (): { heightCm: number; weightKg: number; age: number; se
 
 let syncUI: ReturnType<typeof initSyncTracking> | null = null;
 function openSync(): void {
-  syncUI ??= initSyncTracking($('syncRoot'), {
+  syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
     polarBusy: () => (source?.kind === 'polar' ? 'The strap is connected on ECG live: disconnect it there first.'
       : sleepUI?.isConnected() ? 'The strap is in use on Sleep monitor: disconnect it there first.' : null),
@@ -86,7 +90,7 @@ function openSync(): void {
 }
 
 async function openD2(): Promise<void> {
-  if (d2) { d2.refresh(); return; }
+  if (d2) { if (d2KeepPage) d2KeepPage = false; else d2.refresh(); return; }
   try {
     const api = await loadD2();
     const online = account.account && !account.account.offline;
@@ -96,6 +100,8 @@ async function openD2(): Promise<void> {
       cloud: online ? (supabase() as unknown as CloudClient) : null,
       // Settings → Biodata, sent to the watch as its profile with "Download all data" (only when height and weight are given)
       profile: biodataProfile,
+      historyRoot: $('d2HistoryRoot'),
+      showHistory: () => { if (!$('view-d2History').classList.contains('active')) { d2KeepPage = true; show('d2History'); } },
     });
   } catch (err) {
     $('d2Root').replaceChildren(make('p', 'muted', `D2 Link could not be loaded (${errorMessage(err)}). Check the internet connection and reopen the tab.`));
@@ -445,8 +451,13 @@ async function renderHistory(): Promise<void> {
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
       make('span', 'dur', fmtTime(s.durationS)),
       make('span', 'stats', stats),
-      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
     );
+    li.appendChild(deleteButton('this recording', async () => {
+      await store.deleteSession(s.id);
+      historyChanged();
+      void renderHistory();
+    }, 'Delete this recording permanently? It is also removed from your other devices.'));
     li.addEventListener('click', () => void openReport(s.id));
     list.appendChild(li);
   }

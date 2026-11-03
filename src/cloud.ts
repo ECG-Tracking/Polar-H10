@@ -222,7 +222,7 @@ export class CloudSync extends EventTarget {
         const session: Session = {
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, fs: r.fs, alias: r.alias,
           source: r.source, userEvents: r.user_events, summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: m.eventCount },
-          synced: true, cloudOnly: true, ...(summary.sleepId ? { sleepId: summary.sleepId } : {}),
+          synced: true, cloudOnly: true, ...(summary.sleepId ? { sleepId: summary.sleepId } : {}), ...(summary.syncTracking ? { syncTracking: true } : {}),
         };
         await store.saveSummaryCopy(session, summary);
         result.downloaded++;

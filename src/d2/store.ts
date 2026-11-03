@@ -108,6 +108,26 @@ export async function deleteRecords(keys: readonly string[]): Promise<void> {
   if (keys.length) await tx('readwrite', (s) => { for (const k of keys) s.delete(k); }, 'records');
 }
 
+const recordTombstoneKey = (): string => `d2link-deleted-records-${account}`;
+
+/** Records deleted here that the next sync removes from the cloud (and so from the other devices). */
+export function pendingRecordDeletes(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(recordTombstoneKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+export function setPendingRecordDeletes(keys: readonly string[]): void {
+  try { localStorage.setItem(recordTombstoneKey(), JSON.stringify(keys)); } catch { /* storage unavailable */ }
+}
+
+/** Deletes a record here, and at the next sync from the cloud if it was there. */
+export async function deleteRecord(r: D2Record): Promise<void> {
+  if (r.synced) setPendingRecordDeletes([...new Set([...pendingRecordDeletes(), r.key])]);
+  await deleteRecords([r.key]);
+}
+
 export async function listAllRecords(): Promise<D2Record[]> {
   return (await tx<D2Record[]>('readonly', (s) => s.getAll() as IDBRequest<D2Record[]>, 'records')) ?? [];
 }
@@ -176,6 +196,10 @@ export function loadDownloadLog(): DownloadLogEntry[] {
     const v: unknown = JSON.parse(localStorage.getItem(logKey()) ?? '[]');
     return Array.isArray(v) ? v.filter((e): e is DownloadLogEntry => typeof e === 'object' && e !== null && typeof (e as DownloadLogEntry).at === 'number' && Array.isArray((e as DownloadLogEntry).items)) : [];
   } catch { return []; }
+}
+
+export function removeDownloadLog(at: number): void {
+  try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }
 
 /** Adds a download, newest first, keeping the last 300. */

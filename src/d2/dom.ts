@@ -25,3 +25,18 @@ export const hm = (min: number): string => {
   return total < 60 ? `${total} min` : `${Math.floor(total / 60)} h ${total % 60} min`;
 };
 
+
+/**
+ * The dark red × that deletes a row (after asking). It doesn't open the row it sits on.
+ * `what` names the row for screen readers and the question, e.g. "this night".
+ */
+export function deleteButton(what: string, onDelete: () => void | Promise<void>, question = `Delete ${what}?`): HTMLButtonElement {
+  const b = button('×', 'row-del');
+  b.title = `Delete ${what}`;
+  b.setAttribute('aria-label', `Delete ${what}`);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (window.confirm(question)) void onDelete();
+  });
+  return b;
+}

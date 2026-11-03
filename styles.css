@@ -78,22 +78,29 @@ h3 { font-size: 1rem; margin: 1.4rem 0 0.6rem; color: var(--ink-2); }
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; }
-.tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.tabs::-webkit-scrollbar { display: none; }
-.tabs button { border: 0; background: none; padding: 8px 12px; border-radius: 8px; color: var(--ink-2); white-space: nowrap; flex: none; }
-.tabs button[aria-selected="true"] { background: var(--bg); color: var(--ink); font-weight: 600; }
+.top { align-items: flex-start; }
+.brand { padding-top: 4px; }
+/* every tab stays visible: the tabs wrap onto further lines, in groups (ECG · Sleep · D2 Link · Synchronised Tracking · Settings) */
+.tabs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 2px; }
+.tabs button { border: 0; background: none; padding: 7px 11px; border-radius: 8px; color: var(--ink-2); white-space: nowrap; flex: none; font-size: 0.93rem; }
+.tabs button:hover { color: var(--ink); background: color-mix(in srgb, var(--bg) 60%, transparent); }
+.tabs button[aria-selected="true"] { background: var(--bg); color: var(--ink); font-weight: 600; box-shadow: inset 0 0 0 1px var(--line); }
+.tabs button.group-start { margin-left: 12px; position: relative; }
+.tabs button.group-start::before { content: ""; position: absolute; left: -7px; top: 9px; bottom: 9px; width: 1px; background: var(--line); }
 .brand span { white-space: nowrap; }
 @media (max-width: 420px) {
   .top { padding-left: 12px; padding-right: 12px; gap: 6px; }
   .brand span { display: none; }
   .tabs button { padding: 8px 10px; }
 }
-/* five tabs: wrap onto two lines on phones so every tab stays visible */
+/* phones: smaller tabs (they wrap at every width) */
 @media (max-width: 640px) {
   .top { align-items: flex-start; }
   .brand span { display: none; }
-  .tabs { flex-wrap: wrap; justify-content: flex-end; overflow-x: visible; gap: 2px 4px; }
-  .tabs button { padding: 6px 9px; font-size: 0.9rem; }
+  .tabs { gap: 2px 2px; }
+  .tabs button { padding: 6px 8px; font-size: 0.86rem; }
+  .tabs button.group-start { margin-left: 6px; }
+  .tabs button.group-start::before { left: -4px; }
 }
 
 main { flex: 1; width: 100%; max-width: 1100px; margin: 0 auto; padding: 16px; }
@@ -434,3 +441,26 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
 .sync-history th { white-space: nowrap; }
 .sync-unit { color: var(--muted); font-weight: 400; }
 button.sync-open { min-height: 32px; padding: 0 10px; }
+.sync-history td { white-space: pre-line; }
+
+/* the dark red × that deletes a row, in lists and tables */
+:root { --del: #9b1c1c; --del-hover: #7a1212; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --del: #d24b4b; --del-hover: #e86a6a; } }
+:root[data-theme="dark"] { --del: #d24b4b; --del-hover: #e86a6a; }
+button.row-del {
+  border: 0; background: none; color: var(--del); font-size: 1.35rem; line-height: 1; font-weight: 600;
+  min-width: 36px; min-height: 36px; padding: 0; border-radius: 8px; cursor: pointer;
+}
+button.row-del:hover, button.row-del:focus-visible { color: var(--del-hover); background: color-mix(in srgb, var(--del) 12%, transparent); }
+.sessions li { grid-template-columns: 1fr auto 36px; }
+.sessions li > button.row-del { grid-column: 3; grid-row: 1 / span 2; align-self: center; justify-self: end; }
+.d2-table td.del-col, .d2-table th.del-col, td.del-col { width: 40px; text-align: center; padding: 2px 4px; }
+/* narrower screens: the tabs get the full width under the logo */
+@media (max-width: 1180px) {
+  .top { flex-wrap: wrap; row-gap: 4px; }
+  .tabs { flex: 1 1 100%; justify-content: flex-start; }
+  .tabs button:first-child { margin-left: -6px; }
+}
+.sync-history td:first-child { white-space: nowrap; }
+/* phones: with eleven tabs the header is tall, so it scrolls away instead of staying pinned */
+@media (max-width: 640px) { .top { position: static; } }

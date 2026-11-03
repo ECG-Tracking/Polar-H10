@@ -95,3 +95,19 @@ export function download(blob: Blob, name: string): void {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
+
+/**
+ * The dark red × that deletes a row (after asking). It doesn't open the row it sits on.
+ * `what` names the row for screen readers and the question, e.g. "this recording".
+ */
+export function deleteButton(what: string, onDelete: () => void | Promise<void>, question = `Delete ${what}?`): HTMLButtonElement {
+  const b = make('button', 'row-del', '×');
+  b.type = 'button';
+  b.title = `Delete ${what}`;
+  b.setAttribute('aria-label', `Delete ${what}`);
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (window.confirm(question)) void onDelete();
+  });
+  return b;
+}

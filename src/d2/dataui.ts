@@ -2,9 +2,10 @@
 // D2 Link — the "All data" view: activity per day, the watch's measurements, stress and workouts.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { clock, dayLabel, el, hm } from './dom';
+import { clock, dayLabel, deleteButton, el, hm } from './dom';
 import { READING_CLASSES, WORKOUT_TYPES, type ActivityMinute } from './extra';
 import { minutesOf } from './records';
+import * as store from './store';
 import type { D2Record } from './store';
 import { dateOf } from './trends';
 
@@ -13,18 +14,22 @@ const round = (v: number | null, digits = 0): string => (v == null ? '--' : v.to
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 const when = (ms: number): string => `${dayLabel(ms)} ${clock(ms)}`;
 
-function table(head: string[], rows: string[][]): HTMLElement {
+/** A table; with `recs`, each row ends in a × that deletes its record (row i ↔ recs[i]). */
+function table(head: string[], rows: string[][], recs?: readonly D2Record[], onDelete?: (r: D2Record) => void): HTMLElement {
   const wrap = el('div', 'd2-table-wrap');
   const t = el('table', 'd2-table');
   const tr = el('tr');
   for (const h of head) tr.appendChild(el('th', '', h));
+  if (recs) tr.appendChild(el('th', 'del-col'));
   t.appendChild(el('thead')).appendChild(tr);
   const body = el('tbody');
-  for (const r of rows) {
+  rows.forEach((r, i) => {
     const row = el('tr');
     for (const c of r) row.appendChild(el('td', '', c));
+    const rec = recs?.[i];
+    if (rec && onDelete) { const td = el('td', 'del-col'); td.appendChild(deleteButton('this row', () => onDelete(rec), 'Delete this row? It is also removed from your other devices.')); row.appendChild(td); }
     body.appendChild(row);
-  }
+  });
   t.appendChild(body);
   wrap.appendChild(t);
   return wrap;
@@ -38,7 +43,9 @@ function section(title: string, note: string, content: HTMLElement | null): HTML
   return s;
 }
 
-export function renderAllData(box: HTMLElement, records: readonly D2Record[]): void {
+/** `changed` is called after a row was deleted (to show the data again and sync). */
+export function renderAllData(box: HTMLElement, records: readonly D2Record[], changed: () => void = () => {}): void {
+  const del = (r: D2Record): void => { void store.deleteRecord(r).then(changed); };
   box.replaceChildren();
   if (!records.length) {
     box.appendChild(el('p', 'muted', 'No other data yet. Use “Download all data” to read activity, measurements, stress and workouts from the watch.'));
@@ -63,7 +70,7 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
     });
     const hasTotals = totals != null && [totals.data['steps'], totals.data['kcal'], totals.data['distance']].some((v) => num(v));
     const note = totals && hasTotals ? `Today so far (at ${clock(totals.downloadedAt)}): ${num(totals.data['steps']) ?? 0} steps, ${((num(totals.data['distance']) ?? 0) / 1000).toFixed(2)} km, ${num(totals.data['kcal']) ?? 0} kcal.` : '';
-    box.appendChild(section('Activity', note, rows.length ? table(['Day', 'Steps', 'km', 'kcal', 'Heart rate (range)', 'Resting HR', 'SpO₂ % (min)'], rows) : null));
+    box.appendChild(section('Activity', note, rows.length ? table(['Day', 'Steps', 'km', 'kcal', 'Heart rate (range)', 'Resting HR', 'SpO₂ % (min)'], rows, days, del) : null));
   }
 
   // the watch's measurements, by kind
@@ -85,7 +92,7 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
     });
     const head = ['Time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
     const note = fields.some((f) => !named(f)) ? 'Fields shown by number: their meaning isn’t known yet.' : '';
-    box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows)));
+    box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows, rs, del)));
   }
 
   // stress
@@ -93,7 +100,7 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
   if (stress.length) {
     box.appendChild(section('Stress', 'Score and level as the watch measured them.', table(['Time', 'Score', 'Level'], stress.map((r) => [
       `${when(r.start)}–${clock(num(r.data['end']) ?? r.start)}`, String(num(r.data['score']) ?? '--'), String(num(r.data['level']) ?? '--'),
-    ]))));
+    ]), stress, del)));
   }
 
   // workouts
@@ -110,6 +117,6 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
         t['distance'] != null ? (t['distance'] / 1000).toFixed(2) : '--', t['kcal'] != null ? String(t['kcal']) : '--', t['steps'] != null ? String(t['steps']) : '--',
         hr.length ? `${round(mean(hr))} avg, ${Math.max(...hr)} max` : t['hrMax'] ? `${t['hrMax']} max` : '--',
       ];
-    }))));
+    }), workouts, del)));
   }
 }

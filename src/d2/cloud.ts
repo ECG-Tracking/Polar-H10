@@ -12,10 +12,14 @@ import type { D2Kind, D2Night, D2Record } from './store';
 
 const TABLE = 'd2_nights';
 const DATA_TABLE = 'user_data';
+const PAGE = 1000;
 
 // the parts of the Supabase client used here (OpenBeat ECG passes its signed-in client)
 export interface CloudResult { data: unknown; error: { message: string; code?: string } | null }
-interface Query extends PromiseLike<CloudResult> { in(column: string, values: readonly string[]): PromiseLike<CloudResult> }
+interface Query extends PromiseLike<CloudResult> {
+  in(column: string, values: readonly string[]): PromiseLike<CloudResult>;
+  range(from: number, to: number): PromiseLike<CloudResult>;
+}
 export interface CloudClient {
   from(table: string): {
     select(columns: string): Query;
@@ -158,10 +162,24 @@ async function dropOldKinds(client: CloudClient): Promise<number> {
 export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
   const result: D2SyncResult = { uploaded: 0, downloaded: 0, deleted: 0 };
   result.deleted += await dropOldKinds(client);
-  const list = await client.from(DATA_TABLE).select('kind, id, saved_at');
-  if (list.error) fail(list.error);
+  // records deleted here: from the cloud too
+  const stillPending: string[] = [];
+  for (const key of store.pendingRecordDeletes()) {
+    const { error } = await client.from(DATA_TABLE).delete().eq('id', key);
+    if (error) stillPending.push(key);
+  }
+  store.setPendingRecordDeletes(stillPending);
+  // the cloud answers at most 1000 rows at a time: read the list in pages
+  const rows: unknown[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = await client.from(DATA_TABLE).select('kind, id, saved_at').range(from, from + PAGE - 1);
+    if (page.error) fail(page.error);
+    const got = Array.isArray(page.data) ? page.data : [];
+    rows.push(...got);
+    if (got.length < PAGE) break;
+  }
   const inCloud = new Map<string, number>();
-  for (const r of Array.isArray(list.data) ? list.data : []) {
+  for (const r of rows) {
     const o = r as Record<string, unknown>;
     if (typeof o['kind'] === 'string' && o['kind'].startsWith('d2-') && typeof o['id'] === 'string' && typeof o['saved_at'] === 'number') inCloud.set(o['id'], o['saved_at']);
   }
@@ -171,11 +189,12 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
   const uploads: D2Record[] = [], fetch: string[] = [];
   for (const r of local) {
     const at = inCloud.get(r.key);
+    if (at == null && r.synced) { await store.deleteRecords([r.key]); result.deleted++; continue; } // deleted on another device
     if (at == null || r.downloadedAt > at) uploads.push(r);
     else if (at > r.downloadedAt) fetch.push(r.key);
     else if (!r.synced) await store.saveRecords([{ ...r, synced: true }]);
   }
-  for (const key of inCloud.keys()) if (!byKey.has(key)) fetch.push(key);
+  for (const key of inCloud.keys()) if (!byKey.has(key) && !stillPending.includes(key)) fetch.push(key);
 
   for (let i = 0; i < uploads.length; i += 20) {
     const batch = uploads.slice(i, i + 20);

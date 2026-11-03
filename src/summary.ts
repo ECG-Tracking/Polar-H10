@@ -44,6 +44,7 @@ export interface EcgSummary {
   eventStrips: (Strip & { t: number })[];
   analysedWith: Pick<Settings, 'age' | 'sex' | 'hrRest' | 'hrMax' | 'qtcFormula' | 'notch'>;
   sleepId?: string; // recorded together with this sleep night
+  syncTracking?: boolean; // recorded during a synchronised tracking
 }
 
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -87,6 +88,7 @@ export function buildEcgSummary(session: Session, samples: Int16Array, settings:
     eventStrips: pickEventStrips(events).map((e) => ({ t: e.t, ...cut(e.t - EVENT_STRIP_S / 2, EVENT_STRIP_S) })),
     analysedWith: { age: settings.age, sex: settings.sex, hrRest: settings.hrRest, hrMax: settings.hrMax, qtcFormula: settings.qtcFormula, notch: settings.notch },
     ...(session.sleepId ? { sleepId: session.sleepId } : {}),
+    ...(session.syncTracking ? { syncTracking: true } : {}),
   };
 }
 
@@ -144,6 +146,7 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
       qtcFormula: aw['qtcFormula'] === 'fridericia' ? 'fridericia' : 'bazett', notch: num(aw['notch']),
     },
     ...(typeof v['sleepId'] === 'string' ? { sleepId: v['sleepId'] } : {}),
+    ...(v['syncTracking'] === true ? { syncTracking: true } : {}),
   };
 }
 
