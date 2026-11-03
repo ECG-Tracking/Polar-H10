@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.9.1 – Tracking ECGs summarised in ECG history; tab bar on wide screens *(GitHub)*
+Why: a recording from Synchronised Tracking showed “Open to analyse” instead of HR, HRV and events; on wide screens the last tabs were cut off.
+
+| File | Change |
+|---|---|
+| `src/app.ts`, `src/synctrack.ts` | The ECG from Synchronised Tracking gets its HR, HRV and events for the ECG history list when it is saved (as recordings from ECG live do when their report opens); earlier ones get them when Synchronised Tracking is opened |
+| `styles.css` | On wide screens the tabs wrap within the space beside the logo instead of running off the edge |
+
 ## 3 Nov 2026 – v1.9.0 – History pages, delete ×, every blood pressure reading, tab bar *(GitHub)*
 Why: blood pressure taken after the tracking ended was missing from the history; separate pages for the histories; delete rows; all tabs visible.
 

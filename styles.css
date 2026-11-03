@@ -464,3 +464,5 @@ button.row-del:hover, button.row-del:focus-visible { color: var(--del-hover); ba
 .sync-history td:first-child { white-space: nowrap; }
 /* phones: with eleven tabs the header is tall, so it scrolls away instead of staying pinned */
 @media (max-width: 640px) { .top { position: static; } }
+/* wide screens: the tabs take the space beside the logo and wrap within it (they were cut off) */
+.tabs { flex: 1 1 0; min-width: 0; }

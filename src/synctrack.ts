@@ -27,6 +27,8 @@ export interface SyncDeps {
   polarBusy: () => string | null;
   /** Opens a saved recording's report in ECG history. */
   openEcg: (id: string) => void;
+  /** Works out a saved recording's summary for the ECG history list. */
+  summarise: (id: string) => Promise<void>;
 }
 
 /** Recordings shorter than this aren't saved (as on ECG live). */
@@ -380,7 +382,11 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
   void (async () => {
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;
-      try { const { session } = await store.loadSession(e.ecgId); if (session && !session.syncTracking) await store.updateSession({ ...session, syncTracking: true }); } catch { /* deleted */ }
+      try {
+        const { session } = await store.loadSession(e.ecgId);
+        if (session && !session.syncTracking) await store.updateSession({ ...session, syncTracking: true });
+        if (session && !session.summary) await deps.summarise(e.ecgId); // saved before the summary was made on saving
+      } catch { /* deleted */ }
     }
   })();
     ready();
@@ -401,6 +407,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     };
     try {
       await store.saveSession(session, samples);
+      await deps.summarise(session.id).catch(() => undefined); // HR, HRV and events in the ECG history list
       historyChanged();
       ecgChunks = []; ecgN = 0;
       const row = make('div', 'row wrap');
@@ -495,7 +502,11 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
   void (async () => {
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;
-      try { const { session } = await store.loadSession(e.ecgId); if (session && !session.syncTracking) await store.updateSession({ ...session, syncTracking: true }); } catch { /* deleted */ }
+      try {
+        const { session } = await store.loadSession(e.ecgId);
+        if (session && !session.syncTracking) await store.updateSession({ ...session, syncTracking: true });
+        if (session && !session.summary) await deps.summarise(e.ecgId); // saved before the summary was made on saving
+      } catch { /* deleted */ }
     }
   })();
 

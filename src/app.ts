@@ -86,6 +86,7 @@ function openSync(): void {
     polarBusy: () => (source?.kind === 'polar' ? 'The strap is connected on ECG live: disconnect it there first.'
       : sleepUI?.isConnected() ? 'The strap is in use on Sleep monitor: disconnect it there first.' : null),
     openEcg: (id) => void openReport(id),
+    summarise,
   });
 }
 
@@ -523,6 +524,16 @@ viewerPos.addEventListener('input', () => viewer.goTo((Number(viewerPos.value) /
 $button('zoomIn').addEventListener('click', () => viewer.zoom(1 / 1.5));
 $button('zoomOut').addEventListener('click', () => viewer.zoom(1.5));
 
+
+/** Works out a saved recording's list summary (HR, HRV, events) without opening it, as opening it would. */
+async function summarise(id: string): Promise<void> {
+  const { session, samples } = await store.loadSession(id);
+  if (!session || !samples || session.summary || session.cloudOnly) return;
+  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
+  const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
+  await store.updateSession({ ...session, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length } });
+  if ($('view-history').classList.contains('active')) void renderHistory();
+}
 
 async function openReport(id: string): Promise<void> {
   show('report');
