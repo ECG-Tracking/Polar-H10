@@ -113,6 +113,18 @@ export class D2Link {
    * `onPaired` gets a new pairing as soon as the watch accepts it, so it is kept even if a later step fails.
    */
   async connect(pairing: Pairing | null, onPaired: (p: Pairing) => void = () => {}): Promise<Pairing> {
+    try {
+      return await this.connectOnce(pairing, onPaired);
+    } catch (e) {
+      // the watch keeps one pairing per phone or computer: after pairing elsewhere on the same device, the saved one is refused
+      if (!pairing || this.closed || !(e instanceof WatchError) || !/refused the login|no longer accepts/.test(e.message)) throw e;
+      this.log(`The watch no longer accepts the saved pairing (${e.message.replace(/^The watch /, '').replace(/\.$/, '')}); pairing again – confirm on the watch if it asks…`);
+      this.params.secretKey = null;
+      return this.connectOnce(null, onPaired);
+    }
+  }
+
+  private async connectOnce(pairing: Pairing | null, onPaired: (p: Pairing) => void): Promise<Pairing> {
     this.log('Reading the connection settings…');
     const lp = await this.request({ service: DEVICE_CONFIG, command: 0x01, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8000, 'the first message');
     if (lp.has(0x02)) this.params.sliceSize = lp.short(0x02);
@@ -196,7 +208,7 @@ export class D2Link {
     const psk = await hmacSha256(key, seed);
     const expected = await hmacSha256(psk, concat(randPeer, randSelf, selfId, peerId));
     if (!equal(expected, unhex(str(r1, 'token')))) {
-      throw new WatchError(op === 1 ? 'The watch rejected the pairing code.' : 'The watch no longer accepts this browser’s pairing. Use “Forget pairing”, then pair again.');
+      throw new WatchError(op === 1 ? 'The watch rejected the pairing code.' : 'The watch no longer accepts this browser’s pairing.');
     }
 
     // step 2: our token; check the watch's confirmation

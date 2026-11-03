@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.7.1 – D2 Link pairs again by itself when the watch refuses the saved pairing *(GitHub)*
+Why: the watch keeps one pairing per phone or computer, so pairing it again on the same device (e.g. from another browser) made the saved pairing fail with “refused the login (error -1)”.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | When the watch refuses the saved pairing, D2 Link says so and pairs again on the same connection (confirm on the watch if it asks); the new pairing is saved. Used by D2 Link and Synchronised tracking |
+| `src/synctrack.ts` | The connection log is under the Watch D2 card (it was at the bottom) |
+| `tests/d2.test.ts` | Test for pairing again after a refused login |
+
 ## 3 Nov 2026 – v1.7.0 – Synchronised tracking *(GitHub)*
 Why: compare the Polar H10 and the Watch D2 at the same time, with a blood pressure reading.
 

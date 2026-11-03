@@ -309,3 +309,15 @@ test('D2 download: pieces are appended in order (offsets per block are fine) and
     if (opts.dropFirstBlockRequest) assert.ok(log.some((l) => l.includes('asking again')));
   }
 });
+
+test('D2 link: a saved pairing the watch no longer accepts is replaced by a new pairing on the same connection', async () => {
+  const w = new FakeWatch(); // has no pairing: refuses any saved one
+  const log: string[] = [];
+  const link = new D2Link(w.transport, (l) => log.push(l));
+  const stale = { authId: '0123456789ABCDEF0123456789ABCDEF', authToken: '00'.repeat(32) };
+  const got: Pairing[] = [];
+  const kept = await link.connect(stale, (p) => got.push(p));
+  assert.ok(log.some((l) => /no longer accepts the saved pairing/.test(l)));
+  assert.notEqual(kept.authToken, stale.authToken);
+  assert.equal(got.length, 1, 'the new pairing is handed over to be saved');
+});

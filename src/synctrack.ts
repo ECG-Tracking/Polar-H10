@@ -139,11 +139,11 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
   const summary = make('div', 'card');
   summary.hidden = true;
   const logBox = make('details', 'd2-log');
-  logBox.appendChild(make('summary', '', 'Connection log'));
+  logBox.appendChild(make('summary', '', 'Connection log (Polar H10 and Watch D2)'));
   const logPre = make('pre', 'log');
   logBox.appendChild(logPre);
 
-  root.append(polarCard, watchCard, runCard, tiles, traceCard, chartCard, bpCard, summary, logBox);
+  root.append(polarCard, watchCard, logBox, runCard, tiles, traceCard, chartCard, bpCard, summary);
   const log = (s: string): void => { logPre.textContent += `${clock(Date.now())} ${s}\n`; logPre.scrollTop = logPre.scrollHeight; };
 
   // ---------- state ----------
