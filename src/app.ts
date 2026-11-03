@@ -6,7 +6,7 @@ import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
-import { byId, $, $button, $input, $canvas, make, deleteButton, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
+import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
@@ -130,6 +130,7 @@ interface Recording {
   n: number; // samples recorded
   userEvents: UserEvent[];
   detected: number[]; // seconds from start of detected events, for live counting
+  limitS: number | null; // stops and saves at this length; null = until stopped
 }
 
 const trace = new LiveTrace($canvas('liveCanvas'), FS);
@@ -280,7 +281,8 @@ function tick(): void {
   if (!source) return;
   if (rec) {
     const elapsed = rec.n / FS;
-    $('timer').textContent = fmtTime(elapsed);
+    $('timer').textContent = fmtTime(rec.limitS == null ? elapsed : Math.ceil(Math.max(0, rec.limitS - elapsed)));
+    if (rec.limitS != null && elapsed >= rec.limitS) { void finishRecording(); return; }
     if (elapsed >= SPLIT_S) { void stopRecording().then(() => startRecording()); return; }
   }
   if (ringCount < 5 * FS) {
@@ -372,15 +374,29 @@ async function requestWakeLock(): Promise<void> {
   try { wakeLock = 'wakeLock' in navigator ? await navigator.wakeLock.request('screen') : null; } catch { /* not supported */ }
 }
 
+/** The length chosen in "Record for"; null = until stopped. */
+const recordingLength = (): number | null => durationSeconds(byId('recDuration', HTMLSelectElement).value, $input('recMinutes').value);
+
+/** Shows the chosen length on the timer and locks the choice while recording. */
+function showRecLength(): void {
+  const choice = byId('recDuration', HTMLSelectElement);
+  $('recMinutesLabel').hidden = choice.value !== 'custom';
+  choice.disabled = rec != null;
+  $input('recMinutes').disabled = rec != null;
+  if (!rec) $('timer').textContent = fmtTime(recordingLength() ?? 0);
+}
+
 async function startRecording(): Promise<void> {
-  rec = { user: currentUser, start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [] };
+  const limitS = recordingLength();
+  rec = { user: currentUser, start: Date.now(), startSample: total, chunks: [], n: 0, userEvents: [], detected: [], limitS };
+  showRecLength();
   syncUserSelect();
   const btn = $button('btnRecord');
   btn.textContent = 'Stop';
   btn.classList.add('recording');
   $button('btnEvent').disabled = false;
   $('liveEvents').textContent = '0';
-  $('timer').textContent = '0:00';
+  $('timer').textContent = fmtTime(limitS ?? 0);
   try { audio ??= new AudioContext(); } catch { /* ignore */ }
   await requestWakeLock();
 }
@@ -391,6 +407,7 @@ async function stopRecording(): Promise<Session | null> {
   const btn = $button('btnRecord');
   btn.textContent = 'Start';
   btn.classList.remove('recording');
+  showRecLength();
   $button('btnEvent').disabled = true;
   try { await wakeLock?.release(); } catch { /* ignore */ }
   wakeLock = null;
@@ -399,14 +416,16 @@ async function stopRecording(): Promise<Session | null> {
     $('timer').textContent = 'Too short to save (min 10 s)';
     return null;
   }
-  const samples = new Int16Array(r.n);
+  const all = new Int16Array(r.n);
   let o = 0;
-  for (const c of r.chunks) { samples.set(c, o); o += c.length; }
+  for (const c of r.chunks) { all.set(c, o); o += c.length; }
+  // a chosen length is kept exactly (the timer checks once a second, so a little more may have arrived)
+  const samples = r.limitS == null ? all : all.slice(0, Math.min(r.n, Math.round(r.limitS * FS)));
   const session: Session = {
     id: `s${r.start}`,
     user: r.user,
     start: r.start,
-    durationS: r.n / FS,
+    durationS: samples.length / FS,
     fs: FS,
     alias: settings.alias,
     source: source?.kind ?? 'polar',
@@ -418,6 +437,17 @@ async function stopRecording(): Promise<Session | null> {
   $('timer').textContent = `Saved ${fmtTime(session.durationS)}`;
   return session;
 }
+
+/** The chosen time is up: saves like Stop. The report opens if ECG live is showing; otherwise you stay on your page. */
+async function finishRecording(): Promise<void> {
+  const s = await stopRecording();
+  if (!s) return;
+  if ($('view-live').classList.contains('active')) await openReport(s.id);
+  else await summarise(s.id);
+}
+
+$('recDuration').addEventListener('change', showRecLength);
+$('recMinutes').addEventListener('input', showRecLength);
 
 $button('btnRecord').addEventListener('click', () => {
   void (async () => {

@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.13.0 – ECG live: choice of recording length *(GitHub)*
+Why: record for a set time, as in Synchronised Tracking.
+
+| File | Change |
+|---|---|
+| `index.html`, `src/app.ts`, `src/ui.ts`, `src/synctrack.ts` | New “Record for” choice on ECG live: 1, 3 or 5 minutes, until stopped (the default, as before), or a chosen number of minutes (1–240). With a set length the timer counts down, the recording stops and saves itself at exactly that length, and its report opens if ECG live is showing; Stop still ends it early. The choice is locked while recording |
+| `tests/users.test.ts` | Test for the chosen length |
+
 ## 3 Nov 2026 – v1.12.3 – Backups bring the tracking history up to date first *(GitHub)*
 Why: a backup made straight from Sync & backups missed readings that opening a tracking page would have added.
 

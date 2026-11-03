@@ -96,6 +96,13 @@ export function download(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
 
+/** A chosen length in seconds: 'unlimited' = null (until stopped), 'custom' = `minutes` (1–240, else 10), or a number of seconds. */
+export function durationSeconds(choice: string, minutes: string): number | null {
+  if (choice === 'unlimited') return null;
+  if (choice === 'custom') { const m = Math.round(Number(minutes)); return m >= 1 && m <= 240 ? m * 60 : 600; }
+  return Number(choice);
+}
+
 /**
  * The dark red × that deletes a row (after asking). It doesn't open the row it sits on.
  * `what` names the row for screen readers and the question, e.g. "this recording".

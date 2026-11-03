@@ -134,6 +134,18 @@
       </div>
 
       <div class="card controls">
+        <div class="row wrap sync-dur">
+          <label class="d2-days">Record for
+            <select id="recDuration">
+              <option value="60">1 minute</option>
+              <option value="180">3 minutes</option>
+              <option value="300">5 minutes</option>
+              <option value="unlimited" selected>Until I stop</option>
+              <option value="custom">Choose minutes…</option>
+            </select>
+          </label>
+          <label class="d2-days" id="recMinutesLabel" hidden><input id="recMinutes" type="number" min="1" max="240" step="1" value="10" aria-label="Minutes"> min</label>
+        </div>
         <div class="timer" id="timer">0:00</div>
         <div class="row">
           <button class="primary big" id="btnRecord" disabled>Start</button>

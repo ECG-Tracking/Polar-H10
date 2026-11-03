@@ -5,7 +5,7 @@
 import { PolarH10, ECG_FS, type EcgDetail, type HrDetail } from './polar';
 import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
-import { deleteButton, make } from './ui';
+import { deleteButton, durationSeconds, make } from './ui';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -149,11 +149,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
   const durRow = make('div', 'row wrap sync-dur');
   durRow.append(durLabel, customLabel);
   /** The chosen length in seconds; null = until stopped. */
-  const durationS = (): number | null => {
-    if (dur.value === 'unlimited') return null;
-    if (dur.value === 'custom') { const m = Math.round(Number(customMin.value)); return m >= 1 && m <= 240 ? m * 60 : 600; }
-    return Number(dur.value);
-  };
+  const durationS = (): number | null => durationSeconds(dur.value, customMin.value);
   const showDuration = (): void => {
     customLabel.hidden = dur.value !== 'custom';
     const d = durationS();

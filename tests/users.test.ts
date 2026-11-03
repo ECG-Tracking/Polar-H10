@@ -60,3 +60,12 @@ test('settings sync: settings saved before sync fill in what the cloud copy left
   // a damaged cloud copy falls back to defaults field by field
   assert.deepEqual(planSettings({ stored: null, at: 0 }, { data: { age: 'x', heightCm: 180 }, at: 5 }, 9), { keep: { settings: { ...DEFAULT_SETTINGS, heightCm: 180 }, at: 5 } });
 });
+
+test('recording length: minutes, until stopped, or chosen minutes', async () => {
+  const { durationSeconds } = await import('../src/ui');
+  assert.equal(durationSeconds('60', ''), 60);
+  assert.equal(durationSeconds('unlimited', '5'), null);
+  assert.equal(durationSeconds('custom', '7'), 420);
+  assert.equal(durationSeconds('custom', '0'), 600, 'an impossible number falls back to 10 minutes');
+  assert.equal(durationSeconds('custom', '241'), 600);
+});
