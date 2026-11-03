@@ -8,13 +8,14 @@ import { renderGraphs, RANGES, type Range } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile, READING_CLASSES } from './extra';
 import { D2Link, WatchError } from './link';
-import { openMacBridge, openWatch, serialAvailable } from './serial';
+import { serialAvailable } from './serial';
+import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch, openedWatch, watchName } from './watch';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
 import { button, clock, dayLabel, deleteButton, el, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
-import { setUpWatch, type Profile } from './setup';
+import type { Profile } from './setup';
 import { activityRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
 import * as store from './store';
 import type { D2Night } from './store';
@@ -56,6 +57,12 @@ function personal(v: number | null, lo: number | null, hi: number | null): Verdi
   return { text: v < lo ? 'Below range' : v > hi ? 'Above range' : 'Within range', kind: 'personal' };
 }
 
+/** Night sleep: the phone app says "Below average" rather than "Low". */
+function nightVerdict(hours: number): Verdict {
+  const v = fixed(hours, 6, 10);
+  return v?.kind === 'low' ? { text: 'Below average', kind: 'low' } : v;
+}
+
 interface TileSpec { name: string; value: string; unit: string; verdict: Verdict; ref: string }
 
 export function tiles(n: D2Night): TileSpec[] {
@@ -63,19 +70,20 @@ export function tiles(n: D2Night): TileSpec[] {
   const pct = (m: number): number | null => (f.sleepMin > 0 ? Math.round((100 * m) / f.sleepMin) : null);
   const show = (v: number | null): string => (v == null ? '--' : String(v));
   const pr = (lo: number | null, hi: number | null, unit: string): string => (lo != null && hi != null && lo > 0 ? `Personal range: ${lo}–${hi}${unit}` : 'Personal range: not set yet');
-  const light = pct(f.lightMin), deep = pct(f.deepMin), rem = pct(f.remMin);
+  // deep, light and REM add up to 100%, as on the watch's phone app (REM takes what rounding leaves)
+  const light = pct(f.lightMin), deep = pct(f.deepMin), rem = light != null && deep != null ? 100 - light - deep : null;
   return [
     { name: 'Times woke up', value: show(f.wakeups), unit: 'times', verdict: fixed(f.wakeups, 0, 1), ref: s.wakeCount == null && f.wakeups != null ? 'References: 0–1 times · counted from the stages' : 'References: 0–1 times' },
     { name: 'Light sleep', value: show(light), unit: '%', verdict: light == null ? null : light < 55 ? { text: 'Normal', kind: 'normal' } : { text: 'High', kind: 'high' }, ref: 'Reference: <55%' },
     { name: 'Avg heart rate', value: show(s.avgHeartRate), unit: 'bpm', verdict: personal(s.avgHeartRate, s.minHeartRateBaseline, s.maxHeartRateBaseline), ref: pr(s.minHeartRateBaseline, s.maxHeartRateBaseline, ' bpm') },
-    { name: 'Night sleep', value: f.sleepMin ? hm(f.sleepMin).replace(' min', '') : '--', unit: 'min', verdict: f.sleepMin ? fixed(f.sleepMin / 60, 6, 10) : null, ref: 'References: 6–10 h' },
+    { name: 'Night sleep', value: f.sleepMin ? hm(f.sleepMin).replace(' min', '') : '--', unit: 'min', verdict: f.sleepMin ? nightVerdict(f.sleepMin / 60) : null, ref: 'References: 6–10 h' },
     { name: 'Deep sleep', value: show(deep), unit: '%', verdict: fixed(deep, 20, 60), ref: 'References: 20–60%' },
     { name: 'REM sleep', value: show(rem), unit: '%', verdict: fixed(rem, 10, 30), ref: 'References: 10–30%' },
     { name: 'Deep sleep continuity', value: show(s.deepPart), unit: 'points', verdict: fixed(s.deepPart, 70, 100), ref: 'References: 70–100 points' },
     { name: 'Breathing quality', value: '--', unit: 'points', verdict: null, ref: 'Not sent by the watch with the sleep record' },
     { name: 'Avg HRV', value: show(s.avgHrv), unit: 'ms', verdict: personal(s.avgHrv, s.minHrvBaseline, s.maxHrvBaseline), ref: pr(s.minHrvBaseline, s.maxHrvBaseline, ' ms') },
     { name: 'Avg SpO₂', value: show(s.avgOxygenSaturation), unit: '%', verdict: personal(s.avgOxygenSaturation, s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline), ref: pr(s.minOxygenSaturationBaseline, s.maxOxygenSaturationBaseline, '%') },
-    { name: 'Avg breathing rate', value: show(s.avgBreathRate), unit: 'per min', verdict: personal(s.avgBreathRate, s.minBreathRateBaseline, s.maxBreathRateBaseline), ref: pr(s.minBreathRateBaseline, s.maxBreathRateBaseline, '') },
+    { name: 'Avg respiratory rate', value: show(s.avgBreathRate), unit: 'brpm', verdict: personal(s.avgBreathRate, s.minBreathRateBaseline, s.maxBreathRateBaseline), ref: pr(s.minBreathRateBaseline, s.maxBreathRateBaseline, '') },
   ];
 }
 
@@ -185,6 +193,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   viaLabel.appendChild(via);
   const btnDemo = button('Demo nights');
   const btnForget = button('Forget pairing');
+  const btnDisconnect = button('Disconnect watch');
+  btnDisconnect.hidden = true;
   const days = el('select');
   for (const [v, t] of [[1, 'Last night'], [3, 'Last 3 days'], [7, 'Last 7 days'], [14, 'Last 14 days'], [30, 'Last 30 days']] as const) {
     const o = el('option', '', t); o.value = String(v); if (v === 7) o.selected = true; days.appendChild(o);
@@ -204,7 +214,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   dateRow.hidden = true;
   days.addEventListener('change', () => { dateRow.hidden = days.value !== 'custom'; });
   const actions = el('div', 'row wrap');
-  actions.append(goButtons, daysLabel, viaLabel, btnDemo, btnForget);
+  actions.append(goButtons, daysLabel, viaLabel, btnDemo, btnDisconnect, btnForget);
   // the account the watch belongs to (optional): the watch may keep health data back from a phone without it
   const acct = el('details', 'd2-acct');
   acct.appendChild(el('summary', '', 'Watch account ID (optional)'));
@@ -489,15 +499,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     setStatus(mode === 'mac' ? 'Connecting through D2 Bridge…' : 'Choose the watch in Chrome’s list…', 'busy');
     let link: D2Link | null = null;
     try {
-      const t = mode === 'mac' ? await openMacBridge(log) : await openWatch(mode, log);
-      log(mode === 'bluetooth' ? 'Connected to the watch’s Bluetooth serial service.' : mode === 'mac' ? 'Connected through D2 Bridge.' : 'Serial port opened.');
-      setStatus('Connected – logging in…', 'busy');
-      link = new D2Link(t, log);
-      const kept = await link.connect(store.loadPairing(), (p) => { store.savePairing(p); syncButtons(true); });
-      store.savePairing(kept);
-      const name = watchName(link.info?.name || link.info?.model || '');
+      logTo(log);
+      const w = await connectWatch(deps.account, mode, (text) => setStatus(text, 'busy'));
+      link = w.link;
+      const name = w.name;
       entry.watch = name;
-      setStatus(`${name}${link.info?.battery != null ? ` · battery ${link.info.battery}%` : ''} – downloading…`, 'on');
+      setStatus(`${name}${w.battery != null ? ` · battery ${w.battery}%` : ''} – downloading…`, 'on');
       const { start, end } = period;
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
@@ -533,7 +540,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
           ? 'The port opened but the watch didn’t answer on it: it is probably not the watch’s data channel.'
           : '';
     } finally {
-      await link?.close();
+      // the connection stays open for the next download and for Synchronised Tracking
       syncButtons(false);
       store.addDownloadLog(entry);
       renderHistory();
@@ -543,8 +550,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   async function downloadOthers(link: D2Link, start: number, end: number, name: string, items: store.DownloadLogItem[]): Promise<string> {
     const user = deps.user(), parts: string[] = [];
     progress.textContent = 'Setting up the watch…';
-    log('Sending the set-up messages (supported features, time, agreements, account, profile)…');
-    await setUpWatch(link, { watchName: name, profile: deps.profile?.() ?? null, accountId: store.loadWatchAccount(), log });
+    const w = openedWatch();
+    if (w) await ensureSetUp(w, deps.profile?.() ?? null);
     const step = async (what: string, fn: () => Promise<store.D2Record[]>): Promise<void> => {
       progress.textContent = `Downloading ${what}…`;
       try {
@@ -615,6 +622,15 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     window.scrollTo(0, 0);
   }
 
+  // the watch connection is shared with Synchronised Tracking: this page shows it, whichever page connected it
+  logTo(log);
+  btnDisconnect.addEventListener('click', () => void disconnectWatch());
+  onWatch((w) => {
+    btnDisconnect.hidden = !w;
+    if (w) setStatus(`${w.name}${w.battery != null ? ` · battery ${w.battery}%` : ''} – connected`, 'on');
+    else setStatus('Not connected', '');
+  });
+
   syncButtons();
   renderHistory();
   void renderList().then(sync);
@@ -622,9 +638,6 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
 }
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
-
-/** The watch's name as shown here, without the maker's brand (e.g. "WATCH D2-8F4"). */
-const watchName = (raw: string): string => raw.replace(/^.*?(?=\bwatch\b)/i, '').replace(/\s+/g, ' ').trim() || 'Watch D2';
 
 const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
 

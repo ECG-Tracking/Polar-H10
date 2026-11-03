@@ -237,3 +237,46 @@ test('D2 live: the heartbeat test streams beat intervals with their signal quali
   assert.deepEqual(got, [{ rri: 800, sqi: 1 }, { rri: 820, sqi: 1 }, { rri: 790, sqi: 0 }]);
   assert.ok(w.setup.includes('19:1:3'));
 });
+
+import { connectLive } from '../src/d2/live';
+import { connectWatch, disconnectWatch, onWatch, ensureSetUp } from '../src/d2/watch';
+
+test('D2 watch: one connection is shared by D2 Link and Synchronised Tracking', async () => {
+  // D2 Bridge stood in for by a socket that talks to the fake watch
+  const w = new FakeWatch();
+  let sockets = 0;
+  class FakeSocket {
+    static OPEN = 1;
+    readyState = 1; binaryType = '';
+    onopen: (() => void) | null = null; onmessage: ((e: { data: unknown }) => void) | null = null; onerror: (() => void) | null = null; onclose: (() => void) | null = null;
+    constructor() {
+      sockets++;
+      w.transport.onData = (d) => this.onmessage?.({ data: d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) });
+      setTimeout(() => { this.onopen?.(); this.onmessage?.({ data: 'open WATCH D2' }); }, 0);
+    }
+    send(d: Uint8Array): void { void w.transport.send(d); }
+    close(): void { this.readyState = 3; this.onclose?.(); }
+  }
+  const saved = (globalThis as { WebSocket?: unknown }).WebSocket;
+  (globalThis as { WebSocket?: unknown }).WebSocket = FakeSocket;
+  try {
+    const states: boolean[] = [];
+    onWatch((s) => states.push(s != null));
+    const first = await connectWatch('test', 'mac'); // D2 Link connects
+    await ensureSetUp(first, null);
+    const setupsAfterFirst = w.setup.filter((m) => m === '1:2').length;
+    let closed = 0;
+    const live = await connectLive({ account: 'test', user: 1, via: 'mac', profile: null, log: () => {} }); // Synchronised Tracking joins
+    live.onClose = () => { closed++; };
+    assert.equal(sockets, 1, 'no second connection or pairing');
+    assert.equal(w.setup.filter((m) => m === '1:2').length, setupsAfterFirst, 'the set-up isn’t repeated');
+    assert.equal(await connectWatch('test', 'mac'), first);
+    await live.startHeartbeats(() => {});
+    assert.ok(w.setup.includes('19:1:3'), 'the page that joined can use the watch');
+    await disconnectWatch();
+    assert.equal(closed, 1, 'the other page hears it is disconnected');
+    assert.deepEqual(states, [false, true, false]);
+  } finally {
+    (globalThis as { WebSocket?: unknown }).WebSocket = saved;
+  }
+});

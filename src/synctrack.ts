@@ -2,7 +2,8 @@
 // a custom time, or until stopped), plus a blood pressure reading taken on the watch within the hour after the start.
 // The watch is reached through D2 Link (d2link.js); this page only uses what it offers.
 
-import { PolarH10, ECG_FS, type EcgDetail, type HrDetail } from './polar';
+import { ECG_FS, type EcgDetail, type HrDetail, type PolarH10 } from './polar';
+import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
 import { deleteButton, durationSeconds, make } from './ui';
@@ -23,8 +24,6 @@ export interface SyncDeps {
   user: () => number;
   notch: () => number;
   profile: () => { heightCm: number; weightKg: number; age: number; sex: 'male' | 'female' } | null;
-  /** Why the strap can't be used here (in use on another page), or null. */
-  polarBusy: () => string | null;
   /** Opens a saved recording's report in ECG history. */
   openEcg: (id: string) => void;
   /** Works out a saved recording's summary for the ECG history list. */
@@ -69,13 +68,13 @@ export function sdnn(rr: readonly number[]): number | null {
 
 /** Heart rate from the last few intervals (bpm). */
 /**
- * Each tracking's blood pressure: every reading taken within one hour of its start (a reading can fall within the hour
- * of two trackings, and then belongs to both). Returns only the entries that changed.
+ * Each tracking's blood pressure: every reading taken from one hour before its start to one hour after (a reading can
+ * fall within the hours of two trackings, and then belongs to both). Returns only the entries that changed.
  */
 export function withReadings(entries: readonly SyncTrackingEntry[], readings: readonly SyncBp[]): SyncTrackingEntry[] {
   const out: SyncTrackingEntry[] = [];
   for (const e of entries) {
-    const mine = readings.filter((b) => b.at >= e.start && b.at <= e.start + BP_WINDOW_MS).sort((a, b) => a.at - b.at);
+    const mine = readings.filter((b) => b.at >= e.start - BP_WINDOW_MS && b.at <= e.start + BP_WINDOW_MS).sort((a, b) => a.at - b.at);
     if (mine.length && JSON.stringify(store.syncBps(e)) !== JSON.stringify(mine)) out.push({ ...e, bp: mine[0] ?? null, bps: mine });
   }
   return out;
@@ -99,7 +98,7 @@ const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour
 export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised Tracking'), make('p', 'note',
-    'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, during the tracking or within one hour of the start.'));
+    'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start.'));
 
   // --- 1. Polar H10 ---
   const polarCard = make('div', 'card');
@@ -218,6 +217,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
 
   // ---------- state ----------
   let polar: PolarH10 | null = null, watch: LiveWatch | null = null;
+  let attached: PolarH10 | null = null; // the strap this page listens to
   let filter = new EcgFilter(ECG_FS, deps.notch());
   let t0: number | null = null, timerId: ReturnType<typeof setInterval> | null = null, bpTimer: ReturnType<typeof setInterval> | null = null;
   let polarRr: number[] = [], watchRr: number[] = [];
@@ -242,46 +242,58 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
 
   // ---------- Polar ----------
   btnPolar.addEventListener('click', () => void (async () => {
-    const busy = deps.polarBusy();
-    if (busy) { polarText.textContent = busy; return; }
-    const p = new PolarH10();
-    p.addEventListener('ecg', (e) => {
-      const s = (e as CustomEvent<EcgDetail>).detail.samples;
-      trace.push(Float32Array.from(s, (v) => filter.process(v)));
-      if (timerId != null) { ecgChunks.push(Int16Array.from(s, clip16)); ecgN += s.length; } // the tracked ECG, saved to ECG history
-    });
-    p.addEventListener('hr', (e) => {
-      const d = (e as CustomEvent<HrDetail>).detail;
-      polarHrNow = d.hr;
-      polarLive = keepLast(polarLive, d.rr);
-      if (timerId != null) polarRr.push(...d.rr);
-    });
-    p.addEventListener('disconnect', () => { log('Polar H10 disconnected.'); polar = null; polarLive = []; polarHrNow = null; polarDot.className = 'dot'; polarText.textContent = 'Polar H10: disconnected'; btnPolar.hidden = false; btnPolarOff.hidden = true; ready(); });
     polarDot.className = 'dot busy'; polarText.textContent = 'Polar H10: connecting…';
     try {
-      const r = await p.connect(log);
-      polar = p;
-      filter = new EcgFilter(ECG_FS, deps.notch());
-      trace.clear();
-      startDrawing();
-      polarDot.className = 'dot on';
-      polarText.textContent = `${p.name}: ${r.ecg ? 'streaming ECG' : 'heart rate only (no ECG)'}`;
-      btnPolar.hidden = true; btnPolarOff.hidden = false;
+      await connectStrap(log);
     } catch (err) {
       polarDot.className = 'dot';
       polarText.textContent = errorName(err) === 'NotFoundError' ? 'Polar H10: no strap chosen' : `Polar H10: ${errorMessage(err)}`;
-      void p.disconnect();
     }
     ready();
   })());
-  btnPolarOff.addEventListener('click', () => void polar?.disconnect());
+
+  /** What this page does with the shared strap, however it was paired. */
+  function useStrap(p: PolarH10): void {
+    if (attached !== p) {
+      attached = p;
+      p.addEventListener('ecg', (e) => {
+        const s = (e as CustomEvent<EcgDetail>).detail.samples;
+        trace.push(Float32Array.from(s, (v) => filter.process(v)));
+        if (timerId != null) { ecgChunks.push(Int16Array.from(s, clip16)); ecgN += s.length; } // the tracked ECG, saved to ECG history
+      });
+      p.addEventListener('hr', (e) => {
+        const d = (e as CustomEvent<HrDetail>).detail;
+        polarHrNow = d.hr;
+        polarLive = keepLast(polarLive, d.rr);
+        if (timerId != null) polarRr.push(...d.rr);
+      });
+      p.addEventListener('disconnect', () => {
+        if (currentStrap() === p) return; // a night's recording is getting it back
+        log('Polar H10 disconnected.'); polar = null; polarLive = []; polarHrNow = null;
+        polarDot.className = 'dot'; polarText.textContent = 'Polar H10: disconnected';
+        btnPolar.hidden = false; btnPolarOff.hidden = true; ready();
+      });
+    }
+    polar = p;
+    filter = new EcgFilter(ECG_FS, deps.notch());
+    trace.clear();
+    startDrawing();
+    polarDot.className = 'dot on';
+    polarText.textContent = `${p.name}: ${p.ecgOk ? 'streaming ECG' : 'heart rate only (no ECG)'}`;
+    btnPolar.hidden = true; btnPolarOff.hidden = false;
+    ready();
+  }
+  btnPolarOff.addEventListener('click', () => void disconnectStrap());
 
   // ---------- Watch D2 ----------
-  btnWatch.addEventListener('click', () => void (async () => {
+  let joining = false;
+  /** Connects, or joins the connection D2 Link already has; live heartbeats start straight away. */
+  async function joinWatch(api: D2Api): Promise<void> {
+    if (watch || joining) return;
+    joining = true;
     watchDot.className = 'dot busy'; watchText.textContent = 'Watch D2: connecting… (confirm on the watch if it asks)';
     btnWatch.disabled = true;
     try {
-      const api = await deps.loadD2();
       const w = await api.connectLive({ account: deps.account(), user: deps.user(), via: via.value === 'mac' ? 'mac' : 'bluetooth', profile: deps.profile(), log });
       w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
       watch = w;
@@ -296,8 +308,10 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
       watchText.textContent = errorName(err) === 'NotFoundError' ? 'Watch D2: no watch chosen' : `Watch D2: ${errorMessage(err)}`;
     }
     btnWatch.disabled = false;
+    joining = false;
     ready();
-  })());
+  }
+  btnWatch.addEventListener('click', () => void deps.loadD2().then(joinWatch).catch((err: unknown) => { watchText.textContent = `Watch D2: ${errorMessage(err)}`; }));
   btnWatchOff.addEventListener('click', () => void (async () => { watchTesting = false; await watch?.stopHeartbeats(); await watch?.close(); })());
 
   // ---------- live values (from connection) and the tracking ----------
@@ -366,8 +380,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     polarRr = []; watchRr = []; polarSeries.length = 0; watchSeries.length = 0; lastSqi = null; bpReadings = [];
     summary.hidden = true;
     btnStart.hidden = true; btnStop.hidden = false;
-    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. Measure your blood pressure on the watch now or before ${clock(t0 + BP_WINDOW_MS)}.`;
-    bpText.textContent = `Measure your blood pressure on the watch once, before ${clock(t0 + BP_WINDOW_MS)}. It is checked every minute while the watch is connected.`;
+    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. A blood pressure reading from the watch counts from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)}.`;
+    bpText.textContent = `Readings taken on the watch from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)} count. The watch is checked every minute while it is connected.`;
     bpList.replaceChildren();
     timerId = setInterval(() => undefined, 1 << 30); // marks tracking as running; the live timer does the work
     ready();
@@ -388,6 +402,9 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     store.saveSyncEntry(entry);
     renderHistory();
   void fillBpFromStored();
+  onStrap(useStrap); // the strap, if another page already paired it
+  // the watch, if D2 Link connected it (now or later)
+  void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
   // recordings saved before ECG history noted synchronised tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
@@ -505,10 +522,13 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     }
     t.appendChild(body);
     wrap.appendChild(t);
-    historyBox.replaceChildren(make('p', 'note', 'Kept on this device. Difference = watch minus Polar. Blood pressure: every reading taken on the watch within one hour of the start.'), wrap);
+    historyBox.replaceChildren(make('p', 'note', 'Kept on this device. Difference = watch minus Polar. Blood pressure: every reading taken on the watch within one hour before or after the start.'), wrap);
   }
   renderHistory();
   void fillBpFromStored();
+  onStrap(useStrap); // the strap, if another page already paired it
+  // the watch, if D2 Link connected it (now or later)
+  void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
   // recordings saved before ECG history noted synchronised tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
@@ -526,7 +546,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     if (!watch || t0 == null) return;
     btnBp.disabled = true;
     try {
-      const found = await watch.bloodPressureSince(t0);
+      const found = await watch.bloodPressureSince(t0 - BP_WINDOW_MS);
       const inHour = found.filter((b) => b.at <= (t0 ?? 0) + BP_WINDOW_MS);
       if (inHour.length) {
         bpReadings = inHour;
@@ -547,7 +567,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     tBp.value.textContent = `${r0(last.systolic)}/${r0(last.diastolic)}`;
     tBp.sub.textContent = `pulse ${r0(last.pulse)} · ${clock(last.at)}`;
     bpList.replaceChildren(...bpReadings.map((b) => make('p', 'sync-bp', `${clock(b.at)}: ${r0(b.systolic)}/${r0(b.diastolic)} mmHg, pulse ${r0(b.pulse)} bpm`)));
-    if (t0 != null) bpText.textContent = `Reading${bpReadings.length > 1 ? 's' : ''} taken since ${clock(t0)}:`;
+    if (t0 != null) bpText.textContent = `Reading${bpReadings.length > 1 ? 's' : ''} from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)}:`;
   }
 
   /** Readings taken within the hour after recent trackings (last two days) that the history doesn't have yet. */
@@ -556,7 +576,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     const recent = store.loadSyncHistory().filter((e) => e.user === deps.user() && e.start > Date.now() - 2 * 86400000 && e.id !== `t${t0}`);
     if (!recent.length) return;
     try {
-      const changed = withReadings(recent, await watch.bloodPressureSince(Math.min(...recent.map((e) => e.start))));
+      const changed = withReadings(recent, await watch.bloodPressureSince(Math.min(...recent.map((e) => e.start)) - BP_WINDOW_MS));
       for (const e of changed) store.saveSyncEntry(e);
       if (changed.length) { log(`Blood pressure added to ${changed.length} earlier tracking${changed.length === 1 ? '' : 's'} in the history.`); renderHistory(); }
     } catch (e) {
@@ -629,7 +649,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
       clearInterval(liveTimer);
       if (timerId) clearInterval(timerId);
       if (bpTimer) clearInterval(bpTimer);
-      void polar?.disconnect();
+      void disconnectStrap();
       void watch?.close();
     },
   };

@@ -5,13 +5,13 @@
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { downloadReadings } from './extra';
-import { D2Link, type Log } from './link';
+import type { Log } from './link';
 import type { InPacket } from './packet';
 import { readingRecords } from './records';
-import { openMacBridge, openWatch } from './serial';
-import { setUpWatch, type Profile } from './setup';
+import type { Profile } from './setup';
 import * as store from './store';
 import { Tlv } from './tlv';
+import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch } from './watch';
 
 const HR_TEST = 0x19;
 
@@ -51,11 +51,12 @@ export interface LiveOptions {
   log: Log;
 }
 
-/** Connects and logs in (pairing first if needed, as D2 Link does) and sets the watch up for its health data. */
+/** The watch live, on the shared connection: connects (pairing first if needed) only if it isn't connected yet. */
 export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
   store.useAccount(o.account);
-  const t = o.via === 'mac' ? await openMacBridge(o.log) : await openWatch('bluetooth', o.log);
-  const link = new D2Link(t, o.log);
+  logTo(o.log);
+  const w = await connectWatch(o.account, o.via);
+  const link = w.link;
   let onBeats: ((b: Beat[]) => void) | null = null;
   let seen = 0;
   const listen = (p: InPacket): void => {
@@ -64,7 +65,7 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
     if (seen++ < 12) o.log(`Watch sent ${p.service.toString(16)}/${p.command.toString(16)}${p.tlv ? ` (fields ${p.tlv.items.map((i) => i.tag.toString(16)).join(' ')})` : ` (${p.raw.length} bytes)`}.`);
   };
   const live: LiveWatch = {
-    name: 'Watch D2', battery: null, onClose: null,
+    name: w.name, battery: w.battery, onClose: null,
     async startHeartbeats(cb) {
       onBeats = cb;
       link.listeners.add(listen);
@@ -89,13 +90,10 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
         at: r.start, systolic: r.values['2006'] ?? null, diastolic: r.values['2007'] ?? null, pulse: r.values['10002537'] ?? null,
       }));
     },
-    async close() { await link.close(); },
+    async close() { await disconnectWatch(); },
   };
-  t.onClose = ((prev) => () => { prev?.(); live.onClose?.(); })(t.onClose);
-  const kept = await link.connect(store.loadPairing(), (p) => store.savePairing(p));
-  store.savePairing(kept);
-  live.name = (link.info?.name || link.info?.model || 'Watch D2').replace(/^.*?(?=\bwatch\b)/i, '').trim() || 'Watch D2';
-  live.battery = link.info?.battery ?? null;
-  await setUpWatch(link, { watchName: live.name, profile: o.profile, accountId: store.loadWatchAccount(), log: o.log });
+  let gone = false;
+  onWatch((now) => { if (now?.link !== link && !gone) { gone = true; live.onClose?.(); } });
+  await ensureSetUp(w, o.profile);
   return live;
 }

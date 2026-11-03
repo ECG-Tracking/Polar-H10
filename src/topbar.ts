@@ -187,7 +187,12 @@ export function initTopbar(deps: TopbarDeps): void {
     catch (e) { window.alert(`The reset didn’t finish: ${e instanceof Error ? e.message : String(e)}`); reset.disabled = false; reset.textContent = 'Reset my account data'; }
   })());
   foot.append(logOut, reset);
-  panel.append(who, userGroup, layout, theme, foot);
+  // About lives here (moved from the Biodata page)
+  const about = make('details', 'acct-about');
+  about.appendChild(make('summary', 'acct-heading', 'About'));
+  const aboutCard = document.getElementById('aboutCard');
+  if (aboutCard) { aboutCard.querySelector('h3')?.remove(); about.append(...aboutCard.childNodes); aboutCard.remove(); }
+  panel.append(who, userGroup, layout, theme, about, foot);
   wrap.append(btn, panel);
   const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) { avatar.textContent = String(deps.user()); fillUsers(); } };
   btn.addEventListener('click', () => setOpen(panel.hidden));

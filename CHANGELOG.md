@@ -4,6 +4,20 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.14.0 – Connections carry across pages; Portfolio Optimizer colours; report matches the phone *(GitHub)*
+Why: pair once for all pages; the same colours as Portfolio Optimizer; differences found against the phone’s report for 3–4 Nov.
+
+| File | Change |
+|---|---|
+| `src/devices.ts` (new), `src/app.ts`, `src/sleepui.ts`, `src/synctrack.ts` | One Polar H10 connection for ECG live, Sleep monitor and Synchronised Tracking: pair it on any of them and the others show it connected and use it; disconnecting anywhere disconnects it everywhere (except during a night’s recording) |
+| `src/d2/watch.ts` (new), `src/d2/live.ts`, `src/d2/ui.ts`, `src/d2/index.ts` | One watch connection for D2 Link and Synchronised Tracking; it stays connected after a download (new “Disconnect watch” button) and is set up once per connection |
+| `styles.css`, `index.html`, `manifest.webmanifest`, `icons/`, `sw.js` | Portfolio Optimizer’s theme and palette instead of red: teal for buttons, the selected page, charts’ main colour and the logo, and its red, green, amber and blue. The dark red × and the ECG paper grid are unchanged |
+| `src/synctrack.ts` | Blood pressure counts from one hour before to one hour after the start of a tracking (it was only after) |
+| `src/d2/ui.ts` | Night report as on the phone: deep, light and REM add up to 100%; “Below average” for short nights; “Avg respiratory rate” in brpm |
+| `src/app.ts`, `styles.css` | ECG history: the duration follows the number of events |
+| `index.html`, `src/topbar.ts` | Logo subheading “Basic Heart rhythm & Sleep tracking”; About moved from Biodata into the Account menu |
+| `tests/` | Tests for the shared watch connection and the blood pressure window |
+
 ## 4 Nov 2026 – v1.13.2 – Dark rose red *(GitHub)*
 Why: a dark rose red instead of the bright red.
 

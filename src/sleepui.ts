@@ -1,6 +1,7 @@
 // Sleep monitor, sleep history and the sleep report.
 
-import { PolarH10, ACC_FS, ECG_FS, bluetoothAvailable, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
+import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } from './devices';
+import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
 import { analyzeSleep, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
 import { Plot, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
@@ -19,7 +20,6 @@ export interface SleepDeps {
   userLabel: (u: UserNumber) => string;
   showSleepView: (view: 'sleep' | 'sleepHistory' | 'sleepReport') => void;
   /** The ECG live screen has the strap; it can only stream to one screen at a time. */
-  ecgConnected: () => boolean;
   /** Tell the app whether a sleep recording is running (it locks the user selector). */
   recordingChanged: () => void;
 }
@@ -30,10 +30,10 @@ export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
   openReport: (id: string) => Promise<void>;
   isRecording: () => boolean;
-  isConnected: () => boolean;
   refreshUser: () => void;
 } {
   let polar: PolarH10 | null = null;
+  let attached: PolarH10 | null = null; // the strap this page listens to
   let recorder: SleepRecorder | null = null;
   let recUser: UserNumber = deps.user();
   // "Start sleep & ECG recording": the night's ECG, collected alongside the sleep data
@@ -78,43 +78,44 @@ export function initSleep(deps: SleepDeps): {
   // ---------- connection ----------
 
   async function connect(): Promise<void> {
-    if (deps.ecgConnected()) {
-      status('The strap is in use on ECG live – disconnect it there first', '');
-      return;
-    }
-    const p = new PolarH10();
-    p.addEventListener('hr', (e) => {
-      const d = (e as CustomEvent<HrDetail>).detail;
-      if (d.rr.length) recorder?.addRR(d.rr);
-      if (!recorder) $('sleepHR').textContent = String(d.hr);
-    });
-    p.addEventListener('acc', (e) => recorder?.addAcc((e as CustomEvent<AccDetail>).detail.samples));
-    p.addEventListener('ecg', (e) => {
-      if (!recorder || !ecg) return;
-      const s = (e as CustomEvent<EcgDetail>).detail.samples;
-      const c = Int16Array.from(s, (v) => Math.max(-32768, Math.min(32767, v)));
-      ecg.chunks.push(c);
-      ecg.n += c.length;
-    });
-    p.addEventListener('battery', (e) => {
-      const lvl = (e as CustomEvent<BatteryDetail>).detail.level;
-      $('sleepBattery').textContent = `Battery ${lvl}%${lvl < 50 ? ' – charge it before a full night' : ''}`;
-    });
-    p.addEventListener('disconnect', () => void onDisconnect());
     $('sleepLog').textContent = '';
     status('Connecting…', 'busy');
     try {
-      // ECG streams too, so either kind of recording can start; it's only kept for sleep & ECG recordings
-      await p.connect(log, { ecg: true, acc: true });
-      polar = p;
-      if (p.accOk) status(`${p.name} – heart beats, movement${p.ecgOk ? ' and ECG' : ''}`, 'on');
-      else status(`${p.name} – movement unavailable, sleep can't be analysed`, 'busy');
+      await connectStrap(log);
     } catch (err) {
       const cancelled = errorName(err) === 'NotFoundError';
       log(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorMessage(err)}`);
       status(cancelled ? 'No device selected' : `Connection failed: ${errorMessage(err)}`, '');
-      void p.disconnect();
     }
+    syncButtons();
+  }
+
+  /** What this page does with the shared strap, however it was paired. */
+  function useStrap(p: PolarH10): void {
+    if (attached !== p) {
+      attached = p;
+      p.addEventListener('hr', (e) => {
+        const d = (e as CustomEvent<HrDetail>).detail;
+        if (d.rr.length) recorder?.addRR(d.rr);
+        if (!recorder) $('sleepHR').textContent = String(d.hr);
+      });
+      p.addEventListener('acc', (e) => recorder?.addAcc((e as CustomEvent<AccDetail>).detail.samples));
+      p.addEventListener('ecg', (e) => {
+        if (!recorder || !ecg) return;
+        const s = (e as CustomEvent<EcgDetail>).detail.samples;
+        const c = Int16Array.from(s, (v) => Math.max(-32768, Math.min(32767, v)));
+        ecg.chunks.push(c);
+        ecg.n += c.length;
+      });
+      p.addEventListener('battery', (e) => {
+        const lvl = (e as CustomEvent<BatteryDetail>).detail.level;
+        $('sleepBattery').textContent = `Battery ${lvl}%${lvl < 50 ? ' – charge it before a full night' : ''}`;
+      });
+      p.addEventListener('disconnect', () => void onDisconnect());
+    }
+    polar = p;
+    if (p.accOk) status(`${p.name} – heart beats, movement${p.ecgOk ? ' and ECG' : ''}`, 'on');
+    else status(`${p.name} – movement unavailable, sleep can't be analysed`, 'busy');
     syncButtons();
   }
 
@@ -134,7 +135,7 @@ export function initSleep(deps: SleepDeps): {
       status('Strap disconnected – reconnecting…', 'busy');
       try {
         await polar.reconnect(log);
-        status(`${polar.name} – heart beats, movement${polar.ecgOk ? ' and ECG' : ''}`, 'on');
+        strapReady(polar); // the other pages use it again too
       } catch (err) {
         log(`Reconnect failed: ${errorMessage(err)}`);
         await sleep(15000);
@@ -144,9 +145,8 @@ export function initSleep(deps: SleepDeps): {
   }
 
   async function disconnect(): Promise<void> {
-    const p = polar;
     polar = null;
-    await p?.disconnect();
+    await disconnectStrap();
     status('Not connected', '');
     $('sleepBattery').textContent = '';
     syncButtons();
@@ -485,11 +485,13 @@ export function initSleep(deps: SleepDeps): {
   refreshUser();
   syncButtons();
 
+  keepStrapWhen(() => recorder !== null);
+  onStrap(useStrap);
+
   return {
     renderHistory,
     openReport,
     isRecording: () => recorder !== null,
-    isConnected: () => polar?.connected ?? false,
     refreshUser,
   };
 }

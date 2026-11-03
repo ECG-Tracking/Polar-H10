@@ -1,6 +1,6 @@
 // Offline cache: network first for freshness, cache as fallback.
 // Requests ask the server whether a file changed (cache: 'no-cache'), so a new version is used as soon as it is published.
-const CACHE = 'openbeat-v12';
+const CACHE = 'openbeat-v13';
 const FILES = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
   'app.js', 'd2link.js',

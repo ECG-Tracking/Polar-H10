@@ -1,4 +1,5 @@
-import { PolarH10, ECG_FS, bluetoothAvailable, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
+import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
+import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent } from './charts';
@@ -89,8 +90,6 @@ let backupsReady = false;
 function openSync(): void {
   syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
-    polarBusy: () => (source?.kind === 'polar' ? 'The strap is connected on ECG live: disconnect it there first.'
-      : sleepUI?.isConnected() ? 'The strap is in use on Sleep monitor: disconnect it there first.' : null),
     openEcg: (id) => void openReport(id),
     summarise,
   });
@@ -205,6 +204,8 @@ async function stopSource(reason = 'Not connected'): Promise<void> {
   $button('btnEvent').disabled = true;
   setConnectButtonsHidden(false);
   for (const id of ['liveHR', 'liveHRV', 'livePNN', 'liveZone']) $(id).textContent = '--';
+  const strap = currentStrap(); // a demo stopped while the strap is connected: back to the strap
+  if (strap) useStrap(strap);
 }
 
 function btLog(line: string): void {
@@ -216,40 +217,43 @@ function btLog(line: string): void {
 
 $button('btnConnect').addEventListener('click', () => void connectPolar());
 
-async function connectPolar(): Promise<void> {
-  if (sleepUI?.isConnected()) {
-    setStatus('The strap is in use on Sleep monitor – disconnect it there first', '');
-    return;
+/** What ECG live does with the shared strap: shows its ECG (unless a demo is running; then when the demo stops). */
+let liveStrap: PolarH10 | null = null;
+function useStrap(p: PolarH10): void {
+  if (liveStrap !== p) {
+    liveStrap = p;
+    p.addEventListener('ecg', (e) => { if (source?.kind === 'polar') onSamples((e as CustomEvent<EcgDetail>).detail.samples); });
+    p.addEventListener('hr', (e) => { deviceHR = (e as CustomEvent<HrDetail>).detail.hr; });
+    p.addEventListener('battery', (e) => {
+      const lvl = (e as CustomEvent<BatteryDetail>).detail.level;
+      if (source?.kind === 'polar') $('battery').textContent = `Battery ${lvl}%${lvl < 50 ? ' – signal quality drops below 50 %' : ''}`;
+    });
+    p.addEventListener('disconnect', () => {
+      if (source?.kind !== 'polar' || currentStrap() === p) return; // a night's recording is getting it back
+      btLog('Sensor disconnected');
+      void stopSource('Sensor disconnected');
+    });
   }
-  const polar = new PolarH10();
-  polar.addEventListener('ecg', (e) => onSamples((e as CustomEvent<EcgDetail>).detail.samples));
-  polar.addEventListener('hr', (e) => { deviceHR = (e as CustomEvent<HrDetail>).detail.hr; });
-  polar.addEventListener('battery', (e) => {
-    const lvl = (e as CustomEvent<BatteryDetail>).detail.level;
-    $('battery').textContent = `Battery ${lvl}%${lvl < 50 ? ' – signal quality drops below 50 %' : ''}`;
-  });
-  polar.addEventListener('disconnect', () => {
-    btLog('Sensor disconnected');
-    if (source?.kind === 'polar') void stopSource('Sensor disconnected');
-  });
+  if (source) return;
+  if (p.ecgOk) startSource('polar', () => disconnectStrap(), `${p.name} – streaming ECG`);
+  else {
+    startSource('polar', () => disconnectStrap(), `${p.name} – heart rate only (ECG unavailable)`);
+    $('statusDot').className = 'dot busy';
+    $button('btnRecord').disabled = true; // recordings need the ECG stream
+  }
+}
+
+async function connectPolar(): Promise<void> {
   const log = $('btLog');
   log.textContent = '';
   log.hidden = false;
   setStatus('Connecting…', 'busy');
   try {
-    const result = await polar.connect(btLog);
-    if (result.ecg) {
-      startSource('polar', () => polar.disconnect(), `${polar.name} – streaming ECG`);
-    } else {
-      startSource('polar', () => polar.disconnect(), `${polar.name} – heart rate only (ECG unavailable)`);
-      $('statusDot').className = 'dot busy';
-      $button('btnRecord').disabled = true; // recordings need the ECG stream
-    }
+    await connectStrap(btLog);
   } catch (err) {
     const cancelled = errorName(err) === 'NotFoundError';
     btLog(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorName(err)}: ${errorMessage(err)}`);
     setStatus(cancelled ? 'No device selected' : `Connection failed: ${errorMessage(err)}`, '');
-    void polar.disconnect();
   }
 }
 
@@ -261,7 +265,11 @@ function startDemo(scenario: Scenario): void {
 }
 $button('btnDemoRest').addEventListener('click', () => startDemo('rest'));
 $button('btnDemoWorkout').addEventListener('click', () => startDemo('workout'));
-$button('btnDisconnect').addEventListener('click', () => void stopSource());
+$button('btnDisconnect').addEventListener('click', () => {
+  // the strap is shared: during a night's recording it stays connected
+  if (source?.kind === 'polar' && sleepUI?.isRecording()) { setStatus('The strap is recording on Sleep monitor', 'on'); return; }
+  void stopSource();
+});
 
 function ringWindow(): Float32Array {
   const n = ringCount;
@@ -486,9 +494,8 @@ async function renderHistory(): Promise<void> {
     const li = make('li');
     li.append(
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-      make('span', 'dur', fmtTime(s.durationS)),
-      make('span', 'stats', stats),
-      make('span', 'muted', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'stats', `${stats} · ${fmtTime(s.durationS)}`),
     );
     li.appendChild(deleteButton('this recording', async () => {
       await store.deleteSession(s.id);
@@ -1015,9 +1022,9 @@ sleepUI = initSleep({
   user: () => currentUser,
   userLabel,
   showSleepView: show,
-  ecgConnected: () => source?.kind === 'polar',
   recordingChanged: syncUserSelect,
 });
+onStrap(useStrap);
 
 // ---------- Reference sources ----------
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#9e2a4e">
+  <meta name="theme-color" content="#14b8a6">
   <meta name="description" content="Free ECG recording and analysis for the Polar H10 chest strap. Runs in your browser; data stays on your device.">
   <title>OpenBeat ECG</title>
   <link rel="manifest" href="manifest.webmanifest">
@@ -63,7 +63,7 @@
   <nav class="app-nav" aria-label="Main">
     <div class="app-brand">
       <img src="icons/icon.svg" alt="" width="30" height="30">
-      <div><div class="app-brand-name">OpenBeat ECG</div><div class="app-brand-sub">Heart, sleep &amp; watch tracking</div></div>
+      <div><div class="app-brand-name">OpenBeat ECG</div><div class="app-brand-sub">Basic Heart rhythm &amp; Sleep tracking</div></div>
     </div>
     <div class="tabs" role="tablist">
       <div class="nav-group">ECG</div>
@@ -433,7 +433,7 @@
         </fieldset>
         <p class="muted">Biodata and settings are kept for each user and sync to your other devices.</p>
       </form>
-      <div class="card">
+      <div class="card" id="aboutCard">
         <h3>About</h3>
         <p class="muted">Requires a browser with Web Bluetooth: Chrome or Edge on Windows, macOS, Linux, ChromeOS or Android. On iPhone/iPad use the Bluefy browser. Demo modes work everywhere.</p>
         <p class="note">Backed up to your account and shown on your other devices: each ECG recording’s results, heart-rate trend, average beat, first 30 s and up to 50 event strips; each night’s sleep report; the nights and numbers from the Watch D2; and each user’s biodata and settings. The full ECG and raw sleep data stay on the device that recorded them. Your account, sync, theme and layout are in the Account menu at the top right.</p>
