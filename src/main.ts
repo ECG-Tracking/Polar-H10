@@ -3,6 +3,7 @@
 import { supabase, startAccount, lastAccount, current, signOut, type Account } from './account';
 import { $, $button, $input, byId } from './ui';
 import { errorMessage } from './util';
+import { versionText } from './version';
 
 const isNetworkError = (msg: string): boolean => /failed to fetch|network|load failed|fetch failed/i.test(msg);
 
@@ -108,6 +109,7 @@ function showSyncStatus(): void {
 }
 
 async function boot(): Promise<void> {
+  $('appVersion').textContent = ` · Version ${versionText()}`;
   for (const id of ['loginPassword', 'registerPassword', 'registerPassword2']) passwordToggle($input(id));
   for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-show-step]')) {
     btn.addEventListener('click', () => { const step = btn.dataset['showStep']; if (step === 'loginStep' || step === 'registerStep') showStep(step); });

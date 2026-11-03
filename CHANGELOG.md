@@ -1,8 +1,17 @@
 # OpenBeat ECG – change history
 
-Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository github.com/ecg-tracking/Polar-H10).
+Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository github.com/ecg-tracking/Polar-H10).
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
+
+## 3 Nov 2026 – v1.1.0 – Version number in the app *(GitHub)*
+Why: to see which version a phone or computer has loaded.
+
+| File | Change |
+|---|---|
+| `scripts/bump.mjs` (new) | Raises the version (and sets the release date) in `package.json` before each publish |
+| `src/version.ts` (new), `src/main.ts`, `src/app.ts`, `index.html`, `scripts/build.mjs` | The footer shows "Version 1.1.0 (3 Nov 2026)", also on the sign-in screen, and Settings → Account shows the app version |
+| `package.json`, `package-lock.json` | Version 1.1.0; new `releaseDate` field. From now on every changelog heading carries the version it was published in |
 
 ## 3 Nov 2026 – D2 download and sync error fixes *(GitHub)*
 Why: a 5.4 KB sleep download stopped part-way, and the cloud sync reported "isn't set up" for an unrelated error.

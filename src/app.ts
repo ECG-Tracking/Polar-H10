@@ -11,6 +11,7 @@ import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
+import { versionText } from './version';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 
 const FS = ECG_FS;
@@ -936,6 +937,7 @@ $('refSources').replaceChildren(...SOURCES.map(([what, text]) => {
 // ---------- Startup ----------
 
 $('copyYear').textContent = String(Math.max(2026, new Date().getFullYear()));
+$('settingsVersion').textContent = versionText();
 
 if (!bluetoothAvailable() || !window.isSecureContext) {
   $button('btnConnect').disabled = true;
