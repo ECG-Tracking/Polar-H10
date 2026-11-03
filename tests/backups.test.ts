@@ -18,3 +18,10 @@ test('backups: only our own files are accepted', () => {
   assert.ok(isComparison({ kind: 'openbeat-comparison', v: 1, cloud: {} }));
   assert.ok(!isComparison({ kind: 'openbeat-account-backup', v: 1 }));
 });
+
+import { exportD2 } from '../src/d2/backup';
+
+test('backups: the watch account ID is left out of D2 Link’s part', () => {
+  // exportD2 lists what it returns; the watch account ID must not be one of its fields
+  assert.ok(!/watchAccount\s*:/.test(exportD2.toString()));
+});

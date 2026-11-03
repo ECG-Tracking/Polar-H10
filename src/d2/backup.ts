@@ -6,12 +6,15 @@ import { syncNights, syncRecords, type CloudClient } from './cloud';
 import * as store from './store';
 import type { D2Night, D2Record, DownloadLogEntry } from './store';
 
-/** What a backup holds from D2 Link. The watch pairing is left out (pair again after restoring on another device). */
-export interface D2Backup { v: 1; nights: D2Night[]; records: D2Record[]; downloads: DownloadLogEntry[]; watchAccount: string }
+/**
+ * What a backup holds from D2 Link. Left out: the watch pairing (pair again after restoring on another device) and the
+ * watch account ID (enter it again in D2 Link); `watchAccount` is only read from backups made before it was left out.
+ */
+export interface D2Backup { v: 1; nights: D2Night[]; records: D2Record[]; downloads: DownloadLogEntry[]; watchAccount?: string }
 
 export async function exportD2(account: string): Promise<D2Backup> {
   store.useAccount(account);
-  return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog(), watchAccount: store.loadWatchAccount() };
+  return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog() };
 }
 
 /** Puts a backup's data back on this device (same items are replaced); they upload at the next sync. Returns how many. */
@@ -42,6 +45,18 @@ export async function markD2Unsynced(account: string): Promise<void> {
   store.useAccount(account);
   await store.saveNights((await store.listAllNights()).map((n) => ({ ...n, synced: false })));
   await store.saveRecords((await store.listAllRecords()).map((r) => ({ ...r, synced: false })));
+}
+
+/** Blood pressure readings already downloaded to this device (e.g. by D2 Link), oldest first. */
+export async function storedBloodPressure(account: string): Promise<{ at: number; systolic: number | null; diastolic: number | null; pulse: number | null }[]> {
+  store.useAccount(account);
+  return (await store.listAllRecords())
+    .filter((r) => r.kind === 'reading' && r.data['cls'] === 10002)
+    .map((r) => {
+      const v = (r.data['values'] ?? {}) as Record<string, number>;
+      return { at: r.start, systolic: v['2006'] ?? null, diastolic: v['2007'] ?? null, pulse: v['10002537'] ?? null };
+    })
+    .sort((a, b) => a.at - b.at);
 }
 
 export async function syncD2(account: string, client: CloudClient): Promise<void> {

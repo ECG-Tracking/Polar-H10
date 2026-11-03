@@ -18,3 +18,15 @@ test('synchronised tracking: times shown as m:ss', () => {
   assert.equal(mmss(300), '5:00');
   assert.equal(mmss(3725), '62:05');
 });
+
+import { withReadings } from '../src/synctrack';
+
+test('synchronised tracking: every reading within one hour of a start is added to that tracking', () => {
+  const at = (h: number, m: number): number => new Date(2026, 10, 3, h, m).getTime();
+  const bp = (h: number, m: number, s: number) => ({ at: at(h, m), systolic: s, diastolic: 80, pulse: 70 });
+  const readings = [bp(16, 11, 130), bp(16, 30, 135), bp(16, 33, 111), bp(16, 50, 118), bp(17, 50, 120)];
+  const entry = (h: number, m: number, first: ReturnType<typeof bp> | null) => ({ id: `t${at(h, m)}`, user: 1 as const, start: at(h, m), durationS: 300, polar: null, watch: null, bp: first, ecgId: null });
+  const changed = withReadings([entry(16, 27, bp(16, 30, 135)), entry(16, 43, bp(16, 50, 118))], readings);
+  assert.deepEqual(changed.map((e) => e.bps?.map((b) => b.systolic)), [[135, 111, 118]], 'only the 16:27 tracking changes: it gets 16:33 and 16:50 too');
+  assert.deepEqual(withReadings(changed, readings), [], 'nothing changes the second time');
+});

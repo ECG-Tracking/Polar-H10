@@ -129,15 +129,13 @@ async function cloudRows(db: SupabaseClient, table: Table): Promise<Record<strin
 export interface Comparison {
   app: 'OpenBeat ECG'; kind: 'openbeat-comparison'; v: 1; exportedAt: string;
   account: { id: string; email: string };
-  /** This device: everything but the raw signals (and the watch account ID, which is hidden). */
+  /** This device: everything but the raw signals. */
   local: Omit<AccountBackup, 'app' | 'kind' | 'v'>;
   cloud: Record<Table, Record<string, unknown>[]>;
 }
 
 export async function makeComparison(d2: D2Api | null): Promise<Comparison> {
   const local = await collect(false, d2);
-  const d2Part = local.d2 as { watchAccount?: string } | null;
-  if (d2Part?.watchAccount) d2Part.watchAccount = '(hidden)';
   const db = supabase();
   const cloud = {} as Record<Table, Record<string, unknown>[]>;
   for (const t of TABLES) cloud[t] = await cloudRows(db, t);
@@ -291,11 +289,11 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
   const all = [backupBtn, restoreBtn, compareBtn, overwriteBtn, restoreCloudBtn];
   card.append(
     make('h3', 'backup-h', 'Account backup and restore'),
-    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep night with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history, D2 Link’s download history and the watch account ID. Your password, sign-in and the watch pairing are not included. Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
+    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep night with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history and D2 Link’s download history. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
     r1,
     make('hr', 'backup-sep'),
     make('h3', 'backup-h', 'This device and the cloud copy'),
-    make('p', '', 'Export both copies side by side to compare them (the raw signals are left out and the watch account ID is hidden), make the cloud copy match this device, or put back an earlier cloud copy from such a comparison file. Overwriting and restoring ask for your account password, and your other devices follow the cloud at their next sync.'),
+    make('p', '', 'Export both copies side by side to compare them (the raw signals and the watch account ID are left out), make the cloud copy match this device, or put back an earlier cloud copy from such a comparison file. Overwriting and restoring ask for your account password, and your other devices follow the cloud at their next sync.'),
     r2,
     status,
   );

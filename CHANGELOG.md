@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.12.2 – Tracking history: blood pressure from readings already on the device; no watch account ID in backups *(GitHub)*
+Why: the backup showed the 16:27 tracking with only its first reading, although the 16:33 and 16:50 readings had been downloaded; and the watch account ID should not be in backup files.
+
+| File | Change |
+|---|---|
+| `src/synctrack.ts`, `src/d2/backup.ts`, `src/d2/index.ts` | Opening Synchronised Tracking or its history fills every tracking with the blood pressure readings already on this device (downloaded by D2 Link or during tracking) taken within one hour of its start, without connecting the watch. A reading within the hour of two trackings appears in both |
+| `tests/synctrack.test.ts` | Test for which readings each tracking gets |
+| `src/d2/backup.ts`, `src/backups.ts`, `tests/backups.test.ts` | Backups and comparison files leave out the watch account ID (enter it again in D2 Link after restoring on a new device); restoring an older backup that has it still works |
+
 ## 3 Nov 2026 – v1.12.1 – Disclaimer on two lines *(GitHub)*
 Why: the second sentence was split in the middle (“Do not / use for diagnosis”).
 

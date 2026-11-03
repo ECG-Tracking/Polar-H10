@@ -7,7 +7,7 @@ import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
 import { deleteButton, make } from './ui';
 import * as store from './store';
-import type { Session, SyncTrackingEntry, UserNumber } from './store';
+import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
@@ -68,6 +68,19 @@ export function sdnn(rr: readonly number[]): number | null {
 }
 
 /** Heart rate from the last few intervals (bpm). */
+/**
+ * Each tracking's blood pressure: every reading taken within one hour of its start (a reading can fall within the hour
+ * of two trackings, and then belongs to both). Returns only the entries that changed.
+ */
+export function withReadings(entries: readonly SyncTrackingEntry[], readings: readonly SyncBp[]): SyncTrackingEntry[] {
+  const out: SyncTrackingEntry[] = [];
+  for (const e of entries) {
+    const mine = readings.filter((b) => b.at >= e.start && b.at <= e.start + BP_WINDOW_MS).sort((a, b) => a.at - b.at);
+    if (mine.length && JSON.stringify(store.syncBps(e)) !== JSON.stringify(mine)) out.push({ ...e, bp: mine[0] ?? null, bps: mine });
+  }
+  return out;
+}
+
 /** m:ss */
 export const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
@@ -378,6 +391,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     entry.ecgId = await saveEcg();
     store.saveSyncEntry(entry);
     renderHistory();
+  void fillBpFromStored();
   // recordings saved before ECG history noted synchronised tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
@@ -498,6 +512,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     historyBox.replaceChildren(make('p', 'note', 'Kept on this device. Difference = watch minus Polar. Blood pressure: every reading taken on the watch within one hour of the start.'), wrap);
   }
   renderHistory();
+  void fillBpFromStored();
   // recordings saved before ECG history noted synchronised tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
@@ -545,16 +560,24 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     const recent = store.loadSyncHistory().filter((e) => e.user === deps.user() && e.start > Date.now() - 2 * 86400000 && e.id !== `t${t0}`);
     if (!recent.length) return;
     try {
-      const found = await watch.bloodPressureSince(Math.min(...recent.map((e) => e.start)));
-      let changed = 0;
-      for (const e of recent) {
-        const mine = found.filter((b) => b.at >= e.start && b.at <= e.start + BP_WINDOW_MS);
-        if (mine.length && JSON.stringify(store.syncBps(e)) !== JSON.stringify(mine)) { store.saveSyncEntry({ ...e, bp: mine[0] ?? null, bps: mine }); changed++; }
-      }
-      if (changed) { log(`Blood pressure added to ${changed} earlier tracking${changed === 1 ? '' : 's'} in the history.`); renderHistory(); }
+      const changed = withReadings(recent, await watch.bloodPressureSince(Math.min(...recent.map((e) => e.start))));
+      for (const e of changed) store.saveSyncEntry(e);
+      if (changed.length) { log(`Blood pressure added to ${changed.length} earlier tracking${changed.length === 1 ? '' : 's'} in the history.`); renderHistory(); }
     } catch (e) {
       log(`Couldn’t check earlier trackings for blood pressure: ${errorMessage(e)}`);
     }
+  }
+
+  /** Readings already on this device (downloaded by D2 Link or here) fill in the history, without the watch. */
+  async function fillBpFromStored(): Promise<void> {
+    const entries = store.loadSyncHistory().filter((e) => e.user === deps.user() && e.id !== `t${timerId != null ? t0 : ''}`);
+    if (!entries.length) return;
+    try {
+      const api = await deps.loadD2();
+      const changed = withReadings(entries, await api.backup.storedBloodPressure(deps.account()));
+      for (const e of changed) store.saveSyncEntry(e);
+      if (changed.length) renderHistory();
+    } catch { /* D2 Link not available: the watch fills them in when it connects */ }
   }
 
   function startBpChecks(): void {
@@ -604,7 +627,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
   drawChart();
 
   return {
-    refreshHistory: renderHistory,
+    refreshHistory: () => { renderHistory(); void fillBpFromStored(); },
     stop: () => {
       if (drawFrame) cancelAnimationFrame(drawFrame);
       clearInterval(liveTimer);
