@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.6.0 – D2 Link: download history; clearer note when D2 Bridge isn’t open *(GitHub)*
+Why: D2 Bridge is in the Applications folder inside the home folder, which is easy to miss.
+
+| File | Change |
+|---|---|
+| `src/d2/serial.ts` | When D2 Bridge isn’t running, the note says how to open it (Cmd + Space, “D2 Bridge”), to keep its window open, and how to have it start with the Mac (Login Items) |
+| `src/d2/store.ts`, `src/d2/ui.ts`, `styles.css` | New “Download history” on the D2 Link page: for each download, when, which button (Sleep or All data), how the watch was reached, the dates asked for, what was downloaded (nights, activity days, totals, blood pressure, HRV, emotion, stress, workouts, with counts), what wasn’t and why, and the result. Kept on this device only (the last 300) |
+
 ## 3 Nov 2026 – v1.5.0 – D2 Link on a Mac: D2 Bridge *(GitHub)*
 Why: Chrome on macOS can’t open the watch’s data channel (its service lookup times out); macOS’s own Bluetooth can.
 

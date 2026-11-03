@@ -6,7 +6,7 @@ import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cl
 import { renderAllData } from './dataui';
 import { renderGraphs, RANGES, type Range } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
-import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile } from './extra';
+import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile, READING_CLASSES } from './extra';
 import { D2Link, WatchError } from './link';
 import { openMacBridge, openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
@@ -243,6 +243,39 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   help.appendChild(steps);
   help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress and workouts (not ECG recordings); numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
 
+  // download history: when, which button, how, which dates, and what came back
+  const history = el('details', 'card d2-history');
+  history.appendChild(el('summary', '', 'Download history'));
+  const historyBox = el('div');
+  history.appendChild(historyBox);
+  const renderHistory = (): void => {
+    const entries = store.loadDownloadLog().filter((e) => e.user === deps.user());
+    if (!entries.length) { historyBox.replaceChildren(el('p', 'muted', 'No downloads yet on this device.')); return; }
+    const day = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    const wrap = el('div', 'd2-table-wrap');
+    const t = el('table', 'd2-table d2-history-table');
+    const hr = el('tr');
+    for (const h of ['When', 'Download', 'Dates', 'Result']) hr.appendChild(el('th', '', h));
+    t.appendChild(el('thead')).appendChild(hr);
+    const body = el('tbody');
+    for (const e of entries) {
+      const tr = el('tr', 'd2-history-main');
+      for (const c of [`${day(e.at)} ${clock(e.at)}`, `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      if (!e.ok) tr.classList.add('d2-history-failed');
+      // what came back, on its own full-width row
+      const got = e.items.filter((i) => i.count != null).map((i) => `${i.count} ${i.what}`).join(' · ');
+      const missed = e.items.filter((i) => i.count == null).map((i) => `${i.what}${i.note ? ` (${i.note})` : ''}`);
+      const detail = el('tr', 'd2-history-detail');
+      const td = el('td', '', `${got ? `Downloaded: ${got}` : 'Nothing downloaded'}${missed.length ? `. Not downloaded: ${missed.join(', ')}` : ''}${e.watch ? ` · ${e.watch}` : ''}`);
+      td.colSpan = 4;
+      detail.appendChild(td);
+      body.append(tr, detail);
+    }
+    t.appendChild(body);
+    wrap.appendChild(t);
+    historyBox.replaceChildren(el('p', 'note', 'Kept on this device only. Newest first.'), wrap);
+  };
+
   const listHead = el('h3', '', 'Nights from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
   const syncText = el('span', 'note');
@@ -270,7 +303,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const trendsBox = el('div', 'd2-trends');
   const dataBox = el('div', 'd2-alldata');
   const graphsBox = el('div', 'd2-alldata d2-graphs');
-  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
+  home.append(title, card, help, history, listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -430,6 +463,10 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     if ('error' in period) { progress.textContent = period.error; return; }
     syncButtons(true);
     progress.textContent = '';
+    const entry: store.DownloadLogEntry = {
+      at: Date.now(), user: deps.user(), button: all ? 'all' : 'sleep', via: via.selectedOptions[0]?.textContent ?? mode,
+      from: period.start * 1000, to: period.end * 1000, watch: '', items: [], ok: false, result: '',
+    };
     setStatus(mode === 'mac' ? 'Connecting through D2 Bridge…' : 'Choose the watch in Chrome’s list…', 'busy');
     let link: D2Link | null = null;
     try {
@@ -440,12 +477,14 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const kept = await link.connect(store.loadPairing(), (p) => { store.savePairing(p); syncButtons(true); });
       store.savePairing(kept);
       const name = watchName(link.info?.name || link.info?.model || '');
+      entry.watch = name;
       setStatus(`${name}${link.info?.battery != null ? ` · battery ${link.info.battery}%` : ''} – downloading…`, 'on');
       const { start, end } = period;
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
       const got = parseSleepFile(file).map((d) => store.nightFromData(d, deps.user(), name));
       await store.saveNights(got);
+      entry.items.push({ what: got.length === 1 ? 'night' : 'nights', count: got.length });
       log(`${got.length} night${got.length === 1 ? '' : 's'} saved.`);
       void sync();
       progress.textContent = got.length ? `${got.length} night${got.length === 1 ? '' : 's'} downloaded.` : 'The watch has no sleep records for this period.';
@@ -454,15 +493,18 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const latest = got.sort((a, b) => b.start - a.start)[0];
       if (all) {
         setStatus(`${name} – downloading the other data…`, 'on');
-        const counts = await downloadOthers(link, start, end, name);
+        const counts = await downloadOthers(link, start, end, name, entry.items);
         progress.textContent = `${got.length} night${got.length === 1 ? '' : 's'}${counts ? `; ${counts}` : '; no other data'}.`;
         setStatus(`${name} – done`, 'on');
         void sync();
         view = 'data';
         showView();
       } else if (latest) openReport(latest.id);
+      entry.ok = true;
+      entry.result = 'Done';
     } catch (e) {
       const msg = e instanceof DOMException && e.name === 'NotFoundError' ? 'No watch was chosen.' : e instanceof Error ? e.message : String(e);
+      entry.result = `Stopped: ${msg}`;
       log(`Stopped: ${msg}`);
       setStatus(msg, '');
       progress.textContent = e instanceof DOMException && e.name === 'NotFoundError'
@@ -473,10 +515,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     } finally {
       await link?.close();
       syncButtons(false);
+      store.addDownloadLog(entry);
+      renderHistory();
     }
   })();
   /** Everything besides sleep; each kind on its own, so one the watch refuses doesn't stop the others. Returns a summary. */
-  async function downloadOthers(link: D2Link, start: number, end: number, name: string): Promise<string> {
+  async function downloadOthers(link: D2Link, start: number, end: number, name: string, items: store.DownloadLogItem[]): Promise<string> {
     const user = deps.user(), parts: string[] = [];
     progress.textContent = 'Setting up the watch…';
     log('Sending the set-up messages (supported features, time, agreements, account, profile)…');
@@ -486,8 +530,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       try {
         const rs = await fn();
         if (rs.length) { await store.saveRecords(rs); parts.push(`${rs.length} ${what}`); }
+        if (what === 'measurements') { // one line per kind, e.g. "127 blood pressure"
+          for (const [cls, spec] of Object.entries(READING_CLASSES)) items.push({ what: spec.name, count: rs.filter((r) => r.data['cls'] === Number(cls)).length });
+        } else items.push({ what, count: rs.length });
         log(`${what}: ${rs.length} saved.`);
       } catch (e) {
+        items.push({ what, count: null, note: e instanceof Error ? e.message.replace(/^The watch /, '').replace(/\.$/, '') : String(e) });
         log(`${what}: not downloaded (${e instanceof Error ? e.message : String(e)}).`);
         if (e instanceof WatchError && /not connected|disconnected/.test(e.message)) throw e;
       }
@@ -541,8 +589,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   syncButtons();
+  renderHistory();
   void renderList().then(sync);
-  return { refresh: () => { report.hidden = true; home.hidden = false; void renderList().then(sync); } };
+  return { refresh: () => { report.hidden = true; home.hidden = false; renderHistory(); void renderList().then(sync); } };
 }
 
 interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }

@@ -112,7 +112,7 @@ export function openMacBridge(log: (line: string) => void = () => {}, url = BRID
       }
       t.onData?.(new Uint8Array(ev.data as ArrayBuffer));
     };
-    ws.onerror = () => fail('D2 Bridge isn’t running on this Mac. Open “D2 Bridge” (in your Applications folder) and try again.');
+    ws.onerror = () => fail('D2 Bridge isn’t running on this Mac. Press Cmd + Space, type “D2 Bridge” and press Return (it is in the Applications folder inside your home folder), keep its window open, and try again. To have it start with the Mac: System Settings → General → Login Items → Open at Login → +.');
     ws.onclose = () => { fail('D2 Bridge closed the connection.'); t.onClose?.(); };
   });
 }

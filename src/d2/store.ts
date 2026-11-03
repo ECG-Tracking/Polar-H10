@@ -152,6 +152,37 @@ export function saveWatchAccount(id: string): void {
   } catch { /* storage unavailable */ }
 }
 
+// ---------- download history (this device only) ----------
+
+/** One kind of data in a download: how many were saved, or null with a note when it wasn't downloaded. */
+export interface DownloadLogItem { what: string; count: number | null; note?: string }
+export interface DownloadLogEntry {
+  at: number; // when the download started, ms since 1970
+  user: number;
+  button: 'sleep' | 'all';
+  via: string; // how the watch was reached
+  from: number; to: number; // the period asked for, ms since 1970
+  watch: string;
+  items: DownloadLogItem[];
+  ok: boolean;
+  result: string; // "Done", or why it stopped
+}
+
+const logKey = (): string => `d2link-downloads-${account}`;
+const MAX_LOG = 300;
+
+export function loadDownloadLog(): DownloadLogEntry[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(logKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((e): e is DownloadLogEntry => typeof e === 'object' && e !== null && typeof (e as DownloadLogEntry).at === 'number' && Array.isArray((e as DownloadLogEntry).items)) : [];
+  } catch { return []; }
+}
+
+/** Adds a download, newest first, keeping the last 300. */
+export function addDownloadLog(e: DownloadLogEntry): void {
+  try { localStorage.setItem(logKey(), JSON.stringify([e, ...loadDownloadLog()].slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
+}
+
 const pairingKey = (): string => `d2link-pairing-${account}`;
 
 export function loadPairing(): Pairing | null {
