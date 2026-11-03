@@ -9,16 +9,16 @@
   --ink-2: #59636e;
   --muted: #6e7781;
   --line: #d8dee4;
-  --accent-soft: rgba(200, 16, 46, 0.09);
+  --accent-soft: rgba(158, 42, 78, 0.09);
   --shadow: 0 1px 2px rgba(31, 35, 40, 0.06), 0 8px 24px -12px rgba(31, 35, 40, 0.18);
   --grid: #f3d9d9;
   --chart-grid: #e8e6e0;
   --grid-major: #e8b4b4;
   --trace: #111111;
-  --accent: #c8102e;
+  --accent: #9e2a4e;
   --accent-ink: #ffffff;
   --series-1: #2a78d6;
-  --critical: #d03b3b;
+  --critical: #a8325a;
   --warn: #c98500;
   --good: #1b8a5a;
   --radius: 12px;
@@ -39,15 +39,15 @@
     --ink-2: #9da7b3;
     --muted: #7d8590;
     --line: #262f3b;
-    --accent-soft: rgba(224, 56, 79, 0.14);
+    --accent-soft: rgba(192, 69, 111, 0.16);
     --shadow: 0 1px 2px rgba(1, 4, 9, 0.3), 0 8px 24px -12px rgba(1, 4, 9, 0.6);
     --grid: #2b1f1f;
     --chart-grid: #2e2d2b;
     --grid-major: #4a2c2c;
     --trace: #f0efec;
-    --accent: #e0384f;
+    --accent: #c0456f;
     --series-1: #3987e5;
-    --critical: #e66767;
+    --critical: #e07a9c;
     --warn: #e0a020;
     --good: #3cb37f;
     --stage-deep: #5a4cd4;
@@ -59,10 +59,10 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0d1117; --surface: #161b22; --raised: #1c232d; --nav-bg: #0a0e14; --topbar-bg: rgba(11, 15, 25, 0.94);
-  --ink: #e6edf3; --ink-2: #9da7b3; --muted: #7d8590; --line: #262f3b; --accent-soft: rgba(224, 56, 79, 0.14);
+  --ink: #e6edf3; --ink-2: #9da7b3; --muted: #7d8590; --line: #262f3b; --accent-soft: rgba(192, 69, 111, 0.16);
   --shadow: 0 1px 2px rgba(1, 4, 9, 0.3), 0 8px 24px -12px rgba(1, 4, 9, 0.6);
-  --grid: #2b1f1f; --chart-grid: #2e2d2b; --grid-major: #4a2c2c; --trace: #f0efec; --accent: #e0384f; --series-1: #3987e5;
-  --critical: #e66767; --warn: #e0a020; --good: #3cb37f;
+  --grid: #2b1f1f; --chart-grid: #2e2d2b; --grid-major: #4a2c2c; --trace: #f0efec; --accent: #c0456f; --series-1: #3987e5;
+  --critical: #e07a9c; --warn: #e0a020; --good: #3cb37f;
   --stage-deep: #5a4cd4; --stage-light: #8f85e7; --stage-rem: #d55181; --stage-awake: #c98500;
 }
 

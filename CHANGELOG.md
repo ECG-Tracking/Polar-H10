@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.13.2 – Dark rose red *(GitHub)*
+Why: a dark rose red instead of the bright red.
+
+| File | Change |
+|---|---|
+| `styles.css`, `index.html`, `manifest.webmanifest`, `icons/` | The app’s red is now a dark rose red: buttons, the selected page, heart-rate lines and the logo (`#9e2a4e`; a brighter `#c0456f` in dark mode, so it stays visible and white text on buttons stays readable); the phone’s theme colour; and the warning red used for ECG events, Delete and error messages (a matching rose). The dark red × and the ECG paper grid are unchanged |
+| `sw.js` | New cache name, so phones and computers pick up the new icons |
+
 ## 4 Nov 2026 – v1.13.1 – Amber borders replaced with blue *(GitHub)*
 Why: blue instead of amber borders for results outside the reference range and for warnings.
 
