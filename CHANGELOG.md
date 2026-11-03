@@ -4,6 +4,23 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.11.1 – Disclaimer wording *(GitHub)*
+Why: the app now uses more than a chest strap (the Watch D2 too).
+
+| File | Change |
+|---|---|
+| `index.html`, `README.md` | The disclaimer reads: “Not a medical device. Results are statistical estimates obtained from non-medical monitoring devices and can be wrong. Do not use for diagnosis; see a doctor about symptoms.” |
+
+## 3 Nov 2026 – v1.11.0 – Top bar like Portfolio Optimizer: Search and Account menu *(GitHub)*
+Why: the same top-right controls as the Portfolio Optimizer app.
+
+| File | Change |
+|---|---|
+| `src/topbar.ts` (new), `src/main.ts`, `index.html`, `styles.css` | Top right: the sync status with its dot and “Sync now”; “Search” (⌘K / Ctrl+K) to jump to any page by its name or what is on it; and the “Account” menu with the user’s number in a round badge: who is signed in, Layout (Desktop or Mobile – the compact layout on any screen), Theme (Auto, Light or Dark), “Log Out”, and “Reset my account data”, which deletes all of this account’s data in the cloud and on this device after you type DELETE (the sign-in itself is kept). Theme and layout are remembered on this device |
+| `src/store.ts` | Deleting this account’s data on this device (its databases and stored settings; other accounts’ data stays) |
+| `src/app.ts` | The D2 Link History page has the plain copyright line; the licence lines stay on the D2 Link page |
+| `tests/topbar.test.ts` (new) | Test for Search’s matching |
+
 ## 3 Nov 2026 – v1.10.0 – Desktop look like Portfolio Optimizer: left sidebar and top bar *(GitHub)*
 Why: a clearer desktop layout, in the same style as the Portfolio Optimizer app.
 

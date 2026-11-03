@@ -4,6 +4,8 @@ import { supabase, startAccount, lastAccount, current, signOut, type Account } f
 import { $, $button, $input, byId } from './ui';
 import { errorMessage } from './util';
 import { versionText } from './version';
+import { applyLayout, applyTheme, initTopbar, loadLayout, loadTheme } from './topbar';
+import * as store from './store';
 
 const isNetworkError = (msg: string): boolean => /failed to fetch|network|load failed|fetch failed/i.test(msg);
 
@@ -105,6 +107,7 @@ function showSyncStatus(): void {
     $('navSync').textContent = text;
     $('topSync').textContent = text;
     $('navSyncDot').className = `nav-sync-dot ${state}`;
+    $('topSyncDot').className = `nav-sync-dot ${state}`;
   };
   if (a.offline || !c) { el.textContent = 'Offline: your history will sync when you’re back online and reopen the app.'; short('Offline', 'off'); return; }
   const r = c.lastResult;
@@ -116,7 +119,21 @@ function showSyncStatus(): void {
   short(`Synced ${at}`, 'ok');
 }
 
+/** Account menu → "Reset my account data": the cloud copy first (so a failure leaves everything as it was), then this device. */
+async function resetAccount(account: Account): Promise<void> {
+  if (account.offline) throw new Error('you are offline: the cloud copy can’t be reached, so nothing was deleted');
+  const db = supabase();
+  for (const table of ['ecg_sessions', 'sleep_nights', 'd2_nights', 'user_data']) {
+    const { error } = await db.from(table).delete().not('id', 'is', null); // the access rules limit this to this account's rows
+    if (error && !/does not exist|could not find the table/i.test(error.message)) throw new Error(error.message);
+  }
+  await store.wipeAccountData(account.id);
+}
+
 async function boot(): Promise<void> {
+  // the theme and layout chosen in the Account menu, before anything is shown
+  applyTheme(loadTheme());
+  applyLayout(loadLayout());
   $('appVersion').textContent = ` · Version ${versionText()}`;
   for (const id of ['loginPassword', 'registerPassword', 'registerPassword2']) passwordToggle($input(id));
   for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-show-step]')) {
@@ -135,6 +152,7 @@ async function boot(): Promise<void> {
   await import('./app'); // the app reads this account's storage, so it starts only now
 
   $button('btnSignOut').addEventListener('click', () => void signOut());
+  initTopbar({ email: account.email, user: () => store.loadCurrentUser(), signOut: () => void signOut(), reset: () => resetAccount(account) });
   const sync = current.cloud;
   $button('btnSyncNow').disabled = !sync;
   const syncNow = (): void => { $('syncStatus').textContent = 'Syncing…'; $('topSync').textContent = 'Syncing…'; $('navSync').textContent = 'Syncing…'; void sync?.sync(); };

@@ -92,7 +92,7 @@
   <header class="app-topbar">
     <h1 id="screenTitle">ECG live</h1>
     <div class="topbar-actions">
-      <span class="muted topbar-sync" id="topSync"></span>
+      <span class="topbar-sync"><span class="nav-sync-dot" id="topSyncDot" aria-hidden="true"></span><span id="topSync" class="muted"></span></span>
       <button type="button" class="small" id="btnTopSync">Sync now</button>
     </div>
   </header>
@@ -436,7 +436,7 @@
     </section>
   </main>
   <footer class="disclaimer">
-    <p>Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</p>
+    <p>Not a medical device. Results are statistical estimates obtained from non-medical monitoring devices and can be wrong. Do not use for diagnosis; see a doctor about symptoms.</p>
     <p class="copyright"><span id="copyWord">Copyright </span>© <span id="copyYear">2026</span> ECG-Tracking. <span id="copyRights">All rights reserved.</span><span id="appVersion"></span></p>
     <p class="copyright" id="d2Licence" hidden>D2 Link: <a href="LICENSE-D2-LINK.txt">GNU AGPL v3</a> · <a href="https://codeberg.org/Freeyourgadget/Gadgetbridge" rel="noopener" target="_blank">Gadgetbridge</a> © contributors · <a href="https://github.com/ECG-Tracking/Polar-H10/tree/main/src/d2" rel="noopener" target="_blank">Source code</a><br>The rest of OpenBeat ECG: all rights reserved.</p>
   </footer>

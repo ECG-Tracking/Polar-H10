@@ -2,7 +2,7 @@
 
 Free ECG recording and analysis for the **Polar H10** chest strap. It is an installable web app (PWA) that runs on desktop and mobile with no account, no usage limit and no upload: recordings stay in the browser's storage on your device.
 
-> Not a medical device. Results are statistical estimates from a single-lead chest strap and can be wrong.
+> Not a medical device. Results are statistical estimates obtained from non-medical monitoring devices and can be wrong.
 
 ## Features
 - **Live:** ECG trace, heart rate, HRV score, pNN50, event count and training zone. Start/Stop recording, *Mark event* button, files split automatically every 4 h, screen kept awake while recording.

@@ -48,7 +48,8 @@ function show(view: View): void {
   if (view === 'syncHistory') syncUI?.refreshHistory();
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
-  const d2Page = view === 'd2' || view === 'd2History';
+  // the licence lines only on the D2 Link page; D2 Link History has the plain copyright line, like the other pages
+  const d2Page = view === 'd2';
   $('copyRights').textContent = d2Page ? '' : 'All rights reserved.';
   $('d2Licence').hidden = !d2Page;
   window.scrollTo(0, 0);

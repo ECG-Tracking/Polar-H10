@@ -413,3 +413,25 @@ export function saveSyncEntry(e: SyncTrackingEntry): void {
   const rest = loadSyncHistory().filter((x) => x.id !== e.id);
   try { localStorage.setItem(syncKey(), JSON.stringify([e, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
 }
+
+// ---------- reset (Account menu → "Reset my account data") ----------
+
+/**
+ * Deletes everything this account keeps on this device: its recordings, nights and D2 Link data, settings, histories
+ * and pairing. Other accounts' data on this device, and the sign-in itself, are kept. `accountId` names D2 Link's storage.
+ */
+export async function wipeAccountData(accountId: string): Promise<void> {
+  if (dbPromise) { try { (await dbPromise).close(); } catch { /* not open */ } dbPromise = null; }
+  const drop = (name: string): Promise<void> => new Promise((resolve) => {
+    const r = indexedDB.deleteDatabase(name);
+    r.onsuccess = r.onerror = r.onblocked = () => resolve();
+  });
+  await drop(dbName);
+  await drop(`d2link-${accountId}`);
+  try {
+    // the account list and the last signed-in account (used to sign in offline) stay
+    const mine = (k: string): boolean => k !== ACCOUNTS_KEY && k !== 'ecg-analysis-last-account'
+      && ((keyPrefix ? k.startsWith(keyPrefix) : k.startsWith('ecg-analysis-')) || (k.startsWith('d2link-') && k.endsWith(`-${accountId}`)));
+    for (const k of Object.keys(localStorage)) if (mine(k)) localStorage.removeItem(k);
+  } catch { /* storage unavailable */ }
+}
