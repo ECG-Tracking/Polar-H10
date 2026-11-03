@@ -403,8 +403,6 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
 .d2-go button.big { flex: none; width: 100%; }
 .d2-alldata .d2-data { margin-bottom: 12px; }
 .d2-alldata h3 { margin-top: 0; }
-.d2-ecg { width: 100%; height: auto; display: block; margin-bottom: 10px; }
-.d2-ecg-head { margin: 10px 0 4px; font-size: 0.9rem; }
 /* "Download all data" is blue (white text ≥ 4.5:1 in both themes) */
 button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff; }
 .d2-acct { margin-top: 10px; }

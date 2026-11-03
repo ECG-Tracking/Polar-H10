@@ -5,7 +5,7 @@
 import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
 import { renderAllData } from './dataui';
 import { renderGraphs, RANGES, type Range } from './graphsui';
-import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile } from './extra';
+import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile } from './extra';
 import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
@@ -14,7 +14,7 @@ import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import { setUpWatch, type Profile } from './setup';
-import { activityRecords, ecgRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
+import { activityRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
 import * as store from './store';
 import type { D2Night } from './store';
 import { addDays, dateOf } from './trends';
@@ -158,7 +158,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
   const btnAll = button('Pair & download all data', 'primary big d2-blue');
-  btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure and the watch’s other measurements, stress, ECG recordings and workouts';
+  btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress and workouts (not ECG recordings)';
   const goButtons = el('div', 'd2-go');
   goButtons.append(btnGo, btnAll);
   const btnSystem = button('Use the computer’s serial port');
@@ -184,7 +184,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const acctRow = el('div', 'row wrap');
   acctRow.append(acctInput, acctSave);
   acct.append(
-    el('p', 'note', 'The watch may only share stress, ECG, workouts and measurements with its own account. If you use it with its phone app, enter that account’s ID (a 17-digit number, not a password). One way to find it: sign in to the cloud website of the watch’s phone app in Chrome on a computer, press F12, open Application → Cookies → that website, and copy the value of “userId”. It is kept on this device only and sent only to the watch, with “Download all data”.'),
+    el('p', 'note', 'The watch may only share stress, workouts and measurements with its own account. If you use it with its phone app, enter that account’s ID (a 17-digit number, not a password). One way to find it: sign in to the cloud website of the watch’s phone app in Chrome on a computer, press F12, open Application → Cookies → that website, and copy the value of “userId”. It is kept on this device only and sent only to the watch, with “Download all data”.'),
     acctRow, acctNote,
   );
   const showAcct = (): void => {
@@ -217,7 +217,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress, ECG recordings and workouts; numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress and workouts (not ECG recordings); numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
 
   const listHead = el('h3', '', 'Nights from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
@@ -226,7 +226,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const btnExport = button('Export all nights');
   btnExport.title = 'Save every night of this user from the watch as one JSON file';
   const btnExportAll = button('Export all data');
-  btnExportAll.title = 'Save everything downloaded from the watch for this user (nights, activity, measurements, stress, ECG, workouts) as one JSON file';
+  btnExportAll.title = 'Save everything downloaded from the watch for this user (nights, activity, measurements, stress, workouts) as one JSON file';
   const syncButtons2 = el('div', 'row wrap');
   syncButtons2.append(btnSync, btnExport, btnExportAll);
   syncRow.append(syncText, syncButtons2);
@@ -449,7 +449,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   async function downloadOthers(link: D2Link, start: number, end: number, name: string): Promise<string> {
     const user = deps.user(), parts: string[] = [];
     progress.textContent = 'Setting up the watch…';
-    log('Sending the set-up messages (supported features, time, agreements, account, profile, ECG)…');
+    log('Sending the set-up messages (supported features, time, agreements, account, profile)…');
     await setUpWatch(link, { watchName: name, profile: deps.profile?.() ?? null, accountId: store.loadWatchAccount(), log });
     const step = async (what: string, fn: () => Promise<store.D2Record[]>): Promise<void> => {
       progress.textContent = `Downloading ${what}…`;
@@ -467,7 +467,6 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     await step('daily totals', async () => { const t = await downloadTotals(link, log); return t ? [totalsRecord(t, user, name)] : []; });
     await step('measurements', async () => readingRecords(await downloadReadings(link, start * 1000, log), user, name));
     await step('stress records', async () => stressRecords(parseStressFile(await link.downloadFile({ name: 'rrisqi_data.bin', type: 0x10, start, end, what: 'stress' })), user, name));
-    await step('ECG recordings', async () => ecgRecords(parseEcgFile(await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start, end, what: 'ECG' })), user, name));
     await step('workouts', async () => workoutRecords(await downloadWorkouts(link, start, end, log), user, name));
     return parts.join(', ');
   }

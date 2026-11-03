@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link: the other watch data (activity, totals, data dictionary, stress, ECG, workouts) against the fake watch,
+// D2 Link: the other watch data (activity, totals, data dictionary, stress, workouts) against the fake watch,
 // and how it is stored and synced.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { D2Link } from '../src/d2/link';
 import {
-  classBytes, downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseActivityMinute, parseEcgFile, parseStressFile, parseWorkoutSamples,
+  classBytes, downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseActivityMinute, parseStressFile, parseWorkoutSamples,
 } from '../src/d2/extra';
-import { activityRecords, ecgRecords, mergeMinutes, readingRecords, workoutRecords } from '../src/d2/records';
+import { activityRecords, mergeMinutes, readingRecords, workoutRecords } from '../src/d2/records';
 import { parseCloudRecord } from '../src/d2/cloud';
 import { Tlv } from '../src/d2/tlv';
 import { FakeWatch } from './d2fake';
@@ -78,32 +78,13 @@ function stressFile(): Uint8Array {
   return b;
 }
 
-function ecgFile(): Uint8Array {
-  const samples = [0.1, 0.5, -0.2, 0.0];
-  const pkg = 'ecg.app';
-  const b = new Uint8Array(32 + pkg.length + 56 + samples.length * 4);
-  const dv = new DataView(b.buffer);
-  b[8] = pkg.length;
-  b.set(new TextEncoder().encode(pkg), 32);
-  const o = 32 + pkg.length;
-  dv.setUint32(o, day); dv.setUint32(o + 4, day + 30); dv.setUint32(o + 8, samples.length * 4);
-  b.set(new TextEncoder().encode('1.2.3'), o + 12);
-  dv.setUint32(o + 44, 1); dv.setUint16(o + 48, 66); dv.setUint32(o + 52, 4);
-  samples.forEach((v, i) => dv.setFloat32(o + 56 + 4 * i, v));
-  return b;
-}
-
-test('D2 files: stress and ECG recordings download like the sleep file and are read back', async () => {
-  const w = new FakeWatch({ files: { 0x10: stressFile(), 0x18: ecgFile() } });
+test('D2 files: stress downloads like the sleep file and is read back', async () => {
+  const w = new FakeWatch({ files: { 0x10: stressFile() } });
   const { link } = await connected(w);
   const stress = parseStressFile(await link.downloadFile({ name: 'rrisqi_data.bin', type: 0x10, start: 0, end: day + 999, what: 'stress' }));
   assert.equal(stress.length, 1);
   assert.deepEqual({ start: stress[0]!.start, end: stress[0]!.end, score: stress[0]!.score, level: stress[0]!.level }, { start: day * 1000, end: (day + 120) * 1000, score: 35, level: 1 });
   assert.equal(stress[0]!.features[3], 1.5);
-  const ecg = parseEcgFile(await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start: 0, end: day + 999, what: 'ECG' }));
-  assert.equal(ecg.length, 1);
-  assert.deepEqual({ avgHr: ecg[0]!.avgHr, arrhythmia: ecg[0]!.arrhythmia, symptoms: ecg[0]!.symptoms, appVersion: ecg[0]!.appVersion }, { avgHr: 66, arrhythmia: 1, symptoms: 4, appVersion: '1.2.3' });
-  assert.deepEqual(ecg[0]!.samples.map((v) => Math.round(v * 10) / 10), [0.1, 0.5, -0.2, 0]);
   // nothing recorded: an empty download, not an error
   assert.equal((await link.downloadFile({ name: 'x', type: 0x10 + 1, start: 0, end: 1, what: 'test' })).length, 0);
 });
@@ -142,8 +123,6 @@ test('D2 records: activity is kept per day and merged with what is stored; text 
   assert.deepEqual(mergeMinutes([m(1, 1)], [m(1, 2)]).map((x) => x.steps), [2]);
   const [r] = readingRecords([{ cls: 10002, start: 5, end: null, modified: null, values: { 1: 120 }, texts: { 2: 'note' } }], 1, 'W');
   assert.deepEqual(r?.local, { texts: { 2: 'note' } });
-  const [e] = ecgRecords([{ start: 1, end: 2, avgHr: 60, arrhythmia: 0, symptoms: 0, appVersion: '1.0', samples: [1] }], 1, 'W');
-  assert.equal('appVersion' in (e?.data ?? {}), false);
 });
 
 test('D2 cloud: a record row is read back; damaged rows are rejected', () => {
@@ -162,7 +141,7 @@ test('D2 set-up: the watch is set up like the phone app does; a refusal before i
   const { link, log } = await connected(w);
   await assert.rejects(downloadWorkouts(link, 0, day + 9999, (l) => log.push(l)), /code 100004/);
   const support = await setUpWatch(link, { watchName: 'WATCH D2', accountId: '20007000023812345', profile: { heightCm: 175, weightKg: 70, age: 55, sex: 'male' }, log: (l) => log.push(l), now: new Date(day * 1000) });
-  for (const m of ['1:2', '1:3', '1:37', '1:5', '1:32', '1:31', '1:30', '1a:5', '1:3e', '7:2', '23:10']) assert.ok(w.setup.includes(m), `sent ${m}`);
+  for (const m of ['1:2', '1:3', '1:37', '1:5', '1:32', '1:31', '1:30', '1a:5', '1:3e', '7:2']) assert.ok(w.setup.includes(m), `sent ${m}`);
   assert.ok(support.commands.get(0x17)?.has(0x01));
   assert.ok(log.some((l) => /Watch supports: .*workouts yes/.test(l)));
   assert.equal((await downloadWorkouts(link, 0, day + 9999, (l) => log.push(l))).length, 1);
@@ -218,4 +197,16 @@ test('D2 measurements: blood pressure fields are named; dropped kinds are no lon
   assert.deepEqual(READING_CLASSES[10002]?.fields, { 2006: 'Systolic (mmHg)', 2007: 'Diastolic (mmHg)', 10002537: 'Pulse (bpm)' });
   for (const cls of DROPPED_CLASSES) assert.equal(READING_CLASSES[cls], undefined);
   assert.deepEqual(Object.keys(READING_CLASSES).map(Number).sort(), [10002, 500031, 500044]);
+});
+
+test('D2: ECG recordings are no longer downloaded, kept or sent the ECG switch', async () => {
+  const { D2_KINDS, DROPPED_KINDS } = await import('../src/d2/store');
+  assert.ok(!(D2_KINDS as readonly string[]).includes('ecg'));
+  assert.deepEqual([...DROPPED_KINDS], ['ecg']);
+  const row = { data: { v: 1, kind: 'ecg', id: '1', user: 1, start: 1, data: { avgHr: 70 }, watch: 'W', downloadedAt: 1 } };
+  assert.equal(parseCloudRecord(row), null, 'an ECG record from the cloud is not taken');
+  const w = new FakeWatch();
+  const { link, log } = await connected(w);
+  await setUpWatch(link, { watchName: 'W', profile: null, log: (l) => log.push(l) });
+  assert.ok(!w.setup.includes('23:10'));
 });

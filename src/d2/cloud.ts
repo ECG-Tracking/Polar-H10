@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — syncs downloaded nights with the signed-in account's cloud copy (Supabase table d2_nights),
 // so nights downloaded on one device (e.g. a phone) can be seen on the others; and the other numerical data from the
-// watch (activity, measurements, stress, ECG, workouts) through the general table user_data, kinds 'd2-…'.
+// watch (activity, measurements, stress, workouts) through the general table user_data, kinds 'd2-…'.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { emptySummary, type D2Summary } from './sleepfile';
@@ -136,13 +136,17 @@ export function parseCloudRecord(row: unknown): D2Record | null {
   };
 }
 
-/** Measurement kinds no longer kept: removed here, and once per device from the cloud (all users of this account). */
+/** Kinds no longer kept (ECG recordings, some measurements): removed here, and once per device from the cloud (all users of this account). */
 async function dropOldKinds(client: CloudClient): Promise<number> {
-  const old = (await store.listAllRecords()).filter((r) => r.kind === 'reading' && DROPPED_CLASSES.includes(Number(r.data['cls'])));
+  const old = (await store.listAllRecords()).filter((r) => store.DROPPED_KINDS.includes(r.kind) || (r.kind === 'reading' && DROPPED_CLASSES.includes(Number(r.data['cls']))));
   await store.deleteRecords(old.map((r) => r.key));
   if (!store.droppedKindsCleared()) {
     for (const cls of DROPPED_CLASSES) {
       const { error } = await client.from(DATA_TABLE).delete().like('id', `reading:%:${cls}-%`);
+      if (error) fail(error);
+    }
+    for (const kind of store.DROPPED_KINDS) {
+      const { error } = await client.from(DATA_TABLE).delete().eq('kind', cloudKind(kind as D2Kind));
       if (error) fail(error);
     }
     store.setDroppedKindsCleared();

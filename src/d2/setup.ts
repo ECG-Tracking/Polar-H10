@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — the set-up messages the phone app sends after logging in, before the watch shares its health data:
-// what it supports, the time and time zone, the agreements, account, country, profile and the ECG feature.
+// what it supports, the time and time zone, the agreements, account, country and profile.
 // Ported from Gadgetbridge's device set-up code (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
@@ -142,11 +142,10 @@ export async function setUpWatch(link: D2Link, o: { watchName: string; profile: 
       return tell(0x02, u, 'the profile', 0x07);
     });
   }
-  if (hasCapability(support, 27)) await step('ECG', () => tell(0x10, new Tlv().putByte(0x01, 0), 'the ECG switch', 0x23));
 
   const yes = (v: boolean | null): string => (v == null ? 'unknown' : v ? 'yes' : 'no');
   log(`Watch supports: ${support.services.size} services; workouts ${yes(supportsCommand(support, 0x17, 0x01))}, stress ${yes(supportsCommand(support, 0x20, 0x09))}, `
-    + `data sync ${yes(supportsCommand(support, 0x34, 0x01))}, ECG ${yes(hasCapability(support, 106))}, HRV ${yes(hasCapability(support, 235))}, `
+    + `data sync ${yes(supportsCommand(support, 0x34, 0x01))}, HRV ${yes(hasCapability(support, 235))}, `
     + `agreements ${yes(supportsCommand(support, 0x01, 0x30))}.`);
   return support;
 }

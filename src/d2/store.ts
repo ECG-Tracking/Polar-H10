@@ -24,8 +24,10 @@ export function nightFromData(d: D2NightData, user: number, watch: string): D2Ni
 }
 
 /** Kinds of data besides sleep (see extra.ts). */
-export type D2Kind = 'activity' | 'totals' | 'reading' | 'stress' | 'ecg' | 'workout';
-export const D2_KINDS: readonly D2Kind[] = ['activity', 'totals', 'reading', 'stress', 'ecg', 'workout'];
+export type D2Kind = 'activity' | 'totals' | 'reading' | 'stress' | 'workout';
+export const D2_KINDS: readonly D2Kind[] = ['activity', 'totals', 'reading', 'stress', 'workout'];
+/** Kinds no longer downloaded; stored ones are deleted (ECG recordings, from v1.4.1). */
+export const DROPPED_KINDS: readonly string[] = ['ecg'];
 
 /**
  * One record of other watch data. `data` holds numbers only (it is what syncs to the cloud); `local` holds the
@@ -127,7 +129,7 @@ export function setPendingCloudDeletes(ids: readonly string[]): void {
   try { localStorage.setItem(tombstoneKey(), JSON.stringify(ids)); } catch { /* storage unavailable */ }
 }
 
-const droppedKey = (): string => `d2link-dropped-kinds-1-${account}`;
+const droppedKey = (): string => `d2link-dropped-kinds-2-${account}`;
 /** Whether this device already removed the dropped measurement kinds from the cloud. */
 export function droppedKindsCleared(): boolean {
   try { return localStorage.getItem(droppedKey()) === '1'; } catch { return false; }

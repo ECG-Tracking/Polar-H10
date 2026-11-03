@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — the "Graphs" view: everything downloaded from the watch (sleep, activity, heart rate, SpO₂, blood pressure,
-// HRV, stress, emotion, ECG, workouts) over a chosen period, from 1 day to all.
+// HRV, stress, emotion, workouts) over a chosen period, from 1 day to all.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { el, hm, svg } from './dom';
@@ -272,9 +272,7 @@ export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], recor
   const val = aggregate(reading(500031, 500031347), mode, 'mean'), aro = aggregate(reading(500031, 500031842), mode, 'mean');
   add('Emotion', 'valence and arousal, 0–100', [{ name: 'Valence', color: COLORS.green, points: val, kind: mode === 'raw' ? 'dots' : 'line' }, { name: 'Arousal', color: COLORS.amber, points: aro, kind: mode === 'raw' ? 'dots' : 'line' }], '', r0);
 
-  // ECG and workouts
-  const ecg = records.flatMap((r) => (r.kind === 'ecg' && inRange(r.start) && typeof r.data['avgHr'] === 'number' ? [{ t: r.start, v: r.data['avgHr'] as number }] : []));
-  add('ECG recordings: average heart rate', `${ecg.length} recording${ecg.length === 1 ? '' : 's'}`, [{ name: 'Average heart rate', color: COLORS.red, points: ecg, kind: 'dots' }], ' bpm', r0);
+  // workouts
   const wk = records.filter((r) => r.kind === 'workout' && inRange(r.start));
   const wkMin = aggregate(wk.map((r) => ({ t: r.start, v: ((typeof r.data['end'] === 'number' ? (r.data['end'] as number) : r.start) - r.start) / 60000 })), stageMode, 'sum');
   add('Workouts', `${wk.length} workout${wk.length === 1 ? '' : 's'}`, [{ name: 'Workout time', color: COLORS.green, points: wkMin, kind: 'bars' }], ' min', r0, true);

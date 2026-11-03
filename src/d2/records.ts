@@ -3,7 +3,7 @@
 // cloud), text the watch sent in `local` (kept on this device).
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import type { ActivityMinute, ActivityTotals, EcgRecording, Reading, StressRecord, Workout } from './extra';
+import type { ActivityMinute, ActivityTotals, Reading, StressRecord, Workout } from './extra';
 import { recordKey, type D2Kind, type D2Record } from './store';
 import { keyOf } from './trends';
 
@@ -47,9 +47,6 @@ export const readingRecords = (rs: readonly Reading[], user: number, watch: stri
 
 export const stressRecords = (rs: readonly StressRecord[], user: number, watch: string): D2Record[] => rs.map((r) =>
   record('stress', user, String(r.start), r.start, { ...r }, watch));
-
-export const ecgRecords = (rs: readonly EcgRecording[], user: number, watch: string): D2Record[] => rs.map(({ appVersion, ...r }) =>
-  record('ecg', user, String(r.start), r.start, { ...r }, watch, appVersion ? { appVersion } : undefined));
 
 export const workoutRecords = (ws: readonly Workout[], user: number, watch: string): D2Record[] => ws.map(({ texts, ...w }) =>
   record('workout', user, String(w.start), w.start, { ...w }, watch, hasKeys(texts) ? { texts } : undefined));

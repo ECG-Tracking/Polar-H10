@@ -22,7 +22,7 @@ export interface FakeWatchOptions {
   relativeOffsets?: boolean;
   /** Ignore the first block request (the watch was busy). */
   dropFirstBlockRequest?: boolean;
-  /** Other files by file type (0x10 stress, 0x18 ECG). */
+  /** Other files by file type (0x10 stress). */
   files?: Record<number, Uint8Array>;
   /** Activity blocks: start (s) and per-minute [offset, fields]. */
   activity?: { start: number; minutes: [number, Uint8Array][] }[];

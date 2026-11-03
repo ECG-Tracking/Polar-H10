@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — the "All data" view: activity per day, the watch's measurements, stress, ECG recordings and workouts.
+// D2 Link — the "All data" view: activity per day, the watch's measurements, stress and workouts.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { clock, dayLabel, el, hm, svg } from './dom';
+import { clock, dayLabel, el, hm } from './dom';
 import { READING_CLASSES, WORKOUT_TYPES, type ActivityMinute } from './extra';
 import { minutesOf } from './records';
 import type { D2Record } from './store';
@@ -38,24 +38,10 @@ function section(title: string, note: string, content: HTMLElement | null): HTML
   return s;
 }
 
-/** A small line chart of an ECG recording (first 10 seconds at most). */
-function ecgTrace(samples: readonly number[], seconds: number): SVGSVGElement {
-  const W = 600, H = 90;
-  const perS = seconds > 0 ? samples.length / seconds : samples.length;
-  const shown = samples.slice(0, Math.max(2, Math.round(perS * Math.min(10, seconds || 10))));
-  const lo = Math.min(...shown), hi = Math.max(...shown), span = hi - lo || 1;
-  const step = Math.max(1, Math.floor(shown.length / 1200));
-  const pts: string[] = [];
-  for (let i = 0; i < shown.length; i += step) pts.push(`${((i / (shown.length - 1)) * W).toFixed(1)},${(H - 4 - ((shown[i]! - lo) / span) * (H - 8)).toFixed(1)}`);
-  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'd2-ecg', role: 'img', 'aria-label': 'ECG recording' });
-  root.appendChild(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1.5 }));
-  return root;
-}
-
 export function renderAllData(box: HTMLElement, records: readonly D2Record[]): void {
   box.replaceChildren();
   if (!records.length) {
-    box.appendChild(el('p', 'muted', 'No other data yet. Use “Download all data” to read activity, measurements, stress, ECG and workouts from the watch.'));
+    box.appendChild(el('p', 'muted', 'No other data yet. Use “Download all data” to read activity, measurements, stress and workouts from the watch.'));
     return;
   }
   const of = (k: D2Record['kind']): D2Record[] => records.filter((r) => r.kind === k).sort((a, b) => b.start - a.start);
@@ -108,19 +94,6 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
     box.appendChild(section('Stress', 'Score and level as the watch measured them.', table(['Time', 'Score', 'Level'], stress.map((r) => [
       `${when(r.start)}–${clock(num(r.data['end']) ?? r.start)}`, String(num(r.data['score']) ?? '--'), String(num(r.data['level']) ?? '--'),
     ]))));
-  }
-
-  // ECG recordings
-  const ecgs = of('ecg');
-  if (ecgs.length) {
-    const s = section('ECG recordings', 'Recorded with the watch’s ECG app. Codes are the watch’s own result and symptom codes.', null);
-    for (const r of ecgs) {
-      const end = num(r.data['end']) ?? r.start, secs = (end - r.start) / 1000;
-      const samples = Array.isArray(r.data['samples']) ? (r.data['samples'] as number[]) : [];
-      s.appendChild(el('p', 'd2-ecg-head', `${when(r.start)} · ${Math.round(secs)} s · average ${num(r.data['avgHr']) ?? '--'} bpm · result code ${num(r.data['arrhythmia']) ?? '--'} · symptoms code ${num(r.data['symptoms']) ?? '--'}`));
-      if (samples.length > 1) s.appendChild(ecgTrace(samples, secs));
-    }
-    box.appendChild(s);
   }
 
   // workouts

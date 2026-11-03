@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.4.1 – D2 Link: no ECG recordings *(GitHub)*
+Why: ECG recordings from the watch are not wanted.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts`, `src/d2/extra.ts`, `src/d2/setup.ts` | “Download all data” no longer downloads ECG recordings, and the set-up no longer sends the ECG switch |
+| `src/d2/dataui.ts`, `src/d2/graphsui.ts`, `styles.css` | ECG recordings no longer shown in All data or Graphs |
+| `src/d2/store.ts`, `src/d2/cloud.ts` | ECG recordings already downloaded are deleted on each device at its next sync, and once from the cloud; one arriving from the cloud is not taken |
+| `tests/d2extra.test.ts`, `tests/d2fake.ts` | ECG tests replaced by a test that ECG recordings are not kept |
+
 ## 3 Nov 2026 – v1.4.0 – D2 Link: Graphs, blood pressure named *(GitHub)*
 Why: see all the watch’s data over time; name the blood pressure values; stop reading kinds that aren’t needed.
 
