@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.1.2 – Licences file explained *(GitHub)*
+Why: make clear the third-party licences cover only those libraries, not the app.
+
+| File | Change |
+|---|---|
+| `THIRD-PARTY-LICENSES.txt` | New opening note: the licences apply only to the open-source libraries included in the app (Supabase client for sign-in and cloud sync, tslib); OpenBeat ECG itself is Copyright © 2026 ECG-Tracking, all rights reserved, and these licences grant no rights to it; D2 Link has its own licence |
+
 ## 3 Nov 2026 – v1.1.1 – Copyright note on the D2 Link page *(GitHub)*
 Why: make clear that the app is copyrighted and only D2 Link is open source.
 

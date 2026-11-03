@@ -1,6 +1,12 @@
 Third-party licences for libraries included in app.js
 ======================================================
 
+These are the licences of open-source libraries written by other authors and included in OpenBeat ECG
+(the Supabase client, used for sign-in and cloud sync, and tslib). Each licence applies only to its own library.
+
+OpenBeat ECG itself is Copyright © 2026 ECG-Tracking. All rights reserved. These licences do not grant any
+rights to it. (D2 Link has its own licence: LICENSE-D2-LINK.txt.)
+
 ------------------------------------------------------------------
 @supabase/supabase-js 2.116.0
 ------------------------------------------------------------------
