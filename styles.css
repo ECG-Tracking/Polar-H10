@@ -424,3 +424,8 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
 .d2-history-table .d2-history-detail td { border-top: 0; padding-top: 0; white-space: normal; color: var(--ink-2); font-size: 0.85rem; }
 .d2-history-failed td:last-child { color: var(--critical, var(--accent)); }
 .d2-history-table .d2-history-main td:last-child { min-width: 9em; }
+/* Synchronised tracking */
+#view-sync .card { margin-bottom: 12px; }
+.sync-h { margin: 0 0 8px; font-size: 1rem; }
+.sync-bp { margin: 6px 0; font-variant-numeric: tabular-nums; }
+#view-sync .trace canvas { width: 100%; height: 220px; display: block; }

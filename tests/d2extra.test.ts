@@ -222,3 +222,18 @@ test('D2 download period: last days, or chosen dates from the start of one day t
   assert.ok('error' in downloadPeriod('custom', '', '2026-11-01', now));
   assert.ok('error' in downloadPeriod('custom', '2026-12-01', '2026-12-02', now));
 });
+
+import { parseBeats } from '../src/d2/live';
+
+test('D2 live: the heartbeat test streams beat intervals with their signal quality', async () => {
+  const w = new FakeWatch();
+  const { link } = await connected(w);
+  const got: { rri: number; sqi: number }[] = [];
+  const done = new Promise<void>((resolve) => {
+    link.listeners.add((p) => { if (p.service === 0x19 && p.command === 0x05 && p.tlv) { got.push(...parseBeats(p.tlv)); resolve(); } });
+  });
+  await link.request({ service: 0x19, command: 0x01, tlv: new Tlv().putByte(0x01, 3) }, 2000, 'test');
+  await done;
+  assert.deepEqual(got, [{ rri: 800, sqi: 1 }, { rri: 820, sqi: 1 }, { rri: 790, sqi: 0 }]);
+  assert.ok(w.setup.includes('19:1:3'));
+});

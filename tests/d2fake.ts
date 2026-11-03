@@ -121,6 +121,16 @@ export class FakeWatch {
       return this.reply(p.service, p.command, new Tlv().putInt(0x7f, 100000));
     }
     if (p.service === 0x2c) return this.file(p.command, t);
+    if (p.service === 0x19 && p.command === 0x01) { // heartbeat test: 3 = start (send three beats), 4 = stop
+      this.setup.push(`19:1:${t.byte(0x01)}`);
+      await this.reply(0x19, 0x01, new Tlv().putInt(0x7f, 100000));
+      if (t.byte(0x01) === 3) {
+        const beats = new Tlv();
+        for (const [rri, sqi] of [[800, 1], [820, 1], [790, 0]] as const) beats.putTlv(0x83, new Tlv().putShort(0x04, rri).putByte(0x05, sqi));
+        await this.reply(0x19, 0x05, new Tlv().putTlv(0x82, beats));
+      }
+      return;
+    }
     if (p.service === 0x07) return this.fitness(p.command, t);
     if (p.service === 0x34) return this.dataSync(t);
     if (p.service === 0x17) return this.workout(p.command, t);

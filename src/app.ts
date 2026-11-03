@@ -13,6 +13,8 @@ import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import { versionText } from './version';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
+import type { D2Api } from './d2/index';
+import { initSyncTracking } from './synctrack';
 
 const FS = ECG_FS;
 
@@ -26,8 +28,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'settings';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'settings'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'sync' | 'settings';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'sync', 'settings'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -39,6 +41,7 @@ function show(view: View): void {
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
   if (view === 'd2') void openD2();
+  if (view === 'sync') openSync();
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
   $('copyRights').textContent = view === 'd2' ? '' : 'All rights reserved.';
@@ -52,8 +55,8 @@ declare const __D2_VERSION__: string; // set by scripts/build.mjs
 let d2: { refresh: () => void } | null = null;
 let d2Loading: Promise<void> | null = null;
 
-async function openD2(): Promise<void> {
-  if (d2) { d2.refresh(); return; }
+/** Loads d2link.js once (D2 Link's page and the watch for synchronised tracking). */
+async function loadD2(): Promise<D2Api> {
   d2Loading ??= new Promise<void>((resolve, reject) => {
     const s = document.createElement('script');
     s.src = `d2link.js?v=${__D2_VERSION__}`; // a new version is never taken from a cache
@@ -61,17 +64,37 @@ async function openD2(): Promise<void> {
     s.onerror = () => { d2Loading = null; reject(new Error('could not load d2link.js')); };
     document.head.appendChild(s);
   });
+  await d2Loading;
+  const api = window.OpenBeatD2;
+  if (!api) throw new Error('d2link.js did not start');
+  return api;
+}
+
+const biodataProfile = (): { heightCm: number; weightKg: number; age: number; sex: 'male' | 'female' } | null =>
+  (settings.heightCm > 0 && settings.weightKg > 0 ? { heightCm: settings.heightCm, weightKg: settings.weightKg, age: settings.age, sex: settings.sex } : null);
+
+// ---------- Synchronised tracking (Polar H10 and Watch D2 together) ----------
+
+let syncUI: ReturnType<typeof initSyncTracking> | null = null;
+function openSync(): void {
+  syncUI ??= initSyncTracking($('syncRoot'), {
+    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
+    polarBusy: () => (source?.kind === 'polar' ? 'The strap is connected on ECG live: disconnect it there first.'
+      : sleepUI?.isConnected() ? 'The strap is in use on Sleep monitor: disconnect it there first.' : null),
+  });
+}
+
+async function openD2(): Promise<void> {
+  if (d2) { d2.refresh(); return; }
   try {
-    await d2Loading;
-    const api = window.OpenBeatD2;
-    if (!api) throw new Error('d2link.js did not start');
+    const api = await loadD2();
     const online = account.account && !account.account.offline;
     d2 = api.mount($('d2Root'), {
       account: account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser),
       // D2 Link syncs its nights through the signed-in account (table d2_nights)
       cloud: online ? (supabase() as unknown as CloudClient) : null,
       // Settings → Biodata, sent to the watch as its profile with "Download all data" (only when height and weight are given)
-      profile: () => (settings.heightCm > 0 && settings.weightKg > 0 ? { heightCm: settings.heightCm, weightKg: settings.weightKg, age: settings.age, sex: settings.sex } : null),
+      profile: biodataProfile,
     });
   } catch (err) {
     $('d2Root').replaceChildren(make('p', 'muted', `D2 Link could not be loaded (${errorMessage(err)}). Check the internet connection and reopen the tab.`));

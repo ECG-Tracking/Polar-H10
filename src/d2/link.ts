@@ -46,8 +46,8 @@ export class D2Link {
   private waiters: Waiter[] = [];
   private incoming: Promise<void> = Promise.resolve();
   private blockListener: ((p: InPacket) => void) | null = null;
-  /** Gets messages the watch sends on its own on the given service (e.g. the data sync service). */
-  listener: ((p: InPacket) => void) | null = null;
+  /** Get the messages the watch sends on its own (e.g. the data sync service, the live heartbeat test). */
+  readonly listeners = new Set<(p: InPacket) => void>();
   private closed = false;
 
   constructor(private readonly t: Transport, private readonly log: Log) {
@@ -69,7 +69,7 @@ export class D2Link {
         } else if (p.service === FILE_DOWNLOAD && p.command === 0x05) {
           this.blockListener?.(p);
         } else {
-          this.listener?.(p);
+          for (const l of this.listeners) l(p);
         }
       }).catch((e: unknown) => this.log(`Could not read a packet from the watch: ${e instanceof Error ? e.message : String(e)}`));
     }

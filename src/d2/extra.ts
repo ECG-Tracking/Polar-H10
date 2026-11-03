@@ -182,9 +182,10 @@ class DictionarySync {
   private seq = 1;
   private replies = new Map<number, (m: P2PMessage) => void>();
   private data: ((d: Uint8Array) => void) | null = null;
+  private readonly onPacket: (p: InPacket) => void;
 
   constructor(private readonly link: D2Link, private readonly log: Log) {
-    link.listener = (p) => {
+    this.onPacket = (p) => {
       if (p.service !== P2P || p.command !== 0x01) return;
       const m = readP2P(p);
       if (!m) return;
@@ -196,9 +197,10 @@ class DictionarySync {
         if (m.data) this.data?.(m.data);
       }
     };
+    link.listeners.add(this.onPacket);
   }
 
-  close(): void { this.link.listener = null; }
+  close(): void { this.link.listeners.delete(this.onPacket); }
 
   private packet(cmd: number, seq: number, from: string, to: string, fingerprints: [string, string] | null, data: Uint8Array | null, code: number | null = null): Promise<void> {
     const t = new Tlv().putByte(0x01, cmd).putShort(0x02, seq).putString(0x03, from).putString(0x04, to);
@@ -246,12 +248,13 @@ class DictionarySync {
 }
 
 /** All records of every known class since `since` (ms). Classes the watch doesn't keep are skipped. */
-export async function downloadReadings(link: D2Link, since: number, log: Log): Promise<Reading[]> {
+/** `classes`: only these kinds (default: all in READING_CLASSES). */
+export async function downloadReadings(link: D2Link, since: number, log: Log, classes: readonly number[] = Object.keys(READING_CLASSES).map(Number)): Promise<Reading[]> {
   const sync = new DictionarySync(link, log);
   try {
     if (!(await sync.ping())) { log('The watch’s data sync service didn’t answer: no measurements read.'); return []; }
     const out: Reading[] = [];
-    for (const cls of Object.keys(READING_CLASSES).map(Number)) {
+    for (const cls of classes) {
       let from = since, pages = 0, n = 0;
       for (;;) {
         const page = await sync.page(cls, from);

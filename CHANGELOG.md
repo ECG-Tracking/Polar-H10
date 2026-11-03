@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.7.0 – Synchronised tracking *(GitHub)*
+Why: compare the Polar H10 and the Watch D2 at the same time, with a blood pressure reading.
+
+| File | Change |
+|---|---|
+| `index.html`, `src/app.ts`, `src/synctrack.ts` (new), `styles.css` | New tab “Synchronised tracking” between D2 Link and Settings: 1. pair with the Polar H10, 2. pair with the Watch D2 (Chrome Bluetooth or D2 Bridge on a Mac), 3. one-minute tracking with a countdown; the ECG as on ECG live; live heart rate, beat interval, signal and RMSSD from the watch beside the strap’s heart rate and RMSSD; a chart of both heart rates over the minute; a summary (average heart rate, RMSSD, SDNN, beats, and the difference between the two). Blood pressure: measured once on the watch during the minute or within one hour of the start; checked every minute while the watch is connected (and with a button), and shown on the page |
+| `src/d2/live.ts` (new), `src/d2/index.ts`, `src/d2/link.ts`, `src/d2/extra.ts` | D2 Link offers the watch live: the watch’s 60-second heartbeat test (ported from Gadgetbridge) and blood pressure readings since a time (also saved with D2 Link’s data). Several parts can now listen to the watch at once |
+| `tests/d2extra.test.ts`, `tests/d2fake.ts`, `tests/synctrack.test.ts` (new) | The fake watch streams heartbeats; tests for the beats and the heart rate / HRV numbers |
+
 ## 3 Nov 2026 – v1.6.0 – D2 Link: download history; clearer note when D2 Bridge isn’t open *(GitHub)*
 Why: D2 Bridge is in the Applications folder inside the home folder, which is easy to miss.
 

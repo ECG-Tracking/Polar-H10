@@ -68,6 +68,7 @@
       <button role="tab" data-view="sleep">Sleep monitor</button>
       <button role="tab" data-view="sleepHistory">Sleep history</button>
       <button role="tab" data-view="d2">D2 Link</button>
+      <button role="tab" data-view="sync">Synchronised tracking</button>
       <button role="tab" data-view="settings">Settings</button>
     </nav>
   </header>
@@ -314,6 +315,10 @@
     <!-- D2 LINK (open source: d2link.js, built from src/d2) -->
     <section id="view-d2" class="view">
       <div id="d2Root"><p class="muted">Loading D2 Link…</p></div>
+    </section>
+
+    <section id="view-sync" class="view">
+      <div id="syncRoot"></div>
     </section>
 
     <section id="view-settings" class="view">
