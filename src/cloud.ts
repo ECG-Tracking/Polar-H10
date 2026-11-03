@@ -61,7 +61,8 @@ export interface SyncResult { ok: boolean; uploaded: number; downloaded: number;
 /** Plain-language reason for a failed sync. */
 function describe(err: unknown): string {
   const msg = errorMessage(err);
-  if (/ecg_sessions|sleep_nights|could not find the table|schema cache|column .* does not exist/i.test(msg)) {
+  // only a missing table or column means setup.sql hasn't been run; any other error is shown as it is
+  if (/could not find the table|relation .* does not exist|column .* does not exist/i.test(msg)) {
     return 'cloud storage isn’t set up yet (or is from an older version): run supabase/setup.sql in your Supabase project';
   }
   if (/failed to fetch|network|load failed/i.test(msg)) return 'no internet connection';

@@ -17,6 +17,10 @@ export interface FakeWatchOptions {
   /** A token the watch already trusts (a previous pairing). */
   knownToken?: Uint8Array;
   rejectToken?: boolean;
+  /** Offsets in file blocks counted from the start of each block instead of the file. */
+  relativeOffsets?: boolean;
+  /** Ignore the first block request (the watch was busy). */
+  dropFirstBlockRequest?: boolean;
 }
 
 export class FakeWatch {
@@ -29,6 +33,7 @@ export class FakeWatch {
   private readonly watchId = utf8('D2FAKEWATCH000000000000000000001');
   private readonly pin: Uint8Array;
   readonly transport: Transport;
+  private dropped = false;
 
   constructor(private readonly o: FakeWatchOptions = {}) {
     this.params.deviceSupportType = o.deviceSupportType ?? 4;
@@ -132,10 +137,11 @@ export class FakeWatch {
     if (command === 0x01) return this.reply(0x2c, 1, new Tlv().putString(1, t.string(1)).putByte(2, t.byte(2)).putByte(3, 0x16).putInt(4, file.length));
     if (command === 0x03) return this.reply(0x2c, 3, new Tlv().putByte(1, t.byte(1)).putByte(2, 5).putShort(3, 0x100).putInt(4, this.o.blockSize ?? 1000).putByte(5, 0));
     if (command === 0x04) {
+      if (this.o.dropFirstBlockRequest && !this.dropped) { this.dropped = true; return undefined; }
       const offset = t.int(2), size = t.int(3);
       for (let o = offset; o < offset + size; o += 200) {
         const chunk = file.slice(o, Math.min(o + 200, offset + size));
-        const plain = concat(Uint8Array.of(t.byte(1)), u32(o), Uint8Array.of(0), chunk);
+        const plain = concat(Uint8Array.of(t.byte(1)), u32(this.o.relativeOffsets ? o - offset : o), Uint8Array.of(0), chunk);
         await this.replyRaw(0x2c, 5, (await encryptBody(this.params, plain)).serialize());
       }
     }

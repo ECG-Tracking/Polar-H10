@@ -249,31 +249,48 @@ export class D2Link {
     const timeoutS = Math.max(5, fi.has(0x02) ? fi.byte(0x02) : 10);
     const maxBlock = Math.max(1, fi.has(0x04) ? fi.int(0x04) : 4096);
     const noEncrypt = fi.has(0x05) && fi.bool(0x05);
-    this.log(`Downloading ${(size / 1024).toFixed(1)} KB…`);
+    this.log(`Downloading ${(size / 1024).toFixed(1)} KB (blocks of up to ${maxBlock} bytes, ${noEncrypt ? 'unencrypted' : 'encrypted'} requests)…`);
 
+    // Like Gadgetbridge: pieces are appended in the order they arrive (the offset the watch sends is only logged),
+    // and a block is done when its bytes have arrived. Pieces are handled one at a time, so order is kept.
     const file = new Uint8Array(size);
-    let received = 0;
+    let received = 0, offsetsSeen = 0;
+    const fetchBlock = (blockStart: number, blockSize: number): Promise<void> => new Promise<void>((resolve, reject) => {
+      const stalled = (): void => reject(new WatchError(`stalled at ${received} of ${size} bytes`));
+      let timer = setTimeout(stalled, timeoutS * 1000);
+      let chain = Promise.resolve();
+      this.blockListener = (p) => {
+        chain = chain.then(async () => {
+          const b = await this.readBlock(p);
+          if (b.fileId !== fileId || received >= size) return;
+          if (offsetsSeen++ < 3) this.log(`Piece: ${b.data.length} bytes, watch offset ${b.offset}, at ${received}`);
+          const take = b.data.slice(0, size - received);
+          file.set(take, received);
+          received += take.length;
+          progress(received, size);
+          clearTimeout(timer);
+          if (received - blockStart >= blockSize || received >= size) resolve();
+          else timer = setTimeout(stalled, timeoutS * 1000);
+        }).catch(reject);
+      };
+      const req = new Tlv().putByte(0x01, fileId).putInt(0x02, blockStart).putInt(0x03, blockSize);
+      if (fileId === 0x16) req.putInt(0x04, SLEEP_DICT);
+      this.send({ service: FILE_DOWNLOAD, command: 0x04, tlv: req, encrypt: !noEncrypt }).catch(reject);
+    });
     try {
       while (received < size) {
         const blockStart = received, blockSize = Math.min(size - received, maxBlock);
-        await new Promise<void>((resolve, reject) => {
-          let timer = setTimeout(() => reject(new WatchError('The sleep download stopped (no data from the watch).')), timeoutS * 1000);
-          this.blockListener = (p) => {
-            void this.readBlock(p).then((b) => {
-              if (b.fileId !== fileId) return;
-              const at = b.offset >= 0 && b.offset + b.data.length <= size ? b.offset : received;
-              file.set(b.data.slice(0, size - at), at);
-              received = Math.max(received, at + b.data.length);
-              progress(Math.min(received, size), size);
-              clearTimeout(timer);
-              if (received - blockStart >= blockSize || received >= size) resolve();
-              else timer = setTimeout(() => reject(new WatchError('The sleep download stopped (no data from the watch).')), timeoutS * 1000);
-            }, reject);
-          };
-          const req = new Tlv().putByte(0x01, fileId).putInt(0x02, blockStart).putInt(0x03, blockSize);
-          if (fileId === 0x16) req.putInt(0x04, SLEEP_DICT);
-          this.send({ service: FILE_DOWNLOAD, command: 0x04, tlv: req, encrypt: !noEncrypt }).catch(reject);
-        });
+        for (let attempt = 1; ; attempt++) {
+          try {
+            await fetchBlock(received, blockSize - (received - blockStart));
+            break;
+          } catch (e) {
+            if (!(e instanceof WatchError) || attempt >= 3) {
+              throw new WatchError(`The sleep download stopped (${e instanceof Error ? e.message : String(e)}).`);
+            }
+            this.log(`No more data from the watch at ${received} of ${size} bytes; asking again (${attempt + 1} of 3)…`);
+          }
+        }
       }
     } finally {
       this.blockListener = null;

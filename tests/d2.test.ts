@@ -294,3 +294,18 @@ test('D2 trends: weeks run Monday to Sunday; times around midnight average corre
   assert.equal(a.score, 82);
   assert.equal(a.sleepMin, 420);
 });
+
+test('D2 download: pieces are appended in order (offsets per block are fine) and a skipped block request is asked again', async () => {
+  const file = writeSleepFile([night1(), { ...night1(), summary: { ...night1().summary, bedTime: bed + 86400, fallAsleepTime: bed + 86400 + 240, wakeupTime: bed + 86400 + 417 * 60 } }]);
+  for (const opts of [{ relativeOffsets: true }, { dropFirstBlockRequest: true }]) {
+    const w = new FakeWatch({ sleepFile: file, blockSize: 300, ...opts });
+    const log: string[] = [];
+    const link = new D2Link(w.transport, (l) => log.push(l));
+    await link.connect(null);
+    // the fake's file-info timeout is 5 s; keep the test quick by using small blocks and a dropped request only once
+    const got = await link.downloadSleep(0, bed + 3 * 86400);
+    assert.equal(hex(got), hex(file), JSON.stringify(opts));
+    assert.equal(parseSleepFile(got).length, 2);
+    if (opts.dropFirstBlockRequest) assert.ok(log.some((l) => l.includes('asking again')));
+  }
+});

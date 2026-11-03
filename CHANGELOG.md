@@ -4,6 +4,15 @@ Newest first. Live site: https://ecg-tracking.github.io/Polar-H10/ (repository g
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – D2 download and sync error fixes *(GitHub)*
+Why: a 5.4 KB sleep download stopped part-way, and the cloud sync reported "isn't set up" for an unrelated error.
+
+| File | Change |
+|---|---|
+| `src/d2/link.ts` | File pieces are appended in the order they arrive, as Gadgetbridge does (the watch's per-piece offset is only logged); pieces are handled one at a time; a stalled block is asked for again up to 3 times; the log shows block size, the first pieces' offsets and how far it got |
+| `src/cloud.ts` | "Cloud storage isn't set up" only for a missing table or column; any other error is shown as it is, so its real cause can be seen |
+| `tests/d2fake.ts`, `tests/d2.test.ts` | Fake watch can count offsets per block or skip a block request; new test for both |
+
 ## 3 Nov 2026 – Watch maker's name removed *(GitHub)*
 Why: avoid naming the watch's maker anywhere in the app.
 
