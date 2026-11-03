@@ -98,23 +98,22 @@ function waitForSignIn(): Promise<Account> {
   });
 }
 
-/** The sync status in Settings, and in short in the top bar. */
+/** The sync status in the top bar: a short line with a coloured dot, and the full message on hover (e.g. why it failed). */
 function showSyncStatus(): void {
-  const el = $('syncStatus');
   const a = current.account, c = current.cloud;
   if (!a) return;
-  const short = (text: string, state: 'ok' | 'busy' | 'off' | 'fail'): void => {
+  const show = (text: string, state: 'ok' | 'busy' | 'off' | 'fail', full = text): void => {
     $('topSync').textContent = text;
+    $('topSync').title = full;
     $('topSyncDot').className = `nav-sync-dot ${state}`;
   };
-  if (a.offline || !c) { el.textContent = 'Offline: your history will sync when you’re back online and reopen the app.'; short('Offline', 'off'); return; }
+  if (a.offline || !c) { show('Offline', 'off', 'Offline: your history will sync when you’re back online and reopen the app.'); return; }
   const r = c.lastResult;
-  if (!r) { el.textContent = 'Syncing…'; short('Syncing…', 'busy'); return; }
-  if (!r.ok) { el.textContent = `Sync failed: ${r.reason ?? 'unknown error'}.`; short('Sync failed', 'fail'); return; }
+  if (!r) { show('Syncing…', 'busy'); return; }
+  if (!r.ok) { show('Sync failed', 'fail', `Sync failed: ${r.reason ?? 'unknown error'}.`); return; }
   const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
   const at = new Date(c.lastSyncAt ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  el.textContent = `Synced at ${at}${parts.length ? ` (${parts.join(', ')})` : ''}.`;
-  short(`Synced ${at}`, 'ok');
+  show(`Synced ${at}`, 'ok', `Synced at ${at}${parts.length ? ` (${parts.join(', ')})` : ''}.`);
 }
 
 /** Account menu → "Reset my account data": the cloud copy first (so a failure leaves everything as it was), then this device. */
@@ -144,16 +143,12 @@ async function boot(): Promise<void> {
 
   $('authOverlay').hidden = true;
   $('appShell').hidden = false;
-  $('accountEmail').textContent = account.email;
   $('navVersion').textContent = `Version ${versionText()}`;
   await import('./app'); // the app reads this account's storage, so it starts only now
 
-  $button('btnSignOut').addEventListener('click', () => void signOut());
   initTopbar({ email: account.email, user: () => store.loadCurrentUser(), signOut: () => void signOut(), reset: () => resetAccount(account) });
   const sync = current.cloud;
-  $button('btnSyncNow').disabled = !sync;
-  const syncNow = (): void => { $('syncStatus').textContent = 'Syncing…'; $('topSync').textContent = 'Syncing…'; void sync?.sync(); };
-  $button('btnSyncNow').addEventListener('click', syncNow);
+  const syncNow = (): void => { $('topSync').textContent = 'Syncing…'; void sync?.sync(); };
   $button('btnTopSync').disabled = !sync;
   $button('btnTopSync').addEventListener('click', syncNow);
   sync?.addEventListener('synced', showSyncStatus);

@@ -11,10 +11,10 @@ import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
-import { versionText } from './version';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
+import { initBackups } from './backups';
 
 const FS = ECG_FS;
 
@@ -28,8 +28,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings' | 'backups';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings', 'backups'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -46,6 +46,7 @@ function show(view: View): void {
   if (view === 'd2' || view === 'd2History') void openD2();
   if (view === 'sync' || view === 'syncHistory') openSync();
   if (view === 'syncHistory') syncUI?.refreshHistory();
+  if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2 }); }
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
   // the licence lines only on the D2 Link page; D2 Link History has the plain copyright line, like the other pages
@@ -84,6 +85,7 @@ const biodataProfile = (): { heightCm: number; weightKg: number; age: number; se
 // ---------- Synchronised tracking (Polar H10 and Watch D2 together) ----------
 
 let syncUI: ReturnType<typeof initSyncTracking> | null = null;
+let backupsReady = false;
 function openSync(): void {
   syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
@@ -998,7 +1000,6 @@ $('refSources').replaceChildren(...SOURCES.map(([what, text]) => {
 // ---------- Startup ----------
 
 $('copyYear').textContent = String(Math.max(2026, new Date().getFullYear()));
-$('settingsVersion').textContent = versionText();
 
 if (!bluetoothAvailable() || !window.isSecureContext) {
   $button('btnConnect').disabled = true;

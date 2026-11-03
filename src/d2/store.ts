@@ -198,6 +198,11 @@ export function loadDownloadLog(): DownloadLogEntry[] {
   } catch { return []; }
 }
 
+/** Replaces the whole download history (restoring a backup). */
+export function replaceDownloadLog(entries: readonly DownloadLogEntry[]): void {
+  try { localStorage.setItem(logKey(), JSON.stringify(entries.slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
+}
+
 export function removeDownloadLog(at: number): void {
   try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }

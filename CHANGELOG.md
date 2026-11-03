@@ -4,6 +4,23 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.12.0 – Sync & backups; Settings renamed Biodata *(GitHub)*
+Why: back up and restore the whole account, and compare or repair the copies on this device and in the cloud, as in Portfolio Optimizer.
+
+| File | Change |
+|---|---|
+| `src/backups.ts` (new), `src/app.ts`, `index.html`, `styles.css` | New page “Sync & backups” below Biodata. “Backup Account” saves one file with everything this account has on this device (ECG recordings with their full signal, sleep nights with their raw data, summary copies from other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking and download histories, the watch account ID; not the password, sign-in or watch pairing). “Restore Account” puts such a file back on this device (same items replaced) and uploads it at the next sync. “Export local and cloud copies for comparison” saves both copies side by side (raw signals left out, watch account ID hidden). “Overwrite cloud with local” makes the cloud copy match this device; “Restore previous cloud copy from comparison file” puts back an earlier cloud copy, which this device then follows. Both ask for the account password; other devices follow the cloud at their next sync |
+| `src/d2/backup.ts` (new), `src/d2/index.ts`, `src/d2/store.ts` | D2 Link’s part of the backup, restore and sync |
+| `index.html`, `src/topbar.ts` | “Settings” is now “Biodata” in the sidebar (its page: “Biodata and settings”); Search finds Sync & backups |
+| `tests/backups.test.ts` (new) | Signals survive the backup file; only OpenBeat files are accepted |
+
+## 3 Nov 2026 – v1.11.4 – Settings: account card removed *(GitHub)*
+Why: the email, sync status, version, Sync now and sign-out are already at the top right and in the sidebar.
+
+| File | Change |
+|---|---|
+| `index.html`, `src/main.ts`, `src/app.ts` | Settings no longer has the Account card. Its note on what is backed up moved to “About” and now also lists the Watch D2 data and the biodata and settings. The top bar’s sync status shows the full message (e.g. why a sync failed) on hover |
+
 ## 3 Nov 2026 – v1.11.3 – Account menu: choose the user *(GitHub)*
 Why: switch between users 1–9 from the top bar.
 
