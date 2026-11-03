@@ -123,6 +123,20 @@ export function setPendingCloudDeletes(ids: readonly string[]): void {
   try { localStorage.setItem(tombstoneKey(), JSON.stringify(ids)); } catch { /* storage unavailable */ }
 }
 
+const watchAccountKey = (): string => `d2link-watch-account-${account}`;
+
+/** The ID of the account the watch belongs to in its phone app (digits only), if the user entered it; this device only. */
+export function loadWatchAccount(): string {
+  try { return localStorage.getItem(watchAccountKey()) ?? ''; } catch { return ''; }
+}
+
+export function saveWatchAccount(id: string): void {
+  try {
+    if (id) localStorage.setItem(watchAccountKey(), id);
+    else localStorage.removeItem(watchAccountKey());
+  } catch { /* storage unavailable */ }
+}
+
 const pairingKey = (): string => `d2link-pairing-${account}`;
 
 export function loadPairing(): Pairing | null {

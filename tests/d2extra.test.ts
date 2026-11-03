@@ -161,7 +161,7 @@ test('D2 set-up: the watch is set up like the phone app does; a refusal before i
   const w = new FakeWatch({ refuseUntilAgreed: true, workouts: [{ number: 7, start: day, end: day + 1800, kcal: 210, type: 1, ...workoutBlock() }] });
   const { link, log } = await connected(w);
   await assert.rejects(downloadWorkouts(link, 0, day + 9999, (l) => log.push(l)), /code 100004/);
-  const support = await setUpWatch(link, { watchName: 'WATCH D2', profile: { heightCm: 175, weightKg: 70, age: 55, sex: 'male' }, log: (l) => log.push(l), now: new Date(day * 1000) });
+  const support = await setUpWatch(link, { watchName: 'WATCH D2', accountId: '20007000023812345', profile: { heightCm: 175, weightKg: 70, age: 55, sex: 'male' }, log: (l) => log.push(l), now: new Date(day * 1000) });
   for (const m of ['1:2', '1:3', '1:37', '1:5', '1:32', '1:31', '1:30', '1a:5', '1:3e', '7:2', '23:10']) assert.ok(w.setup.includes(m), `sent ${m}`);
   assert.ok(support.commands.get(0x17)?.has(0x01));
   assert.ok(log.some((l) => /Watch supports: .*workouts yes/.test(l)));
@@ -181,4 +181,16 @@ test('D2 set-up: message formats', () => {
   // three agreements, each accepted
   const a = Tlv.parse(agreementsTlv(1).bytes(0x81));
   assert.deepEqual(a.items.map((i) => Tlv.parse(i.value).string(0x03)), ['software_update_service_statement', 'device_information_management', 'user_license_agreement']);
+});
+
+test('D2 set-up: the account goes to the watch only when its ID was entered', async () => {
+  const w1 = new FakeWatch();
+  const a = await connected(w1);
+  await setUpWatch(a.link, { watchName: 'W', profile: null, log: (l) => a.log.push(l) });
+  assert.ok(!w1.setup.some((m) => m.startsWith('1a:5')), 'no account message without an ID');
+  assert.ok(a.log.some((l) => /account step is skipped/.test(l)));
+  const w2 = new FakeWatch();
+  const b = await connected(w2);
+  await setUpWatch(b.link, { watchName: 'W', profile: null, accountId: '20007000023812345', log: (l) => b.log.push(l) });
+  assert.ok(w2.setup.includes('1a:5'));
 });

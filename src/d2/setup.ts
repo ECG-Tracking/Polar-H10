@@ -85,7 +85,7 @@ export function agreementsTlv(now = Date.now()): Tlv {
  * Sends the set-up messages and returns what the watch supports. Each step is optional: one the watch refuses or
  * doesn't answer is logged and the next one follows.
  */
-export async function setUpWatch(link: D2Link, o: { watchName: string; profile: Profile | null; log: Log; now?: Date }): Promise<WatchSupport> {
+export async function setUpWatch(link: D2Link, o: { watchName: string; profile: Profile | null; accountId?: string; log: Log; now?: Date }): Promise<WatchSupport> {
   const { log } = o;
   const support: WatchSupport = { services: new Set(), commands: new Map(), capabilities: null };
   const step = async (what: string, fn: () => Promise<void>): Promise<void> => {
@@ -127,7 +127,9 @@ export async function setUpWatch(link: D2Link, o: { watchName: string; profile: 
   await step('time zone', () => tell(0x32, new Tlv().putInt(0x01, t.seconds).putShort(0x02, t.offset).putString(0x03, t.zone), 'the time zone'));
   await step('settings', async () => { await ask(0x31, new Tlv().put(1).put(2).put(3).put(4).put(5).put(6), 'the settings request'); });
   await step('agreements', () => tell(0x30, agreementsTlv(), 'the agreements'));
-  await step('account', () => tell(0x05, new Tlv().putByte(0x01, 0), 'the account', 0x1a));
+  // the account the watch belongs to: sent only when the user entered its ID (an empty one makes the watch hold back data)
+  if (o.accountId && /^\d{5,30}$/.test(o.accountId)) await step('account', () => tell(0x05, new Tlv().putString(0x01, o.accountId!), 'the account', 0x1a));
+  else log('Set-up: no watch account ID entered, so the account step is skipped.');
   const region = (typeof navigator === 'undefined' ? '' : navigator.language.split('-')[1] ?? '').toUpperCase();
   if (/^[A-Z]{2}$/.test(region)) await step('country', () => tell(0x0a, new Tlv().putString(0x01, region), 'the country', 0x1a));
   if (hasCapability(support, 109)) await step('main device', () => tell(0x3e, new Tlv().putByte(0x01, 1).putString(0x02, o.watchName).putByte(0x03, 0), 'the device status'));

@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.3.4 – D2 Link: watch account ID *(GitHub)*
+Why: the watch held back stress, ECG, workouts and measurements (code 100004), and after the set-up sent an empty account it also held back totals and data sync: it shares health data with its own account.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts`, `styles.css` | New optional field “Watch account ID” on the D2 Link page (digits only, usually 17), with how to find it |
+| `src/d2/store.ts` | The ID is kept on this device only (never synced) |
+| `src/d2/setup.ts` | The account step sends that ID; without one it is skipped (no more empty account) |
+| `tests/d2extra.test.ts` | The account is sent only when an ID was entered |
+
 ## 3 Nov 2026 – v1.3.3 – D2 Link: set up the watch before downloading all data *(GitHub)*
 Why: the watch refused stress, ECG and workouts (code 100004) and didn’t answer the measurement requests, probably because the phone app’s set-up messages after login were missing.
 
