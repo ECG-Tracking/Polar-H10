@@ -81,3 +81,38 @@ export async function openWatch(mode: 'bluetooth' | 'system' = 'bluetooth', log:
   })();
   return t;
 }
+
+export const BRIDGE_URL = 'ws://127.0.0.1:47820';
+
+/**
+ * The watch through the D2 Bridge app on a Mac (a separate program, not part of D2 Link): the app opens the watch's data channel with
+ * macOS's Bluetooth and passes the bytes over a WebSocket on this Mac. Text messages are its status: "open <name>" or
+ * "error <reason>"; everything else is the watch's bytes.
+ */
+export function openMacBridge(log: (line: string) => void = () => {}, url = BRIDGE_URL): Promise<Transport> {
+  return new Promise((resolve, reject) => {
+    let ws: WebSocket;
+    try { ws = new WebSocket(url); } catch (e) { reject(new Error(`D2 Bridge can’t be reached (${e instanceof Error ? e.message : String(e)}).`)); return; }
+    ws.binaryType = 'arraybuffer';
+    let ready = false;
+    const fail = (msg: string): void => { if (!ready) { ready = true; clearTimeout(timer); reject(new Error(msg)); } };
+    const timer = setTimeout(() => { fail('D2 Bridge didn’t connect to the watch in time. Wake the watch and switch off Bluetooth on the phone it is connected to.'); ws.close(); }, 45000);
+    const t: Transport = {
+      onData: null,
+      onClose: null,
+      send: async (data) => { if (ws.readyState !== WebSocket.OPEN) throw new Error('The watch is not connected.'); ws.send(data); },
+      close: async () => { ws.close(); },
+    };
+    ws.onopen = () => log('Connected to D2 Bridge; it is connecting to the watch…');
+    ws.onmessage = (ev: MessageEvent) => {
+      if (typeof ev.data === 'string') {
+        if (ev.data.startsWith('open')) { log(`D2 Bridge: connected to ${ev.data.slice(5) || 'the watch'}.`); if (!ready) { ready = true; clearTimeout(timer); resolve(t); } }
+        else if (ev.data.startsWith('error')) { log(`D2 Bridge: ${ev.data.slice(6)}`); fail(ev.data.slice(6)); }
+        return;
+      }
+      t.onData?.(new Uint8Array(ev.data as ArrayBuffer));
+    };
+    ws.onerror = () => fail('D2 Bridge isn’t running on this Mac. Open “D2 Bridge” (in your Applications folder) and try again.');
+    ws.onclose = () => { fail('D2 Bridge closed the connection.'); t.onClose?.(); };
+  });
+}

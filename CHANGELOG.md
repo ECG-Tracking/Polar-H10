@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.5.0 – D2 Link on a Mac: D2 Bridge *(GitHub)*
+Why: Chrome on macOS can’t open the watch’s data channel (its service lookup times out); macOS’s own Bluetooth can.
+
+| File | Change |
+|---|---|
+| D2 Bridge (separate Mac app, not uploaded) | A small Mac app that opens the watch’s data channel with macOS’s Bluetooth and passes the bytes to D2 Link over a connection on this Mac only (127.0.0.1, port 47820), for the published site or a local copy only. Copyright © 2026 ECG-Tracking, all rights reserved: not open source and not part of D2 Link. Tested: pairing, login and sleep download from a Watch D2 on a MacBook Pro |
+| `src/d2/serial.ts`, `src/d2/ui.ts` | New choice “Connect via”: Chrome Bluetooth, D2 Bridge app (Mac), or the computer’s serial port (replaces the “Use the computer’s serial port” button); on a Mac D2 Bridge is chosen first. The help explains D2 Bridge and that the watch talks to one device at a time (switch off the phone’s Bluetooth while downloading) |
+| `.gitignore` | D2 Bridge’s source stays on this Mac |
+
 ## 3 Nov 2026 – v1.4.2 – D2 Link: download by start and end dates *(GitHub)*
 Why: choose exactly which days to download from the watch.
 

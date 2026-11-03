@@ -8,7 +8,7 @@ import { renderGraphs, RANGES, type Range } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile } from './extra';
 import { D2Link, WatchError } from './link';
-import { openWatch, serialAvailable } from './serial';
+import { openMacBridge, openWatch, serialAvailable } from './serial';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
 import { button, clock, dayLabel, el, hm, shortDate, svg } from './dom';
@@ -162,8 +162,17 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress and workouts (not ECG recordings)';
   const goButtons = el('div', 'd2-go');
   goButtons.append(btnGo, btnAll);
-  const btnSystem = button('Use the computer’s serial port');
-  btnSystem.title = 'If Chrome can’t open the watch: choose the port the computer made for it (on a Mac, the “cu.…” port with the watch’s name)';
+  // how to reach the watch: Chrome's Bluetooth (phones, most computers), the D2 Bridge app on a Mac, or a serial port
+  type Via = 'bluetooth' | 'mac' | 'system';
+  const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+  const via = el('select');
+  for (const [v, t] of [['bluetooth', 'Chrome Bluetooth'], ['mac', 'D2 Bridge app (Mac)'], ['system', 'Computer’s serial port']] as const) {
+    const o = el('option', '', t); o.value = v; via.appendChild(o);
+  }
+  try { const v = localStorage.getItem('d2link-via'); if (v === 'bluetooth' || v === 'mac' || v === 'system') via.value = v; else if (isMac) via.value = 'mac'; } catch { if (isMac) via.value = 'mac'; }
+  via.title = 'On a Mac, Chrome can’t open the watch’s data channel: use the D2 Bridge app (see “Before you start”)';
+  const viaLabel = el('label', 'd2-days', 'Connect via ');
+  viaLabel.appendChild(via);
   const btnDemo = button('Demo nights');
   const btnForget = button('Forget pairing');
   const days = el('select');
@@ -185,7 +194,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   dateRow.hidden = true;
   days.addEventListener('change', () => { dateRow.hidden = days.value !== 'custom'; });
   const actions = el('div', 'row wrap');
-  actions.append(goButtons, daysLabel, btnSystem, btnDemo, btnForget);
+  actions.append(goButtons, daysLabel, viaLabel, btnDemo, btnForget);
   // the account the watch belongs to (optional): the watch may keep health data back from a phone without it
   const acct = el('details', 'd2-acct');
   acct.appendChild(el('summary', '', 'Watch account ID (optional)'));
@@ -223,7 +232,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   help.appendChild(el('summary', '', 'Before you start (first time)'));
   const steps = el('ol');
   for (const s of [
-    'Use Chrome on an Android phone or on a computer. Safari, Firefox and iPhones can’t reach the watch. On a Mac the watch may not answer (seen with macOS): use the phone instead.',
+    'Use Chrome on an Android phone or on a computer. Safari, Firefox and iPhones can’t reach the watch.',
+    'On a Mac: Chrome can’t open the watch’s data channel there, so open the “D2 Bridge” app first (a separate Mac app by ECG-Tracking) and choose “Connect via: D2 Bridge app (Mac)”. Chrome may ask to let this page reach apps on this device: allow it.',
+    'The watch talks to one device at a time: switch off Bluetooth on the phone it is connected to while you download.',
     'Make sure the watch is not connected to its phone app while you do this (disconnect it there, or use a phone without that app).',
     'Pair the watch in the phone’s or computer’s Bluetooth settings first (it is listed with “WATCH D2” in its name).',
     'Click “Pair & download sleep” (or “Pair & download all data”) and choose the watch in Chrome’s list. The first time, confirm the pairing on the watch if it asks.',
@@ -270,9 +281,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const paired = store.loadPairing() != null;
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
     btnAll.textContent = paired ? 'Download all data' : 'Pair & download all data';
-    btnGo.disabled = busy || !serialAvailable();
-    btnAll.disabled = busy || !serialAvailable();
-    btnSystem.disabled = busy || !serialAvailable();
+    const reachable = via.value === 'mac' || serialAvailable();
+    btnGo.disabled = busy || !reachable;
+    btnAll.disabled = busy || !reachable;
+    via.disabled = busy;
+    noSerial.hidden = reachable;
     btnForget.hidden = !paired;
     btnForget.disabled = busy;
     btnDemo.disabled = busy;
@@ -411,16 +424,17 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   })());
 
   // ---------- download ----------
-  const download = (mode: 'bluetooth' | 'system', all = false): void => void (async () => {
+  via.addEventListener('change', () => { try { localStorage.setItem('d2link-via', via.value); } catch { /* not kept */ } syncButtons(); });
+  const download = (mode: Via, all = false): void => void (async () => {
     const period = downloadPeriod(days.value, fromIn.value, toIn.value);
     if ('error' in period) { progress.textContent = period.error; return; }
     syncButtons(true);
     progress.textContent = '';
-    setStatus('Choose the watch in Chrome’s list…', 'busy');
+    setStatus(mode === 'mac' ? 'Connecting through D2 Bridge…' : 'Choose the watch in Chrome’s list…', 'busy');
     let link: D2Link | null = null;
     try {
-      const t = await openWatch(mode, log);
-      log(mode === 'bluetooth' ? 'Connected to the watch’s Bluetooth serial service.' : 'Serial port opened.');
+      const t = mode === 'mac' ? await openMacBridge(log) : await openWatch(mode, log);
+      log(mode === 'bluetooth' ? 'Connected to the watch’s Bluetooth serial service.' : mode === 'mac' ? 'Connected through D2 Bridge.' : 'Serial port opened.');
       setStatus('Connected – logging in…', 'busy');
       link = new D2Link(t, log);
       const kept = await link.connect(store.loadPairing(), (p) => { store.savePairing(p); syncButtons(true); });
@@ -487,9 +501,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     return parts.join(', ');
   }
 
-  btnGo.addEventListener('click', () => download('bluetooth'));
-  btnAll.addEventListener('click', () => download('bluetooth', true));
-  btnSystem.addEventListener('click', () => download('system'));
+  btnGo.addEventListener('click', () => download(via.value as Via));
+  btnAll.addEventListener('click', () => download(via.value as Via, true));
 
   btnForget.addEventListener('click', () => {
     if (!window.confirm('Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded nights are kept.')) return;

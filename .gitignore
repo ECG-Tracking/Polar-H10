@@ -8,6 +8,8 @@ openbeat-ecg-update/
 GitHub uploads/
 node_modules/
 PUBLISHING-INSTRUCTIONS.md
+# D2 Bridge (Mac helper): copyrighted, all rights reserved; its source stays on this Mac and is not uploaded
+mac-bridge/
 # private notes (Word documents and the temporary copies Word makes while one is open)
 *.docx
 ~$*
