@@ -461,8 +461,6 @@ button, input, select, textarea { font-family: inherit; }
 .nav-ico { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .tabs button[aria-selected="true"] .nav-ico { color: var(--accent); }
 .app-nav-foot { margin-top: auto; padding: 14px 8px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-2); }
-.nav-email { color: var(--ink); font-weight: 500; word-break: break-all; }
-.nav-sync { display: flex; gap: 6px; align-items: center; }
 .nav-sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: 0 0 8px; }
 .nav-sync-dot.ok { background: var(--good); }
 .nav-sync-dot.busy { background: var(--warn); }
@@ -543,3 +541,4 @@ body.view-mobile .nav-ico { width: 15px; height: 15px; flex-basis: 15px; }
 body.view-mobile .app-topbar { position: static; padding: 10px 16px; }
 body.view-mobile .app-topbar h1 { font-size: 1.2rem; }
 body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
+.acct-user { width: 100%; font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 38px; }

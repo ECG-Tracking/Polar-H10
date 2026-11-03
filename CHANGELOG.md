@@ -4,6 +4,20 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.11.3 – Account menu: choose the user *(GitHub)*
+Why: switch between users 1–9 from the top bar.
+
+| File | Change |
+|---|---|
+| `src/topbar.ts`, `styles.css` | The Account menu has a “User” list (User 1–9, with each user’s alias). It switches the user as ECG live and Settings do (not while recording), and the round badge shows the user’s number |
+
+## 3 Nov 2026 – v1.11.2 – Sidebar: version only at the bottom *(GitHub)*
+Why: the email and sync status are already in the top bar (Account menu and sync status).
+
+| File | Change |
+|---|---|
+| `index.html`, `src/main.ts`, `styles.css` | The bottom of the sidebar shows only the version; the signed-in email and the sync status were removed there |
+
 ## 3 Nov 2026 – v1.11.1 – Disclaimer wording *(GitHub)*
 Why: the app now uses more than a chest strap (the Watch D2 too).
 

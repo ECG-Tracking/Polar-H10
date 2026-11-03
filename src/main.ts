@@ -98,15 +98,13 @@ function waitForSignIn(): Promise<Account> {
   });
 }
 
-/** The sync status in Settings, and in short in the sidebar and top bar. */
+/** The sync status in Settings, and in short in the top bar. */
 function showSyncStatus(): void {
   const el = $('syncStatus');
   const a = current.account, c = current.cloud;
   if (!a) return;
   const short = (text: string, state: 'ok' | 'busy' | 'off' | 'fail'): void => {
-    $('navSync').textContent = text;
     $('topSync').textContent = text;
-    $('navSyncDot').className = `nav-sync-dot ${state}`;
     $('topSyncDot').className = `nav-sync-dot ${state}`;
   };
   if (a.offline || !c) { el.textContent = 'Offline: your history will sync when you’re back online and reopen the app.'; short('Offline', 'off'); return; }
@@ -147,7 +145,6 @@ async function boot(): Promise<void> {
   $('authOverlay').hidden = true;
   $('appShell').hidden = false;
   $('accountEmail').textContent = account.email;
-  $('navEmail').textContent = account.email;
   $('navVersion').textContent = `Version ${versionText()}`;
   await import('./app'); // the app reads this account's storage, so it starts only now
 
@@ -155,7 +152,7 @@ async function boot(): Promise<void> {
   initTopbar({ email: account.email, user: () => store.loadCurrentUser(), signOut: () => void signOut(), reset: () => resetAccount(account) });
   const sync = current.cloud;
   $button('btnSyncNow').disabled = !sync;
-  const syncNow = (): void => { $('syncStatus').textContent = 'Syncing…'; $('topSync').textContent = 'Syncing…'; $('navSync').textContent = 'Syncing…'; void sync?.sync(); };
+  const syncNow = (): void => { $('syncStatus').textContent = 'Syncing…'; $('topSync').textContent = 'Syncing…'; void sync?.sync(); };
   $button('btnSyncNow').addEventListener('click', syncNow);
   $button('btnTopSync').disabled = !sync;
   $button('btnTopSync').addEventListener('click', syncNow);

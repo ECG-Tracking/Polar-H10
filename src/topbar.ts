@@ -149,6 +149,27 @@ export function initTopbar(deps: TopbarDeps): void {
     loadLayout, (v) => { write(LAYOUT_KEY, v); applyLayout(v); });
   const theme = seg<Theme>('Theme', [['auto', 'Auto', 'Follow this device’s light or dark setting'], ['light', 'Light', 'Always light'], ['dark', 'Dark', 'Always dark']],
     loadTheme, (v) => { write(THEME_KEY, v); applyTheme(v); });
+  // the user (1–9): the same choice as on ECG live and in Settings, which it drives (and which can block it while recording)
+  const userGroup = make('div', 'acct-group');
+  const userSel = make('select', 'acct-user');
+  userSel.setAttribute('aria-label', 'User');
+  userGroup.append(make('div', 'acct-heading', 'User'), userSel);
+  const appSelect = (): HTMLSelectElement | null => document.querySelector<HTMLSelectElement>('#userSelect');
+  const fillUsers = (): void => {
+    const src = appSelect();
+    if (!src) { userGroup.hidden = true; return; }
+    userSel.replaceChildren(...[...src.options].map((o) => { const c = make('option', '', o.textContent ?? ''); c.value = o.value; return c; }));
+    userSel.value = src.value;
+    userSel.disabled = src.disabled;
+    userSel.title = src.title;
+  };
+  userSel.addEventListener('change', () => {
+    const src = appSelect();
+    if (!src) return;
+    src.value = userSel.value;
+    src.dispatchEvent(new Event('change', { bubbles: true }));
+    setTimeout(() => { fillUsers(); avatar.textContent = String(deps.user()); }, 0); // shows what the app accepted
+  });
   const foot = make('div', 'acct-foot');
   const logOut = make('button', 'small acct-logout', 'Log Out');
   logOut.type = 'button';
@@ -165,9 +186,9 @@ export function initTopbar(deps: TopbarDeps): void {
     catch (e) { window.alert(`The reset didn’t finish: ${e instanceof Error ? e.message : String(e)}`); reset.disabled = false; reset.textContent = 'Reset my account data'; }
   })());
   foot.append(logOut, reset);
-  panel.append(who, layout, theme, foot);
+  panel.append(who, userGroup, layout, theme, foot);
   wrap.append(btn, panel);
-  const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) avatar.textContent = String(deps.user()); };
+  const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) { avatar.textContent = String(deps.user()); fillUsers(); } };
   btn.addEventListener('click', () => setOpen(panel.hidden));
   document.addEventListener('mousedown', (e) => { if (!panel.hidden && !wrap.contains(e.target as Node)) setOpen(false); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) { setOpen(false); btn.focus(); } });
