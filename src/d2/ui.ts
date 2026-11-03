@@ -195,8 +195,10 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   const btnSync = button('Sync now');
   const btnExport = button('Export all nights');
   btnExport.title = 'Save every night of this user from the watch as one JSON file';
+  const btnExportAll = button('Export all data');
+  btnExportAll.title = 'Save everything downloaded from the watch for this user (nights, activity, measurements, stress, ECG, workouts) as one JSON file';
   const syncButtons2 = el('div', 'row wrap');
-  syncButtons2.append(btnSync, btnExport);
+  syncButtons2.append(btnSync, btnExport, btnExportAll);
   syncRow.append(syncText, syncButtons2);
   const list = el('ul', 'sessions');
   const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
@@ -332,13 +334,23 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     return syncing;
   }
   btnSync.addEventListener('click', () => void sync());
+  const saveJson = (file: Record<string, unknown>, name: string): void => {
+    const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
+    const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `${name}-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
   btnExport.addEventListener('click', () => void (async () => {
     const all = (await store.listNights(deps.user())).filter((n) => n.source !== 'demo').sort((a, b) => a.start - b.start);
     if (!all.length) { window.alert('There are no nights from the watch to export yet.'); return; }
-    const file = { app: 'OpenBeat ECG – D2 Link', exportedAt: new Date().toISOString(), user: deps.user(), nights: all };
-    const blob = new Blob([JSON.stringify(file)], { type: 'application/json' });
-    const a = el('a'); a.href = URL.createObjectURL(blob); a.download = `d2-nights-${new Date().toISOString().slice(0, 10)}.json`; a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    saveJson({ app: 'OpenBeat ECG – D2 Link', exportedAt: new Date().toISOString(), user: deps.user(), nights: all }, 'd2-nights');
+  })());
+  // everything for this user, grouped by kind (each record with its numbers and, where there is any, the text kept on this device)
+  btnExportAll.addEventListener('click', () => void (async () => {
+    const nightsAll = (await store.listNights(deps.user())).filter((n) => n.source !== 'demo').sort((a, b) => a.start - b.start);
+    const records = (await store.listRecords(deps.user())).filter((r) => r.source !== 'demo').sort((a, b) => a.start - b.start);
+    if (!nightsAll.length && !records.length) { window.alert('There is no data from the watch to export yet.'); return; }
+    const byKind = Object.fromEntries(store.D2_KINDS.map((k) => [k, records.filter((r) => r.kind === k)]));
+    saveJson({ app: 'OpenBeat ECG – D2 Link', exportedAt: new Date().toISOString(), user: deps.user(), nights: nightsAll, ...byKind }, 'd2-all-data');
   })());
 
   // ---------- download ----------

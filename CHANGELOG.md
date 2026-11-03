@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.3.1 – D2 Link: export all data *(GitHub)*
+Why: save everything downloaded from the watch in one file.
+
+| File | Change |
+|---|---|
+| `src/d2/ui.ts` | New button “Export all data” next to “Export all nights”: one JSON file with this user’s nights, activity days, totals, measurements, stress, ECG recordings and workouts (demo nights left out) |
+
 ## 3 Nov 2026 – v1.3.0 – D2 Link: download all data *(GitHub)*
 Why: read everything the watch keeps, not only sleep; numbers sync to the other devices.
 
