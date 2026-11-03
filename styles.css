@@ -553,3 +553,13 @@ body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .pw-box .cmdk-input { border: 1px solid var(--line); border-radius: 8px; }
 .pw-why { margin: 0; }
 .pw-row { justify-content: flex-end; }
+
+/* abnormal results and warning boxes are marked in blue, not amber (darker in light mode, so the small labels stay readable) */
+:root { --abnormal: #1d64c2; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --abnormal: #3987e5; } }
+:root[data-theme="dark"] { --abnormal: #3987e5; }
+.metric.out { border-color: var(--abnormal); box-shadow: inset 3px 0 0 var(--abnormal); }
+.metric .flag:not(.ok) { color: var(--abnormal); }
+.flags.has { border-color: var(--abnormal); }
+.flags.has .flags-head { color: var(--abnormal); }
+.d2-warn { border-color: var(--abnormal); }

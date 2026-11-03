@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.13.1 – Amber borders replaced with blue *(GitHub)*
+Why: blue instead of amber borders for results outside the reference range and for warnings.
+
+| File | Change |
+|---|---|
+| `styles.css` | In the ECG report and the Sleep report, the tiles of results outside the reference range, their “▲ / ▼” labels and the “values outside the reference range” box are blue instead of amber; so is the border of D2 Link’s browser warning |
+
 ## 4 Nov 2026 – v1.13.0 – ECG live: choice of recording length *(GitHub)*
 Why: record for a set time, as in Synchronised Tracking.
 
