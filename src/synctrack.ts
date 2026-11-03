@@ -7,7 +7,7 @@ import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
 import { make } from './ui';
 import * as store from './store';
-import type { Session, UserNumber } from './store';
+import type { Session, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
@@ -179,12 +179,16 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
 
   const summary = make('div', 'card');
   summary.hidden = true;
+  // every tracking on this device, newest first
+  const historyCard = make('div', 'card');
+  const historyBox = make('div');
+  historyCard.append(make('h3', 'sync-h', 'History of Synchronised Tracking'), historyBox);
   const logBox = make('details', 'd2-log');
   logBox.appendChild(make('summary', '', 'Connection log (Polar H10 and Watch D2)'));
   const logPre = make('pre', 'log');
   logBox.appendChild(logPre);
 
-  root.append(polarCard, watchCard, logBox, runCard, tiles, traceCard, chartCard, bpCard, summary);
+  root.append(polarCard, watchCard, logBox, runCard, tiles, traceCard, chartCard, bpCard, summary, historyCard);
   const log = (s: string): void => { logPre.textContent += `${clock(Date.now())} ${s}\n`; logPre.scrollTop = logPre.scrollHeight; };
 
   // ---------- state ----------
@@ -353,16 +357,18 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     timerId = null;
     btnStop.hidden = true; btnStart.hidden = false; btnStart.textContent = 'Start again';
     timer.textContent = 'Done'; // the watch's heartbeat test keeps running for the live values
-    showSummary();
-    await saveEcg();
+    const entry = showSummary();
+    entry.ecgId = await saveEcg();
+    store.saveSyncEntry(entry);
+    renderHistory();
     ready();
     startBpChecks();
   }
 
   /** The strap's ECG from the tracking goes into ECG history, like a recording on ECG live. */
-  async function saveEcg(): Promise<void> {
-    if (t0 == null || !ecgN) return;
-    if (ecgN < MIN_SAVE_S * ECG_FS) { summary.appendChild(make('p', 'note', `The ECG was too short to save (under ${MIN_SAVE_S} s).`)); return; }
+  async function saveEcg(): Promise<string | null> {
+    if (t0 == null || !ecgN) return null;
+    if (ecgN < MIN_SAVE_S * ECG_FS) { summary.appendChild(make('p', 'note', `The ECG was too short to save (under ${MIN_SAVE_S} s).`)); return null; }
     const samples = new Int16Array(ecgN);
     let o = 0;
     for (const c of ecgChunks) { samples.set(c, o); o += c.length; }
@@ -381,13 +387,23 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
       row.append(make('span', 'note', `ECG saved to ECG history (${mmss(session.durationS)}).`), open);
       summary.appendChild(row);
       log(`ECG saved to ECG history (${mmss(session.durationS)}).`);
+      return session.id;
     } catch (e) {
       summary.appendChild(make('p', 'note', `The ECG couldn’t be saved: ${errorMessage(e)}`));
+      return null;
     }
   }
 
-  function showSummary(): void {
+  /** Shows the summary and returns it as a history entry. */
+  function showSummary(): SyncTrackingEntry {
     const ph = mean(polarSeries.map((p) => p[1])), wh = mean(watchSeries.map((p) => p[1]));
+    const start = t0 ?? Date.now();
+    const entry: SyncTrackingEntry = {
+      id: `t${start}`, user: deps.user() as UserNumber, start, durationS: Math.round((Date.now() - start) / 1000),
+      polar: polarSeries.length || polarRr.length ? { hr: ph, rmssd: rmssd(polarRr), sdnn: sdnn(polarRr), beats: usable(polarRr).length } : null,
+      watch: watchSeries.length || watchRr.length ? { hr: wh, rmssd: rmssd(watchRr), sdnn: sdnn(watchRr), beats: watchRr.length } : null,
+      bp: null, ecgId: null,
+    };
     const rows: [string, string, string][] = [
       ['Average heart rate (bpm)', r0(ph), r0(wh)],
       ['RMSSD (ms)', r0(rmssd(polarRr)), r0(rmssd(watchRr))],
@@ -404,7 +420,43 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     const diff = ph != null && wh != null ? `The watch read ${Math.abs(wh - ph).toFixed(1)} bpm ${wh >= ph ? 'higher' : 'lower'} than the chest strap on average.` : '';
     summary.replaceChildren(make('h3', 'sync-h', `Summary · ${t0 ? clock(t0) : ''}`), t, make('p', 'note', diff));
     summary.hidden = false;
+    return entry;
   }
+
+  function renderHistory(): void {
+    const entries = store.loadSyncHistory().filter((e) => e.user === deps.user());
+    if (!entries.length) { historyBox.replaceChildren(make('p', 'muted', 'No synchronised tracking yet on this device.')); return; }
+    const day = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    const head = ['Date and time', 'Duration', 'Polar HR', 'Watch HR', 'Difference', 'Polar RMSSD', 'Watch RMSSD', 'Polar SDNN', 'Watch SDNN', 'Polar beats', 'Watch beats', 'Blood pressure', 'Pulse (BP)', 'BP time', 'ECG'];
+    const units = ['', 'm:ss', 'bpm', 'bpm', 'bpm', 'ms', 'ms', 'ms', 'ms', '', '', 'mmHg', 'bpm', '', ''];
+    const wrap = make('div', 'd2-table-wrap');
+    const t = make('table', 'd2-table sync-history');
+    const hr = make('tr');
+    head.forEach((h, i) => { const th = make('th', '', h); if (units[i]) th.appendChild(make('small', 'sync-unit', ` ${units[i]}`)); hr.appendChild(th); });
+    t.appendChild(make('thead')).appendChild(hr);
+    const body = make('tbody');
+    for (const e of entries) {
+      const diff = e.polar?.hr != null && e.watch?.hr != null ? e.watch.hr - e.polar.hr : null;
+      const cells = [
+        `${day(e.start)} ${clock(e.start)}`, mmss(e.durationS), r0(e.polar?.hr ?? null), r0(e.watch?.hr ?? null),
+        diff == null ? '--' : `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`,
+        r0(e.polar?.rmssd ?? null), r0(e.watch?.rmssd ?? null), r0(e.polar?.sdnn ?? null), r0(e.watch?.sdnn ?? null),
+        e.polar ? String(e.polar.beats) : '--', e.watch ? String(e.watch.beats) : '--',
+        e.bp ? `${r0(e.bp.systolic)}/${r0(e.bp.diastolic)}` : '--', r0(e.bp?.pulse ?? null), e.bp ? clock(e.bp.at) : '--',
+      ];
+      const tr = make('tr');
+      for (const c of cells) tr.appendChild(make('td', '', c));
+      const ecgCell = make('td');
+      const ecgId = e.ecgId;
+      if (ecgId) { const b = make('button', 'sync-open', 'Open'); b.addEventListener('click', () => deps.openEcg(ecgId)); ecgCell.appendChild(b); } else ecgCell.textContent = '--';
+      tr.appendChild(ecgCell);
+      body.appendChild(tr);
+    }
+    t.appendChild(body);
+    wrap.appendChild(t);
+    historyBox.replaceChildren(make('p', 'note', 'Kept on this device. Difference = watch minus Polar. Blood pressure: the reading taken on the watch within one hour of the start.'), wrap);
+  }
+  renderHistory();
 
   // ---------- blood pressure ----------
   async function checkBp(): Promise<void> {
@@ -412,7 +464,13 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     btnBp.disabled = true;
     try {
       const found = await watch.bloodPressureSince(t0);
-      if (found.length) bpReadings = found;
+      if (found.length) {
+        bpReadings = found;
+        // the first reading after the start goes into this tracking's history entry
+        const e = store.loadSyncHistory().find((x) => x.id === `t${t0}`);
+        const b = found[0]!;
+        if (e && (!e.bp || e.bp.at !== b.at)) { store.saveSyncEntry({ ...e, bp: b }); renderHistory(); }
+      }
       showBp();
     } catch (e) {
       log(`Blood pressure check failed: ${errorMessage(e)}`);

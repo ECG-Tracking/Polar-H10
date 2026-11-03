@@ -370,3 +370,33 @@ export function saveSettings(user: UserNumber, s: Settings, savedAt = Date.now()
     localStorage.setItem(`${settingsKey(user)}-saved`, String(savedAt));
   } catch { /* private mode */ }
 }
+
+// ---------- Synchronised tracking history (this device) ----------
+
+/** One synchronised tracking: when, how long, both devices' results, the blood pressure taken and the saved ECG. */
+export interface SyncTrackingEntry {
+  id: string; // `t${start}`
+  user: UserNumber;
+  start: number; // epoch ms
+  durationS: number;
+  polar: { hr: number | null; rmssd: number | null; sdnn: number | null; beats: number } | null; // null = not connected
+  watch: { hr: number | null; rmssd: number | null; sdnn: number | null; beats: number } | null;
+  bp: { at: number; systolic: number | null; diastolic: number | null; pulse: number | null } | null;
+  ecgId: string | null; // the recording saved to ECG history
+}
+
+const syncKey = (): string => `${keyPrefix}ecg-analysis-sync-tracking`;
+const MAX_SYNC = 500;
+
+export function loadSyncHistory(): SyncTrackingEntry[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(syncKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((e): e is SyncTrackingEntry => typeof e === 'object' && e !== null && typeof (e as SyncTrackingEntry).start === 'number' && typeof (e as SyncTrackingEntry).id === 'string') : [];
+  } catch { return []; }
+}
+
+/** Adds an entry, or replaces the one with the same id (e.g. when its blood pressure arrives later). Newest first. */
+export function saveSyncEntry(e: SyncTrackingEntry): void {
+  const rest = loadSyncHistory().filter((x) => x.id !== e.id);
+  try { localStorage.setItem(syncKey(), JSON.stringify([e, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
+}

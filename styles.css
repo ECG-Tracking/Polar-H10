@@ -431,3 +431,6 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
 #view-sync .trace canvas { width: 100%; height: 220px; display: block; }
 .sync-dur { margin-bottom: 8px; justify-content: center; }
 .sync-dur input { font: inherit; width: 5em; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; margin-right: 4px; }
+.sync-history th { white-space: nowrap; }
+.sync-unit { color: var(--muted); font-weight: 400; }
+button.sync-open { min-height: 32px; padding: 0 10px; }

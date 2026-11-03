@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.8.1 – History of Synchronised Tracking *(GitHub)*
+Why: see every synchronised tracking and its results together.
+
+| File | Change |
+|---|---|
+| `src/synctrack.ts`, `src/store.ts`, `styles.css` | New table “History of Synchronised Tracking” below the summary, newest first: date and time, duration, average heart rate from the Polar H10 and the watch and their difference (watch minus Polar), RMSSD and SDNN from each, beats counted by each, the blood pressure taken on the watch within one hour (systolic/diastolic, pulse, time; added when it arrives) and a button to open the saved ECG. Kept on this device, per user (the last 500) |
+
 ## 3 Nov 2026 – v1.8.0 – Synchronised tracking: live from connection, choice of duration, ECG saved *(GitHub)*
 Why: see the ECG and the watch’s values straight away, track for longer than a minute, and keep the ECG.
 
