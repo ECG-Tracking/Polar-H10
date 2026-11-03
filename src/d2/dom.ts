@@ -40,3 +40,11 @@ export function deleteButton(what: string, onDelete: () => void | Promise<void>,
   });
   return b;
 }
+
+/** Shows the × at the front of each row (cells .del-front) while the table is too wide and its end is out of sight. */
+export function frontDeletes(wrap: HTMLElement): void {
+  new ResizeObserver(() => {
+    wrap.classList.remove('wide');
+    wrap.classList.toggle('wide', wrap.scrollWidth > wrap.clientWidth + 1);
+  }).observe(wrap);
+}

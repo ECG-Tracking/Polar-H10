@@ -2,7 +2,7 @@
 // D2 Link — the "All data" view: activity per day, the watch's measurements, stress and workouts.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { clock, dayLabel, deleteButton, el, hm } from './dom';
+import { clock, dayLabel, deleteButton, el, frontDeletes, hm } from './dom';
 import { READING_CLASSES, WORKOUT_TYPES, type ActivityMinute } from './extra';
 import { minutesOf } from './records';
 import * as store from './store';
@@ -19,19 +19,27 @@ function table(head: string[], rows: string[][], recs?: readonly D2Record[], onD
   const wrap = el('div', 'd2-table-wrap');
   const t = el('table', 'd2-table');
   const tr = el('tr');
+  if (recs) tr.appendChild(el('th', 'del-col del-front'));
   for (const h of head) tr.appendChild(el('th', '', h));
   if (recs) tr.appendChild(el('th', 'del-col'));
   t.appendChild(el('thead')).appendChild(tr);
   const body = el('tbody');
   rows.forEach((r, i) => {
     const row = el('tr');
-    for (const c of r) row.appendChild(el('td', '', c));
     const rec = recs?.[i];
-    if (rec && onDelete) { const td = el('td', 'del-col'); td.appendChild(deleteButton('this row', () => onDelete(rec), 'Delete this row? It is also removed from your other devices.')); row.appendChild(td); }
+    const delCell = (cls: string): HTMLElement => {
+      const td = el('td', cls);
+      if (rec && onDelete) td.appendChild(deleteButton('this row', () => onDelete(rec), 'Delete this row? You can get it back from the Recovery centre. It is also removed from your other devices.'));
+      return td;
+    };
+    if (recs) row.appendChild(delCell('del-col del-front'));
+    for (const c of r) row.appendChild(el('td', '', c));
+    if (recs) row.appendChild(delCell('del-col'));
     body.appendChild(row);
   });
   t.appendChild(body);
   wrap.appendChild(t);
+  if (recs) frontDeletes(wrap);
   return wrap;
 }
 

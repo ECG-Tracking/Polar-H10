@@ -6,7 +6,7 @@ import { ECG_FS, type EcgDetail, type HrDetail, type PolarH10 } from './polar';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
-import { deleteButton, durationSeconds, make } from './ui';
+import { deleteButton, durationSeconds, frontDeletes, make } from './ui';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -493,6 +493,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     const wrap = make('div', 'd2-table-wrap');
     const t = make('table', 'd2-table sync-history');
     const hr = make('tr');
+    hr.appendChild(make('th', 'del-col del-front'));
     head.forEach((h, i) => { const th = make('th', '', h); if (units[i]) th.appendChild(make('small', 'sync-unit', ` ${units[i]}`)); hr.appendChild(th); });
     t.appendChild(make('thead')).appendChild(hr);
     const body = make('tbody');
@@ -506,22 +507,27 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
         ...bpCells(store.syncBps(e)),
       ];
       const tr = make('tr');
+      const remove = async (): Promise<void> => {
+        if (e.ecgId && window.confirm('Also delete its ECG from ECG history? (Cancel keeps the ECG.)')) { await store.deleteSession(e.ecgId); historyChanged(); }
+        await store.removeSyncEntry(e.id);
+        renderHistory();
+      };
+      const front = make('td', 'del-col del-front');
+      front.appendChild(deleteButton('this tracking', remove, 'Delete this tracking from the history?'));
+      tr.appendChild(front);
       for (const c of cells) tr.appendChild(make('td', '', c));
       const ecgCell = make('td');
       const ecgId = e.ecgId;
       if (ecgId) { const b = make('button', 'sync-open', 'Open'); b.addEventListener('click', () => deps.openEcg(ecgId)); ecgCell.appendChild(b); } else ecgCell.textContent = '--';
       tr.appendChild(ecgCell);
       const delCell = make('td', 'del-col');
-      delCell.appendChild(deleteButton('this tracking', async () => {
-        if (e.ecgId && window.confirm('Also delete its ECG from ECG history? (Cancel keeps the ECG.)')) { await store.deleteSession(e.ecgId); historyChanged(); }
-        store.removeSyncEntry(e.id);
-        renderHistory();
-      }, 'Delete this tracking from the history?'));
+      delCell.appendChild(deleteButton('this tracking', remove, 'Delete this tracking from the history?'));
       tr.appendChild(delCell);
       body.appendChild(tr);
     }
     t.appendChild(body);
     wrap.appendChild(t);
+    frontDeletes(wrap);
     historyBox.replaceChildren(make('p', 'note', 'Kept on this device. Difference = watch minus Polar. Blood pressure: every reading taken on the watch within one hour before or after the start.'), wrap);
   }
   renderHistory();

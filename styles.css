@@ -436,6 +436,8 @@ button.row-del:hover, button.row-del:focus-visible { color: var(--del-hover); ba
 .sessions li { grid-template-columns: 1fr auto 36px; }
 .sessions li > button.row-del { grid-column: 3; grid-row: 1 / span 2; align-self: center; justify-self: end; }
 .d2-table td.del-col, .d2-table th.del-col, td.del-col { width: 40px; text-align: center; padding: 2px 4px; }
+.d2-table .del-front { display: none; }
+.d2-table-wrap.wide .d2-table .del-front { display: table-cell; }
 .sync-history td:first-child { white-space: nowrap; }
 
 /* ---------- app frame: left sidebar and top bar (desktop), as in Portfolio Optimizer ---------- */
@@ -566,3 +568,12 @@ body.view-mobile main { max-width: 720px; margin: 0 auto; padding: 16px; }
 .d2-warn { border-color: var(--abnormal); }
 .acct-panel { max-height: calc(100vh - 80px); overflow-y: auto; }
 .sessions .dur { min-width: 0; }
+
+/* Recovery centre */
+.recovery-list { list-style: none; margin: 16px 0 0; padding: 0; }
+.recovery-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.recovery-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.recovery-detail, .recovery-when { color: var(--ink-2); font-size: .88rem; overflow-wrap: anywhere; }
+.recovery-when { font-size: .8rem; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button.recovery-purge { color: var(--del); }

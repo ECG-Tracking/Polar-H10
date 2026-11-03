@@ -10,6 +10,7 @@ import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
 import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
+import { renderRecovery } from './recovery';
 import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
@@ -29,8 +30,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings' | 'backups' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings', 'backups', 'about'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings' | 'backups' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings', 'backups', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -48,6 +49,7 @@ function show(view: View): void {
   if (view === 'sync' || view === 'syncHistory') openSync();
   if (view === 'syncHistory') syncUI?.refreshHistory();
   if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2 }); }
+  if (view === 'recovery') void renderRecovery($('recoveryRoot'), { loadD2, user: () => currentUser });
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
   // the licence lines only on the D2 Link page; D2 Link History has the plain copyright line, like the other pages
@@ -501,7 +503,7 @@ async function renderHistory(): Promise<void> {
       await store.deleteSession(s.id);
       historyChanged();
       void renderHistory();
-    }, 'Delete this recording permanently? It is also removed from your other devices.'));
+    }, 'Delete this recording? You can get it back from the Recovery centre. It is also removed from your other devices.'));
     li.addEventListener('click', () => void openReport(s.id));
     list.appendChild(li);
   }
@@ -865,7 +867,7 @@ $button('btnOpenSleep').addEventListener('click', () => { const id = current?.se
 $button('btnPrint').addEventListener('click', () => window.print());
 $button('btnDelete').addEventListener('click', () => {
   void (async () => {
-    if (!current || !window.confirm('Delete this recording permanently?')) return;
+    if (!current || !window.confirm('Delete this recording? You can get it back from the Recovery centre.')) return;
     await store.deleteSession(current.session.id);
     historyChanged();
     current = null;
@@ -1000,6 +1002,7 @@ for (const sel of userSelects) {
     else if ($('view-history').classList.contains('active')) void renderHistory();
     else if ($('view-sleepReport').classList.contains('active')) show('sleepHistory');
     else if ($('view-sleepHistory').classList.contains('active')) void sleepUI?.renderHistory();
+    else if ($('view-recovery').classList.contains('active')) show('recovery');
     sleepUI?.refreshUser();
   });
 }

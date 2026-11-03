@@ -189,7 +189,7 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
   const uploads: D2Record[] = [], fetch: string[] = [];
   for (const r of local) {
     const at = inCloud.get(r.key);
-    if (at == null && r.synced) { await store.deleteRecords([r.key]); result.deleted++; continue; } // deleted on another device
+    if (at == null && r.synced) { await store.deleteRecordFromElsewhere(r); result.deleted++; continue; } // deleted on another device
     if (at == null || r.downloadedAt > at) uploads.push(r);
     else if (at > r.downloadedAt) fetch.push(r.key);
     else if (!r.synced) await store.saveRecords([{ ...r, synced: true }]);

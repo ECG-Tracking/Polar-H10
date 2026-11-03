@@ -12,7 +12,7 @@ import { serialAvailable } from './serial';
 import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch, openedWatch, watchName } from './watch';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
-import { button, clock, dayLabel, deleteButton, el, hm, shortDate, svg } from './dom';
+import { button, clock, dayLabel, deleteButton, el, frontDeletes, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import type { Profile } from './setup';
@@ -275,27 +275,33 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const wrap = el('div', 'd2-table-wrap');
     const t = el('table', 'd2-table d2-history-table');
     const hr = el('tr');
+    hr.appendChild(el('th', 'del-col del-front'));
     for (const h of ['When', 'Download', 'Dates', 'Result', '']) hr.appendChild(el('th', '', h));
     t.appendChild(el('thead')).appendChild(hr);
     const body = el('tbody');
     for (const e of entries) {
+      const remove = async (): Promise<void> => { await store.removeDownloadLog(e.at); renderHistory(); };
       const tr = el('tr', 'd2-history-main');
+      const frontTd = el('td', 'del-col del-front');
+      frontTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
+      tr.appendChild(frontTd);
       for (const c of [`${day(e.at)} ${clock(e.at)}`, `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
       const delTd = el('td', 'del-col');
-      delTd.appendChild(deleteButton('this download from the history', () => { store.removeDownloadLog(e.at); renderHistory(); }, 'Remove this download from the history? (The data it downloaded is kept.)'));
-      tr.appendChild(delTd);
+      delTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
+      tr.append(delTd);
       if (!e.ok) tr.classList.add('d2-history-failed');
       // what came back, on its own full-width row
       const got = e.items.filter((i) => i.count != null).map((i) => `${i.count} ${i.what}`).join(' · ');
       const missed = e.items.filter((i) => i.count == null).map((i) => `${i.what}${i.note ? ` (${i.note})` : ''}`);
       const detail = el('tr', 'd2-history-detail');
       const td = el('td', '', `${got ? `Downloaded: ${got}` : 'Nothing downloaded'}${missed.length ? `. Not downloaded: ${missed.join(', ')}` : ''}${e.watch ? ` · ${e.watch}` : ''}`);
-      td.colSpan = 5;
+      td.colSpan = 6;
       detail.appendChild(td);
       body.append(tr, detail);
     }
     t.appendChild(body);
     wrap.appendChild(t);
+    frontDeletes(wrap);
     historyBox.replaceChildren(el('p', 'note', 'Kept on this device only. Newest first.'), wrap);
   };
 
@@ -375,7 +381,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const left = el('div');
       left.append(el('div', 'when', `Night of ${dayLabel(f.wokeMs)}`), el('div', 'stats', `${clock(f.bedMs)}–${clock(f.wokeMs)} · ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : 'no score'}${naps.length ? ` · + ${naps.length} nap${naps.length > 1 ? 's' : ''}` : ''}${n.source === 'demo' ? ' · demo' : ''}`));
       li.append(left, el('div', 'dur', f.sleepMin ? hm(f.sleepMin) : '--'), deleteButton('this night', () => removeNights([n]),
-        n.synced ? 'Delete this night from this device and from your other devices?' : 'Delete this night from this device?'));
+        n.synced ? 'Delete this night from this device and from your other devices? You can get it back from the Recovery centre.' : 'Delete this night from this device? You can get it back from the Recovery centre.'));
       li.addEventListener('click', () => openReport(n.id));
       return { ms: f.wokeMs, li };
     });
@@ -609,7 +615,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       older: nights[i + 1] ? () => openReport(nights[i + 1]!.id) : null,
       newer: i > 0 ? () => openReport(nights[i - 1]!.id) : null,
       remove: async () => {
-        if (!window.confirm(n.synced ? 'Delete this night from this device and from your other devices?' : 'Delete this night from this device?')) return;
+        if (!window.confirm(n.synced ? 'Delete this night from this device and from your other devices? You can get it back from the Recovery centre.' : 'Delete this night from this device? You can get it back from the Recovery centre.')) return;
         await store.deleteNight(n.id);
         await renderList();
         void sync();

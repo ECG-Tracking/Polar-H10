@@ -190,15 +190,16 @@ export class CloudSync extends EventTarget {
         if (!s.synced) await store.updateSession({ ...s, synced: true });
         continue;
       }
-      if (s.synced || s.cloudOnly) {
+      if (s.synced) {
         // it was in the cloud before and is gone now: deleted on another device
         await store.deleteSession(s.id, { fromCloud: false });
         result.deleted++;
         continue;
       }
+      // a summary copy not yet in the cloud came back from a backup or the Recovery centre: its summary goes up as it is
       const samples = await store.loadSignal(s.id);
-      if (!samples) continue;
-      const summary = buildEcgSummary(s, samples, store.loadSettings(store.sessionUser(s)));
+      const summary = samples ? buildEcgSummary(s, samples, store.loadSettings(store.sessionUser(s))) : await store.loadSummaryCopy(s.id);
+      if (summary == null) continue;
       const ins = await this.client.from(ECG_TABLE).upsert({
         id: s.id, user_no: store.sessionUser(s), started_at: s.start, duration_s: s.durationS, fs: s.fs, alias: s.alias,
         source: s.source, user_events: s.userEvents, summary,
@@ -253,14 +254,14 @@ export class CloudSync extends EventTarget {
         if (!n.synced) await store.updateSleep({ ...n, synced: true });
         continue;
       }
-      if (n.synced || n.cloudOnly) {
+      if (n.synced) {
         await store.deleteSleep(n.id, { fromCloud: false });
         result.deleted++;
         continue;
       }
       const { signals } = await store.loadSleep(n.id);
-      if (!signals) continue;
-      const report = buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId);
+      const report = signals ? buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId) : n.report;
+      if (report == null) continue;
       const ins = await this.client.from(SLEEP_TABLE).upsert({ id: n.id, user_no: n.user, started_at: n.start, duration_s: n.durationS, source: n.source, report });
       if (ins.error) throw new Error(ins.error.message);
       await store.updateSleep({ ...n, synced: true });

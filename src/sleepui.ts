@@ -256,7 +256,7 @@ export function initSleep(deps: SleepDeps): {
         make('span', 'stats', s ? `Score ${s.score} · ${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'} · HR ${fmt(s.avgHR)} · HRV ${fmt(s.avgHrv)} ms` : 'Open to analyse'),
         make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
       );
-      li.appendChild(deleteButton('this night', async () => { await deleteNight(n); void renderHistory(); }, 'Delete this night permanently? It is also removed from your other devices.'));
+      li.appendChild(deleteButton('this night', async () => { await deleteNight(n); void renderHistory(); }, 'Delete this night? You can get it back from the Recovery centre. It is also removed from your other devices.'));
       li.addEventListener('click', () => void openReport(n.id));
       list.appendChild(li);
     }
@@ -451,7 +451,7 @@ export function initSleep(deps: SleepDeps): {
   }
   $button('btnSleepDelete').addEventListener('click', () => {
     void (async () => {
-      if (!current || !window.confirm('Delete this night permanently?')) return;
+      if (!current || !window.confirm('Delete this night? You can get it back from the Recovery centre.')) return;
       await deleteNight(current.session);
       current = null;
       deps.showSleepView('sleepHistory');

@@ -60,10 +60,11 @@ export function useAccount(id: string): void {
 
 function db(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(`d2link-${account}`, 2);
+    const req = indexedDB.open(`d2link-${account}`, 3);
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains('nights')) req.result.createObjectStore('nights', { keyPath: 'id' });
       if (!req.result.objectStoreNames.contains('records')) req.result.createObjectStore('records', { keyPath: 'key' });
+      if (!req.result.objectStoreNames.contains('bin')) req.result.createObjectStore('bin', { keyPath: 'id' }); // the Recovery centre
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('could not open storage'));
@@ -71,14 +72,62 @@ function db(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void, name: 'nights' | 'records' = 'nights'): Promise<T | undefined> {
+async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void, name: 'nights' | 'records' | 'bin' = 'nights'): Promise<T | undefined> {
   const d = await db();
   return new Promise((resolve, reject) => {
     const t = d.transaction(name, mode);
     const r = fn(t.objectStore(name));
     t.oncomplete = () => resolve(r ? r.result : undefined);
     t.onerror = () => reject(t.error ?? new Error('storage error'));
+    t.onabort = () => reject(t.error ?? new Error('storage error'));
   });
+}
+
+/** A copy of something deleted, kept for the Recovery centre until it is deleted permanently. */
+export interface D2BinItem {
+  id: string;
+  user: number;
+  deletedAt: number;
+  elsewhere?: boolean; // deleted on another device
+  night?: D2Night;
+  record?: D2Record;
+  download?: DownloadLogEntry;
+}
+
+/** Keeps a copy; if the device's storage is full the item is still deleted, so space can be freed. */
+async function keepInBin(item: D2BinItem): Promise<void> {
+  try { await tx('readwrite', (s) => { s.put(item); }, 'bin'); } catch { /* not kept */ }
+}
+
+export async function listBin(): Promise<D2BinItem[]> {
+  return (await tx<D2BinItem[]>('readonly', (s) => s.getAll() as IDBRequest<D2BinItem[]>, 'bin')) ?? [];
+}
+
+export async function importBin(items: readonly D2BinItem[]): Promise<void> {
+  if (items.length) await tx('readwrite', (s) => { for (const i of items) s.put(i); }, 'bin');
+}
+
+export async function purgeBin(id: string): Promise<void> {
+  await tx('readwrite', (s) => { s.delete(id); }, 'bin');
+}
+
+/** Puts an item back; never marked as synced, so the next sync uploads it. Then removes it from the Recovery centre. */
+export async function restoreBin(id: string): Promise<void> {
+  const item = await tx<D2BinItem | undefined>('readonly', (s) => s.get(id) as IDBRequest<D2BinItem | undefined>, 'bin');
+  if (!item) return;
+  if (item.night) {
+    setPendingCloudDeletes(pendingCloudDeletes().filter((x) => x !== item.night?.id));
+    await saveNights([{ ...item.night, synced: false }]);
+  }
+  if (item.record) {
+    setPendingRecordDeletes(pendingRecordDeletes().filter((x) => x !== item.record?.key));
+    await saveRecords([{ ...item.record, synced: false }]);
+  }
+  if (item.download) {
+    const back = item.download;
+    replaceDownloadLog([...loadDownloadLog().filter((e) => e.at !== back.at), back].sort((a, b) => b.at - a.at));
+  }
+  await purgeBin(id);
 }
 
 export async function saveNights(nights: D2Night[]): Promise<void> {
@@ -97,6 +146,7 @@ export async function listNights(user: number): Promise<D2Night[]> {
 export async function deleteNight(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const existing = (await listAllNights()).find((n) => n.id === id);
   if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes(), id])]);
+  if (existing) await keepInBin({ id: `night:${id}`, user: existing.user, deletedAt: Date.now(), night: existing, ...(fromCloud ? {} : { elsewhere: true }) });
   await tx('readwrite', (s) => { s.delete(id); });
 }
 
@@ -125,6 +175,13 @@ export function setPendingRecordDeletes(keys: readonly string[]): void {
 /** Deletes a record here, and at the next sync from the cloud if it was there. */
 export async function deleteRecord(r: D2Record): Promise<void> {
   if (r.synced) setPendingRecordDeletes([...new Set([...pendingRecordDeletes(), r.key])]);
+  await keepInBin({ id: `record:${r.key}`, user: r.user, deletedAt: Date.now(), record: r });
+  await deleteRecords([r.key]);
+}
+
+/** A record that was deleted on another device goes from here too, with a copy kept. */
+export async function deleteRecordFromElsewhere(r: D2Record): Promise<void> {
+  await keepInBin({ id: `record:${r.key}`, user: r.user, deletedAt: Date.now(), record: r, elsewhere: true });
   await deleteRecords([r.key]);
 }
 
@@ -203,7 +260,9 @@ export function replaceDownloadLog(entries: readonly DownloadLogEntry[]): void {
   try { localStorage.setItem(logKey(), JSON.stringify(entries.slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
 }
 
-export function removeDownloadLog(at: number): void {
+export async function removeDownloadLog(at: number): Promise<void> {
+  const entry = loadDownloadLog().find((e) => e.at === at);
+  if (entry) await keepInBin({ id: `download:${at}`, user: entry.user, deletedAt: Date.now(), download: entry });
   try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }
 

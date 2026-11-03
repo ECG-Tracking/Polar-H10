@@ -4,17 +4,27 @@
 
 import { syncNights, syncRecords, type CloudClient } from './cloud';
 import * as store from './store';
-import type { D2Night, D2Record, DownloadLogEntry } from './store';
+import type { D2BinItem, D2Night, D2Record, DownloadLogEntry } from './store';
 
 /**
  * What a backup holds from D2 Link. Left out: the watch pairing (pair again after restoring on another device) and the
  * watch account ID (enter it again in D2 Link); `watchAccount` is only read from backups made before it was left out.
  */
-export interface D2Backup { v: 1; nights: D2Night[]; records: D2Record[]; downloads: DownloadLogEntry[]; watchAccount?: string }
+export interface D2Backup { v: 1; nights: D2Night[]; records: D2Record[]; downloads: DownloadLogEntry[]; watchAccount?: string; bin?: D2BinItem[] }
 
-export async function exportD2(account: string): Promise<D2Backup> {
+/** `withBin` adds the deleted items kept for the Recovery centre (a backup has them, a comparison file doesn't). */
+export async function exportD2(account: string, withBin = false): Promise<D2Backup> {
   store.useAccount(account);
-  return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog() };
+  return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog(), ...(withBin ? { bin: await store.listBin() } : {}) };
+}
+
+/** Puts a backup's deleted items back into the Recovery centre. Returns how many. */
+export async function importD2Bin(account: string, b: unknown): Promise<number> {
+  const items = typeof b === 'object' && b !== null && Array.isArray((b as D2Backup).bin) ? (b as D2Backup).bin ?? [] : [];
+  store.useAccount(account);
+  const good = items.filter((i) => typeof i?.id === 'string');
+  await store.importBin(good);
+  return good.length;
 }
 
 /** Puts a backup's data back on this device (same items are replaced); they upload at the next sync. Returns how many. */

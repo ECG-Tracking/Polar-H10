@@ -34,7 +34,23 @@ export const b64 = { toB64, fromB64 };
 // ---------- the backup file ----------
 
 interface EcgItem { session: Session; samples?: string; summary?: unknown }
-interface SleepItem { session: SleepSession; signals?: { rrT: string; rr: string; acc: string; accFs: number } }
+type SignalsText = { rrT: string; rr: string; acc: string; accFs: number };
+interface SleepItem { session: SleepSession; signals?: SignalsText }
+/** A Recovery centre item with its raw signal as text. */
+interface BinEntry { item: store.BinItem; samples?: string; signals?: SignalsText }
+
+const signalsToText = (s: SleepSignals): SignalsText => ({ rrT: toB64(s.rrT), rr: toB64(s.rr), acc: toB64(s.acc), accFs: s.accFs });
+const signalsFromText = (s: SignalsText): SleepSignals => ({ rrT: new Float64Array(fromB64(s.rrT)), rr: new Float32Array(fromB64(s.rr)), acc: new Int16Array(fromB64(s.acc)), accFs: s.accFs });
+
+export function binToText({ item, data }: { item: store.BinItem; data?: store.BinSignalRecord }): BinEntry {
+  return { item, ...(data?.samples ? { samples: toB64(data.samples) } : {}), ...(data?.signals ? { signals: signalsToText(data.signals) } : {}) };
+}
+
+export function binFromText(e: BinEntry): { item: store.BinItem; data?: store.BinSignalRecord } {
+  if (!e.samples && !e.signals) return { item: e.item };
+  return { item: e.item, data: { id: e.item.id, ...(e.samples ? { samples: new Int16Array(fromB64(e.samples)) } : {}), ...(e.signals ? { signals: signalsFromText(e.signals) } : {}) } };
+}
+
 export interface AccountBackup {
   app: 'OpenBeat ECG'; kind: 'openbeat-account-backup'; v: 1;
   exportedAt: string; appVersion: string;
@@ -43,6 +59,8 @@ export interface AccountBackup {
   settings: Record<string, { settings: unknown; savedAt: number }>;
   syncTracking: store.SyncTrackingEntry[];
   d2: unknown;
+  /** The Recovery centre; missing from backups made before v1.15 and from comparison files. */
+  bin?: BinEntry[];
 }
 
 async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<AccountBackup, 'app' | 'kind' | 'v'>> {
@@ -62,7 +80,7 @@ async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<Acc
     const item: SleepItem = { session: n };
     if (withSignals && !n.cloudOnly) {
       const { signals } = await store.loadSleep(n.id);
-      if (signals) item.signals = { rrT: toB64(signals.rrT), rr: toB64(signals.rr), acc: toB64(signals.acc), accFs: signals.accFs };
+      if (signals) item.signals = signalsToText(signals);
     }
     sleep.push(item);
   }
@@ -70,7 +88,8 @@ async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<Acc
   for (const u of store.USERS) if (store.hasSavedSettings(u)) settings[String(u)] = { settings: store.loadSettings(u), savedAt: store.settingsSavedAt(u) };
   return {
     exportedAt: new Date().toISOString(), appVersion: versionText(), account: { id: a.id, email: a.email },
-    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), d2: d2 ? await d2.backup.exportD2(a.id) : null,
+    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), d2: d2 ? await d2.backup.exportD2(a.id, withSignals) : null,
+    ...(withSignals ? { bin: (await store.exportBin()).map(binToText) } : {}),
   };
 }
 
@@ -106,8 +125,7 @@ export async function restoreBackup(b: AccountBackup, d2: D2Api | null): Promise
     if (typeof it?.session?.id !== 'string') continue;
     const { synced: _s, ...session } = it.session;
     if (it.signals) {
-      const sig: SleepSignals = { rrT: new Float64Array(fromB64(it.signals.rrT)), rr: new Float32Array(fromB64(it.signals.rr)), acc: new Int16Array(fromB64(it.signals.acc)), accFs: it.signals.accFs };
-      await store.saveSleep(session, sig);
+      await store.saveSleep(session, signalsFromText(it.signals));
       sleep++;
     } else if (session.cloudOnly) { await store.saveSleepCopy(session); sleep++; }
   }
@@ -120,8 +138,12 @@ export async function restoreBackup(b: AccountBackup, d2: D2Api | null): Promise
   }
   for (const e of Array.isArray(b.syncTracking) ? b.syncTracking : []) if (typeof e?.id === 'string') store.saveSyncEntry(e);
   const d2n = d2 && b.d2 ? await d2.backup.importD2(current.account?.id ?? 'local', b.d2) : 0;
+  const bin = Array.isArray(b.bin) ? b.bin.filter((e) => typeof e?.item?.id === 'string') : [];
+  for (const e of bin) { const { item, data } = binFromText(e); await store.importBin(item, data); }
+  const d2Bin = d2 && b.d2 ? await d2.backup.importD2Bin(current.account?.id ?? 'local', b.d2) : 0;
+  const deleted = bin.length + d2Bin;
   historyChanged();
-  return `${ecg} ECG recording${ecg === 1 ? '' : 's'}, ${sleep} night${sleep === 1 ? '' : 's'}, biodata of ${users} user${users === 1 ? '' : 's'}, ${b.syncTracking?.length ?? 0} tracking${(b.syncTracking?.length ?? 0) === 1 ? '' : 's'} and ${d2n} D2 Link item${d2n === 1 ? '' : 's'}`;
+  return `${ecg} ECG recording${ecg === 1 ? '' : 's'}, ${sleep} night${sleep === 1 ? '' : 's'}, biodata of ${users} user${users === 1 ? '' : 's'}, ${b.syncTracking?.length ?? 0} tracking${(b.syncTracking?.length ?? 0) === 1 ? '' : 's'}, ${d2n} D2 Link item${d2n === 1 ? '' : 's'} and ${deleted} Recovery centre item${deleted === 1 ? '' : 's'}`;
 }
 
 // ---------- the cloud copy ----------
@@ -300,7 +322,7 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
   const all = [backupBtn, restoreBtn, compareBtn, overwriteBtn, restoreCloudBtn];
   card.append(
     make('h3', 'backup-h', 'Account backup and restore'),
-    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep night with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history and D2 Link’s download history. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
+    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep night with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history, D2 Link’s download history and everything in the Recovery centre. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
     r1,
     make('hr', 'backup-sep'),
     make('h3', 'backup-h', 'This device and the cloud copy'),

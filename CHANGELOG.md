@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.0 – Recovery centre; a second × on long rows *(GitHub)*
+Why: a delete could not be undone, and on wide tables the × was out of sight until you scrolled to the end of the row.
+- New **Recovery centre** page in the sidebar, under Account (also found through Search). Everything with a × goes there: ECG recordings with their full signal, sleep nights with their raw data, Watch D2 nights and All data rows, Synchronised Tracking results and D2 Link download history.
+- Each item shows what it was and when it was deleted, with **Restore** and **Delete permanently**. Items stay until you delete them permanently; nothing is removed automatically. The page shows the storage they use.
+- Restore puts the item back and syncs it to your other devices again. A delete that arrives from another device also leaves a copy here, marked as such.
+- Per device and per user. **Backup Account** includes these items with their raw signals, and Restore Account puts them back in the Recovery centre. “Reset my account data” clears them, on this device. If the device’s storage is full, the item is still deleted and the page says how many weren’t kept.
+- Tables wider than the page now also show the × at the front of each row, in All data, Synchronised Tracking History and Download history.
+- The delete questions now mention the Recovery centre.
+- Fixed: a summary copy restored from a backup was deleted at the next sync instead of being uploaded.
+
 ## 4 Nov 2026 – v1.14.1 – About in the sidebar *(GitHub)*
 Why: About belongs in the sidebar’s Account group.
 

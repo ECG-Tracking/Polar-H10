@@ -80,11 +80,11 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    // version 2 adds sleep recordings, version 3 summary copies of ECG recordings; existing data is kept
-    const req = indexedDB.open(dbName, 3);
+    // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre; existing data is kept
+    const req = indexedDB.open(dbName, 4);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries']) {
+      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals']) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       }
     };
@@ -94,7 +94,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries';
+type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -103,6 +103,7 @@ function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransac
     const req = fn(t);
     t.oncomplete = () => resolve(req ? req.result : undefined);
     t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error ?? new Error('storage error')); // e.g. the device's storage is full
   }));
 }
 
@@ -171,6 +172,7 @@ export async function loadSession(id: string): Promise<{ session: Session | unde
 export async function deleteSession(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const existing = await tx<Session | undefined>(['sessions'], 'readonly', (t) => t.objectStore('sessions').get(id));
   if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes(), id])]);
+  if (existing) await binSession(existing, !fromCloud);
   await tx(['sessions', 'signals', 'ecgSummaries'], 'readwrite', (t) => {
     t.objectStore('sessions').delete(id);
     t.objectStore('signals').delete(id);
@@ -249,10 +251,137 @@ export async function loadSleep(id: string): Promise<{ session: SleepSession | u
 export async function deleteSleep(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const existing = await tx<SleepSession | undefined>(['sleeps'], 'readonly', (t) => t.objectStore('sleeps').get(id));
   if (fromCloud && existing?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes('sleep'), id])], 'sleep');
+  if (existing) await binSleep(existing, !fromCloud);
   await tx(['sleeps', 'sleepSignals'], 'readwrite', (t) => {
     t.objectStore('sleeps').delete(id);
     t.objectStore('sleepSignals').delete(id);
   });
+}
+
+// ---------- Recovery centre ----------
+// A copy of everything deleted, kept on this device until it is deleted permanently. The raw signals are in a store of
+// their own, so listing the items stays quick.
+
+interface BinBase { id: string; user: number; deletedAt: number; size: number; elsewhere?: boolean } // elsewhere: deleted on another device
+export type BinItem =
+  | BinBase & { kind: 'ecg'; session: Session; summary?: unknown }
+  | BinBase & { kind: 'sleep'; session: SleepSession }
+  | BinBase & { kind: 'tracking'; entry: SyncTrackingEntry };
+
+export interface BinSignalRecord { id: string; samples?: Int16Array; signals?: SleepSignals }
+
+const binSkippedKey = (): string => `${keyPrefix}ecg-analysis-bin-skipped`;
+
+/** Items that couldn't be kept because the device's storage was full (they were deleted anyway, so space can be freed). */
+export function binSkipped(): number {
+  try { return Number(localStorage.getItem(binSkippedKey())) || 0; } catch { return 0; }
+}
+
+async function keepInBin(item: BinItem, data?: BinSignalRecord): Promise<void> {
+  try {
+    await tx(['bin', 'binSignals'], 'readwrite', (t) => {
+      t.objectStore('bin').put(item);
+      if (data) t.objectStore('binSignals').put(data);
+    });
+  } catch {
+    try { localStorage.setItem(binSkippedKey(), String(binSkipped() + 1)); } catch { /* storage unavailable */ }
+  }
+}
+
+/** The copy already kept, if it has a raw signal: a summary copy must not replace it. */
+async function keptWithSignal(id: string): Promise<boolean> {
+  return (await tx(['binSignals'], 'readonly', (t) => t.objectStore('binSignals').getKey(id))) !== undefined;
+}
+
+async function binSession(session: Session, elsewhere: boolean): Promise<void> {
+  const id = `ecg:${session.id}`;
+  const samples = await loadSignal(session.id);
+  if (!samples && await keptWithSignal(id)) return;
+  const summary = await loadSummaryCopy(session.id);
+  const size = JSON.stringify(session).length + (summary === undefined ? 0 : JSON.stringify(summary).length) + (samples?.byteLength ?? 0);
+  await keepInBin(
+    { id, kind: 'ecg', user: sessionUser(session), deletedAt: Date.now(), size, session, ...(summary === undefined ? {} : { summary }), ...(elsewhere ? { elsewhere } : {}) },
+    samples ? { id, samples } : undefined,
+  );
+}
+
+async function binSleep(session: SleepSession, elsewhere: boolean): Promise<void> {
+  const id = `sleep:${session.id}`;
+  const { signals } = await loadSleep(session.id);
+  if (!signals && await keptWithSignal(id)) return;
+  const size = JSON.stringify(session).length + (signals ? signals.rrT.byteLength + signals.rr.byteLength + signals.acc.byteLength : 0);
+  await keepInBin(
+    { id, kind: 'sleep', user: session.user, deletedAt: Date.now(), size, session, ...(elsewhere ? { elsewhere } : {}) },
+    signals ? { id, signals } : undefined,
+  );
+}
+
+export async function listBin(): Promise<BinItem[]> {
+  return (await tx<BinItem[]>(['bin'], 'readonly', (t) => t.objectStore('bin').getAll() as IDBRequest<BinItem[]>)) ?? [];
+}
+
+/** Everything in the Recovery centre with its raw signals, for an account backup. */
+export async function exportBin(): Promise<{ item: BinItem; data?: BinSignalRecord }[]> {
+  const signals = (await tx<BinSignalRecord[]>(['binSignals'], 'readonly', (t) => t.objectStore('binSignals').getAll() as IDBRequest<BinSignalRecord[]>)) ?? [];
+  const byId = new Map(signals.map((d) => [d.id, d]));
+  return (await listBin()).map((item) => {
+    const data = byId.get(item.id);
+    return data ? { item, data } : { item };
+  });
+}
+
+/** Puts an item from a backup into the Recovery centre; a copy here with its raw signal is not replaced by one without. */
+export async function importBin(item: BinItem, data?: BinSignalRecord): Promise<void> {
+  if (!data && await keptWithSignal(item.id)) return;
+  await tx(['bin', 'binSignals'], 'readwrite', (t) => {
+    t.objectStore('bin').put(item);
+    if (data) t.objectStore('binSignals').put(data);
+  });
+}
+
+/** Removes an item from the Recovery centre for good. */
+export async function purgeBin(id: string): Promise<void> {
+  await tx(['bin', 'binSignals'], 'readwrite', (t) => {
+    t.objectStore('bin').delete(id);
+    t.objectStore('binSignals').delete(id);
+  });
+}
+
+/**
+ * What a kept item comes back as: never marked as synced, so the next sync uploads it (and any cloud delete still waiting
+ * is dropped by the caller).
+ */
+export function restoredCopy<T extends { synced?: boolean }>(session: T, hasSignal: boolean): Omit<T, 'synced' | 'cloudOnly'> & { cloudOnly?: boolean } {
+  const { synced: _s, cloudOnly: wasCopy, ...rest } = session as T & { cloudOnly?: boolean };
+  return { ...rest, ...(wasCopy && !hasSignal ? { cloudOnly: true } : {}) } as Omit<T, 'synced' | 'cloudOnly'> & { cloudOnly?: boolean };
+}
+
+const withoutId = (ids: readonly string[], id: string): string[] => ids.filter((x) => x !== id);
+
+/** Puts an item back where it was deleted from, then removes it from the Recovery centre. */
+export async function restoreBin(id: string): Promise<void> {
+  const item = await tx<BinItem | undefined>(['bin'], 'readonly', (t) => t.objectStore('bin').get(id));
+  if (!item) return;
+  const data = await tx<BinSignalRecord | undefined>(['binSignals'], 'readonly', (t) => t.objectStore('binSignals').get(id));
+  if (item.kind === 'ecg') {
+    setPendingCloudDeletes(withoutId(pendingCloudDeletes(), item.session.id));
+    const { session: now } = await loadSession(item.session.id);
+    // already back here with its signal (from another device's restore): a summary copy adds nothing
+    if (data?.samples) await saveSession(restoredCopy(item.session, true), data.samples);
+    else if (!now || now.cloudOnly) await saveSummaryCopy(restoredCopy(item.session, false), item.summary);
+  } else if (item.kind === 'sleep') {
+    setPendingCloudDeletes(withoutId(pendingCloudDeletes('sleep'), item.session.id), 'sleep');
+    const { session: now } = await loadSleep(item.session.id);
+    if (data?.signals) await saveSleep(restoredCopy(item.session, true), data.signals);
+    else if (!now || now.cloudOnly) await saveSleepCopy(restoredCopy(item.session, false));
+    // deleting the night took the link off the ECG that was kept
+    const ecgId = item.session.ecgId;
+    const { session: ecg } = ecgId ? await loadSession(ecgId) : { session: undefined };
+    if (ecg && !ecg.sleepId) await updateSession({ ...ecg, sleepId: item.session.id });
+  } else {
+    saveSyncEntry(item.entry);
+  }
+  await purgeBin(id);
 }
 
 // ---------- Settings ----------
@@ -404,7 +533,9 @@ export function loadSyncHistory(): SyncTrackingEntry[] {
   } catch { return []; }
 }
 
-export function removeSyncEntry(id: string): void {
+export async function removeSyncEntry(id: string): Promise<void> {
+  const entry = loadSyncHistory().find((x) => x.id === id);
+  if (entry) await keepInBin({ id: `tracking:${id}`, kind: 'tracking', user: entry.user, deletedAt: Date.now(), size: JSON.stringify(entry).length, entry });
   try { localStorage.setItem(syncKey(), JSON.stringify(loadSyncHistory().filter((x) => x.id !== id))); } catch { /* storage unavailable */ }
 }
 
