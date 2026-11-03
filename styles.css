@@ -429,3 +429,5 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
 .sync-h { margin: 0 0 8px; font-size: 1rem; }
 .sync-bp { margin: 6px 0; font-variant-numeric: tabular-nums; }
 #view-sync .trace canvas { width: 100%; height: 220px; display: block; }
+.sync-dur { margin-bottom: 8px; justify-content: center; }
+.sync-dur input { font: inherit; width: 5em; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; margin-right: 4px; }

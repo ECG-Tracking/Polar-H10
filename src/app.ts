@@ -81,6 +81,7 @@ function openSync(): void {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
     polarBusy: () => (source?.kind === 'polar' ? 'The strap is connected on ECG live: disconnect it there first.'
       : sleepUI?.isConnected() ? 'The strap is in use on Sleep monitor: disconnect it there first.' : null),
+    openEcg: (id) => void openReport(id),
   });
 }
 

@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.8.0 – Synchronised tracking: live from connection, choice of duration, ECG saved *(GitHub)*
+Why: see the ECG and the watch’s values straight away, track for longer than a minute, and keep the ECG.
+
+| File | Change |
+|---|---|
+| `src/synctrack.ts`, `styles.css` | The ECG is drawn live as soon as the Polar H10 is connected (as on ECG live), and its heart rate and RMSSD show straight away. The watch’s heartbeat test starts as soon as the watch is connected, so its heart rate, beat interval, signal and RMSSD show before tracking starts; the test is started again every 55 s while the watch is connected. New “Track for” choice: 1, 3 or 5 minutes, until stopped, or a chosen number of minutes (1–240); the timer counts down (or up, until stopped) and the chart’s time axis follows. Only the tracked period counts in the summary |
+| `src/synctrack.ts`, `src/app.ts` | The Polar H10’s ECG from the tracking is saved to ECG history (10 s or longer), like a recording on ECG live, with a button to open it there |
+| `tests/synctrack.test.ts` | Test for the times shown |
+
 ## 3 Nov 2026 – v1.7.1 – D2 Link pairs again by itself when the watch refuses the saved pairing *(GitHub)*
 Why: the watch keeps one pairing per phone or computer, so pairing it again on the same device (e.g. from another browser) made the saved pairing fail with “refused the login (error -1)”.
 

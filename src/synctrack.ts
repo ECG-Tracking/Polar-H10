@@ -1,16 +1,20 @@
-// Synchronised tracking: the Polar H10's ECG and the Watch D2's heartbeats side by side for one minute, plus a blood
-// pressure reading taken on the watch during the minute or within the hour after the start.
+// Synchronised tracking: the Polar H10's ECG and the Watch D2's heartbeats side by side for a chosen time (1, 3 or 5 min,
+// a custom time, or until stopped), plus a blood pressure reading taken on the watch within the hour after the start.
 // The watch is reached through D2 Link (d2link.js); this page only uses what it offers.
 
 import { PolarH10, ECG_FS, type EcgDetail, type HrDetail } from './polar';
 import { EcgFilter } from './dsp';
 import { LiveTrace } from './charts';
 import { make } from './ui';
+import * as store from './store';
+import type { Session, UserNumber } from './store';
+import { historyChanged } from './account';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 import type { Beat, BloodPressure, LiveWatch } from './d2/live';
 
-export const TRACK_S = 60;
+/** The watch's heartbeat test runs about a minute (as in Gadgetbridge); for longer tracking it is started again. */
+export const WATCH_TEST_S = 55;
 export const BP_WINDOW_MS = 3600000;
 
 export interface SyncDeps {
@@ -21,7 +25,13 @@ export interface SyncDeps {
   profile: () => { heightCm: number; weightKg: number; age: number; sex: 'male' | 'female' } | null;
   /** Why the strap can't be used here (in use on another page), or null. */
   polarBusy: () => string | null;
+  /** Opens a saved recording's report in ECG history. */
+  openEcg: (id: string) => void;
 }
+
+/** Recordings shorter than this aren't saved (as on ECG live). */
+export const MIN_SAVE_S = 10;
+const clip16 = (v: number): number => Math.max(-32768, Math.min(32767, Math.round(v)));
 
 // ---------- numbers ----------
 
@@ -44,6 +54,9 @@ export function sdnn(rr: readonly number[]): number | null {
 }
 
 /** Heart rate from the last few intervals (bpm). */
+/** m:ss */
+export const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
 export function hrFrom(rr: readonly number[], last = 5): number | null {
   const r = usable(rr).slice(-last);
   return r.length ? 60000 / (r.reduce((a, b) => a + b, 0) / r.length) : null;
@@ -58,7 +71,7 @@ const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour
 export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () => void } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised tracking'), make('p', 'note',
-    'The Polar H10’s ECG and the Watch D2’s heartbeats side by side for one minute. Wear both, connect both, then start. Measure your blood pressure on the watch once, during the minute or within one hour of the start.'));
+    'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, during the tracking or within one hour of the start.'));
 
   // --- 1. Polar H10 ---
   const polarCard = make('div', 'card');
@@ -92,14 +105,42 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
   // --- 3. one minute ---
   const runCard = make('div', 'card controls');
   const timer = make('div', 'timer', '1:00');
-  const btnStart = make('button', 'primary big', '3. Start 1-minute tracking') as HTMLButtonElement;
+  // how long: 1, 3 or 5 minutes, until stopped, or a chosen number of minutes
+  const dur = make('select') as HTMLSelectElement;
+  for (const [v, t] of [['60', '1 minute'], ['180', '3 minutes'], ['300', '5 minutes'], ['unlimited', 'Until I stop'], ['custom', 'Choose minutes…']] as const) {
+    const o = make('option', '', t) as HTMLOptionElement; o.value = v; dur.appendChild(o);
+  }
+  const customMin = make('input') as HTMLInputElement;
+  Object.assign(customMin, { type: 'number', min: '1', max: '240', step: '1', value: '10' });
+  customMin.setAttribute('aria-label', 'Minutes');
+  const customLabel = make('label', 'd2-days');
+  customLabel.append(customMin, ' min');
+  customLabel.hidden = true;
+  const durLabel = make('label', 'd2-days', 'Track for ');
+  durLabel.appendChild(dur);
+  const durRow = make('div', 'row wrap sync-dur');
+  durRow.append(durLabel, customLabel);
+  /** The chosen length in seconds; null = until stopped. */
+  const durationS = (): number | null => {
+    if (dur.value === 'unlimited') return null;
+    if (dur.value === 'custom') { const m = Math.round(Number(customMin.value)); return m >= 1 && m <= 240 ? m * 60 : 600; }
+    return Number(dur.value);
+  };
+  const showDuration = (): void => {
+    customLabel.hidden = dur.value !== 'custom';
+    const d = durationS();
+    if (timerId == null) timer.textContent = d == null ? '0:00' : mmss(d);
+  };
+  dur.addEventListener('change', showDuration);
+  customMin.addEventListener('input', showDuration);
+  const btnStart = make('button', 'primary big', '3. Start tracking') as HTMLButtonElement;
   btnStart.disabled = true;
   const btnStop = make('button', 'big', 'Stop') as HTMLButtonElement;
   btnStop.hidden = true;
   const runRow = make('div', 'row');
   runRow.append(btnStart, btnStop);
   const runNote = make('p', 'note', 'Connect at least one device. Sit still and breathe normally.');
-  runCard.append(timer, runRow, runNote);
+  runCard.append(durRow, timer, runRow, runNote);
 
   // --- live values ---
   const tile = (label: string, unit: string): { el: HTMLElement; value: HTMLElement; sub: HTMLElement } => {
@@ -123,7 +164,7 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
   traceCard.append(make('h3', 'sync-h', 'ECG (Polar H10)'), canvas);
   const trace = new LiveTrace(canvas, ECG_FS);
 
-  // --- 5. heart rate from both, over the minute ---
+  // --- 5. heart rate from both, over the tracking ---
   const chartCard = make('div', 'card');
   const chartBox = make('div');
   chartCard.append(make('h3', 'sync-h', 'Heart rate: Polar H10 and Watch D2'), chartBox);
@@ -155,8 +196,20 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
   const polarSeries: [number, number][] = [], watchSeries: [number, number][] = [];
   let lastSqi: number | null = null;
   let bpReadings: BloodPressure[] = [];
+  let length: number | null = 60; // seconds of the current tracking; null = until stopped
+  let watchTestAt = 0, restarting = false, watchTesting = false; // the watch's heartbeat test: last started (ms), running
+  let drawFrame = 0;
+  let ecgChunks: Int16Array[] = [], ecgN = 0;
+  // the latest beats of each device, shown live whether or not tracking is running
+  const LIVE_BEATS = 30;
+  let polarLive: number[] = [], watchLive: number[] = [];
+  const keepLast = (a: number[], add: readonly number[]): number[] => [...a, ...add].slice(-LIVE_BEATS);
 
-  const ready = (): void => { btnStart.disabled = t0 != null && timerId != null ? true : !(polar || watch); };
+  const ready = (): void => { btnStart.disabled = t0 != null && timerId != null ? true : !(polar || watch); dur.disabled = timerId != null; customMin.disabled = timerId != null; };
+
+  // the ECG is drawn continuously while the strap is connected, as on ECG live
+  const drawLoop = (): void => { trace.draw(); drawFrame = polar ? requestAnimationFrame(drawLoop) : 0; };
+  const startDrawing = (): void => { if (!drawFrame) drawFrame = requestAnimationFrame(drawLoop); };
 
   // ---------- Polar ----------
   btnPolar.addEventListener('click', () => void (async () => {
@@ -166,19 +219,22 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     p.addEventListener('ecg', (e) => {
       const s = (e as CustomEvent<EcgDetail>).detail.samples;
       trace.push(Float32Array.from(s, (v) => filter.process(v)));
+      if (timerId != null) { ecgChunks.push(Int16Array.from(s, clip16)); ecgN += s.length; } // the tracked ECG, saved to ECG history
     });
     p.addEventListener('hr', (e) => {
       const d = (e as CustomEvent<HrDetail>).detail;
       polarHrNow = d.hr;
+      polarLive = keepLast(polarLive, d.rr);
       if (timerId != null) polarRr.push(...d.rr);
     });
-    p.addEventListener('disconnect', () => { log('Polar H10 disconnected.'); polar = null; polarDot.className = 'dot'; polarText.textContent = 'Polar H10: disconnected'; btnPolar.hidden = false; btnPolarOff.hidden = true; ready(); });
+    p.addEventListener('disconnect', () => { log('Polar H10 disconnected.'); polar = null; polarLive = []; polarHrNow = null; polarDot.className = 'dot'; polarText.textContent = 'Polar H10: disconnected'; btnPolar.hidden = false; btnPolarOff.hidden = true; ready(); });
     polarDot.className = 'dot busy'; polarText.textContent = 'Polar H10: connecting…';
     try {
       const r = await p.connect(log);
       polar = p;
       filter = new EcgFilter(ECG_FS, deps.notch());
       trace.clear();
+      startDrawing();
       polarDot.className = 'dot on';
       polarText.textContent = `${p.name}: ${r.ecg ? 'streaming ECG' : 'heart rate only (no ECG)'}`;
       btnPolar.hidden = true; btnPolarOff.hidden = false;
@@ -198,12 +254,13 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     try {
       const api = await deps.loadD2();
       const w = await api.connectLive({ account: deps.account(), user: deps.user(), via: via.value === 'mac' ? 'mac' : 'bluetooth', profile: deps.profile(), log });
-      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
+      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
       watch = w;
       watchDot.className = 'dot on';
       watchText.textContent = `${w.name}: connected${w.battery != null ? ` · battery ${w.battery}%` : ''}`;
       btnWatch.hidden = true; btnWatchOff.hidden = false;
       btnBp.disabled = t0 == null;
+      await startWatchTest(); // live heartbeats straight away, before any tracking
     } catch (err) {
       watchDot.className = 'dot';
       watchText.textContent = errorName(err) === 'NotFoundError' ? 'Watch D2: no watch chosen' : `Watch D2: ${errorMessage(err)}`;
@@ -211,48 +268,80 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     btnWatch.disabled = false;
     ready();
   })());
-  btnWatchOff.addEventListener('click', () => void (async () => { await watch?.stopHeartbeats(); await watch?.close(); })());
+  btnWatchOff.addEventListener('click', () => void (async () => { watchTesting = false; await watch?.stopHeartbeats(); await watch?.close(); })());
 
-  // ---------- the minute ----------
+  // ---------- live values (from connection) and the tracking ----------
   const onBeats = (beats: Beat[]): void => {
     for (const b of beats) {
       lastSqi = b.sqi;
-      if (b.sqi !== 0) watchRr.push(b.rri);
       tWatchRr.value.textContent = String(b.rri);
+      if (b.sqi === 0) continue;
+      watchLive = keepLast(watchLive, [b.rri]);
+      if (timerId != null) watchRr.push(b.rri);
     }
   };
 
-  function tick(): void {
-    if (t0 == null) return;
-    const s = (Date.now() - t0) / 1000;
-    const left = Math.max(0, TRACK_S - s);
-    timer.textContent = `0:${String(Math.ceil(left)).padStart(2, '0')}`;
-    if (polarHrNow != null && polar) polarSeries.push([s, polarHrNow]);
-    const wHr = hrFrom(watchRr);
-    if (wHr != null && watch) watchSeries.push([s, wHr]);
-    tPolarHr.value.textContent = r0(polar ? polarHrNow : null);
-    tPolarHrv.value.textContent = r0(rmssd(polarRr));
-    tWatchHr.value.textContent = r0(wHr);
-    tWatchHrv.value.textContent = r0(rmssd(watchRr));
-    tWatchSqi.value.textContent = lastSqi == null ? '--' : lastSqi === 0 ? 'poor' : 'good';
-    tWatchSqi.sub.textContent = `${watchRr.length} beats`;
-    tPolarHrv.sub.textContent = `${usable(polarRr).length} beats`;
-    drawChart();
-    if (left <= 0) void finish();
+  async function startWatchTest(): Promise<void> {
+    if (!watch) return;
+    try {
+      await watch.startHeartbeats(onBeats);
+      watchTesting = true;
+      watchTestAt = Date.now();
+      log('Watch heartbeat test started.');
+    } catch (e) {
+      watchTesting = false;
+      log(`Watch heartbeat test didn’t start: ${errorMessage(e)}`);
+      watchText.textContent = `Watch D2: no live heartbeats – ${errorMessage(e)}`;
+    }
   }
+
+  /** The watch's test stops after about a minute, so it is started again while the watch is connected. */
+  async function keepWatchTest(): Promise<void> {
+    if (!watch || !watchTesting || restarting || Date.now() - watchTestAt < WATCH_TEST_S * 1000) return;
+    restarting = true;
+    try { await watch.stopHeartbeats(); await watch.startHeartbeats(onBeats); } catch (e) { log(`Watch heartbeat test couldn’t continue: ${errorMessage(e)}`); }
+    watchTestAt = Date.now();
+    restarting = false;
+  }
+
+  /** Every second: the live tiles (whenever a device is connected) and, while tracking, the timer and the chart. */
+  function tick(): void {
+    void keepWatchTest();
+    const tracking = timerId != null && t0 != null;
+    const wHr = hrFrom(watchLive);
+    tPolarHr.value.textContent = r0(polar ? polarHrNow : null);
+    tPolarHrv.value.textContent = r0(polar ? rmssd(tracking ? polarRr : polarLive) : null);
+    tPolarHrv.sub.textContent = tracking ? `${usable(polarRr).length} beats tracked` : polar ? 'last 30 beats' : '';
+    tWatchHr.value.textContent = r0(watch ? wHr : null);
+    tWatchHrv.value.textContent = r0(watch ? rmssd(tracking ? watchRr : watchLive) : null);
+    tWatchSqi.value.textContent = !watch || lastSqi == null ? '--' : lastSqi === 0 ? 'poor' : 'good';
+    tWatchSqi.sub.textContent = tracking ? `${watchRr.length} beats tracked` : watch && watchTesting ? 'live' : '';
+    if (!watch) tWatchRr.value.textContent = '--';
+    if (!tracking || t0 == null) return;
+    const s = (Date.now() - t0) / 1000;
+    const left = length == null ? null : Math.max(0, length - s);
+    timer.textContent = left == null ? mmss(s) : mmss(Math.ceil(left));
+    if (polarHrNow != null && polar) polarSeries.push([s, polarHrNow]);
+    if (wHr != null && watch) watchSeries.push([s, wHr]);
+    drawChart();
+    if (left != null && left <= 0) void finish();
+  }
+  const liveTimer = setInterval(tick, 1000);
 
   btnStart.addEventListener('click', () => void (async () => {
     t0 = Date.now();
+    length = durationS();
+    watchTestAt = 0;
+    ecgChunks = []; ecgN = 0;
     polarRr = []; watchRr = []; polarSeries.length = 0; watchSeries.length = 0; lastSqi = null; bpReadings = [];
     summary.hidden = true;
     btnStart.hidden = true; btnStop.hidden = false;
-    runNote.textContent = `Tracking since ${clock(t0)}. Measure your blood pressure on the watch now or before ${clock(t0 + BP_WINDOW_MS)}.`;
+    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. Measure your blood pressure on the watch now or before ${clock(t0 + BP_WINDOW_MS)}.`;
     bpText.textContent = `Measure your blood pressure on the watch once, before ${clock(t0 + BP_WINDOW_MS)}. It is checked every minute while the watch is connected.`;
     bpList.replaceChildren();
-    timerId = setInterval(tick, 1000);
-    if (watch) {
-      try { await watch.startHeartbeats(onBeats); log('Watch heartbeat test started.'); } catch (e) { log(`Watch heartbeat test didn’t start: ${errorMessage(e)}`); watchText.textContent = `Watch D2: no live heartbeats – ${errorMessage(e)}`; }
-    }
+    timerId = setInterval(() => undefined, 1 << 30); // marks tracking as running; the live timer does the work
+    ready();
+    if (watch && !watchTesting) await startWatchTest();
     btnBp.disabled = !watch;
     tick();
   })());
@@ -263,11 +352,38 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     clearInterval(timerId);
     timerId = null;
     btnStop.hidden = true; btnStart.hidden = false; btnStart.textContent = 'Start again';
-    await watch?.stopHeartbeats().catch(() => undefined);
-    timer.textContent = 'Done';
+    timer.textContent = 'Done'; // the watch's heartbeat test keeps running for the live values
     showSummary();
+    await saveEcg();
     ready();
     startBpChecks();
+  }
+
+  /** The strap's ECG from the tracking goes into ECG history, like a recording on ECG live. */
+  async function saveEcg(): Promise<void> {
+    if (t0 == null || !ecgN) return;
+    if (ecgN < MIN_SAVE_S * ECG_FS) { summary.appendChild(make('p', 'note', `The ECG was too short to save (under ${MIN_SAVE_S} s).`)); return; }
+    const samples = new Int16Array(ecgN);
+    let o = 0;
+    for (const c of ecgChunks) { samples.set(c, o); o += c.length; }
+    const user = deps.user() as UserNumber;
+    const session: Session = {
+      id: `s${t0}`, user, start: t0, durationS: ecgN / ECG_FS, fs: ECG_FS, alias: store.loadSettings(user).alias,
+      source: 'polar', userEvents: [], summary: null,
+    };
+    try {
+      await store.saveSession(session, samples);
+      historyChanged();
+      ecgChunks = []; ecgN = 0;
+      const row = make('div', 'row wrap');
+      const open = make('button', '', 'Open in ECG history');
+      open.addEventListener('click', () => deps.openEcg(session.id));
+      row.append(make('span', 'note', `ECG saved to ECG history (${mmss(session.durationS)}).`), open);
+      summary.appendChild(row);
+      log(`ECG saved to ECG history (${mmss(session.durationS)}).`);
+    } catch (e) {
+      summary.appendChild(make('p', 'note', `The ECG couldn’t be saved: ${errorMessage(e)}`));
+    }
   }
 
   function showSummary(): void {
@@ -330,7 +446,9 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
     const W = 600, H = 180, L = 40, R = 8, T = 8, B = 22;
     const all = [...polarSeries, ...watchSeries].map((p) => p[1]);
     const lo = Math.max(30, Math.floor((Math.min(...all, 60) - 5) / 10) * 10), hi = Math.ceil((Math.max(...all, 100) + 5) / 10) * 10;
-    const x = (s: number): number => L + (s / TRACK_S) * (W - L - R);
+    const elapsed = t0 != null ? (Date.now() - t0) / 1000 : 0;
+    const span = length ?? Math.max(60, Math.ceil(elapsed / 60) * 60); // until stopped: the axis grows a minute at a time
+    const x = (s: number): number => L + (s / span) * (W - L - R);
     const y = (v: number): number => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
     const ns = 'http://www.w3.org/2000/svg';
     const svgEl = document.createElementNS(ns, 'svg');
@@ -343,7 +461,8 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
       svgEl.appendChild(e);
     };
     for (let v = lo; v <= hi; v += (hi - lo) / 4) { add('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'd2-row' }); add('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'd2-axis' }, String(Math.round(v))); }
-    for (let s = 0; s <= TRACK_S; s += 10) add('text', { x: x(s), y: H - 6, 'text-anchor': 'middle', class: 'd2-axis' }, `${s} s`);
+    const step = [10, 30, 60, 120, 300, 600, 900, 1800, 3600].find((v) => span / v <= 7) ?? 3600;
+    for (let s = 0; s <= span; s += step) add('text', { x: x(s), y: H - 6, 'text-anchor': 'middle', class: 'd2-axis' }, span <= 120 ? `${s} s` : mmss(s));
     const line = (pts: [number, number][], color: string): void => {
       if (pts.length > 1) add('path', { d: pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(''), fill: 'none', stroke: color, 'stroke-width': 2 });
     };
@@ -357,6 +476,8 @@ export function initSyncTracking(root: HTMLElement, deps: SyncDeps): { stop: () 
 
   return {
     stop: () => {
+      if (drawFrame) cancelAnimationFrame(drawFrame);
+      clearInterval(liveTimer);
       if (timerId) clearInterval(timerId);
       if (bpTimer) clearInterval(bpTimer);
       void polar?.disconnect();
