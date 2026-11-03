@@ -70,12 +70,13 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
       const hr = vals((m) => m.hr), spo2 = vals((m) => m.spo2), rest = vals((m) => m.restingHr);
       const sum = (xs: number[]): number => xs.reduce((s, x) => s + x, 0);
       return [
-        dayLabel(dateOf(r.id).getTime()), String(sum(vals((m) => m.steps))), (sum(vals((m) => m.distance)) / 1000).toFixed(2), String(sum(vals((m) => m.kcal))),
+        dayLabel(dateOf(r.id).getTime()), String(sum(vals((m) => m.steps))), (sum(vals((m) => m.distance)) / 1000).toFixed(2), String(Math.round(sum(vals((m) => m.kcal)) / 1000)),
         hr.length ? `${round(mean(hr))} (${Math.min(...hr)}–${Math.max(...hr)})` : '--', rest.length ? String(rest[rest.length - 1]) : '--',
         spo2.length ? `${round(mean(spo2))} (min ${Math.min(...spo2)})` : '--',
       ];
     });
-    const note = totals ? `Today so far (at ${clock(totals.downloadedAt)}): ${num(totals.data['steps']) ?? 0} steps, ${((num(totals.data['distance']) ?? 0) / 1000).toFixed(2)} km, ${num(totals.data['kcal']) ?? 0} kcal.` : '';
+    const hasTotals = totals != null && [totals.data['steps'], totals.data['kcal'], totals.data['distance']].some((v) => num(v));
+    const note = totals && hasTotals ? `Today so far (at ${clock(totals.downloadedAt)}): ${num(totals.data['steps']) ?? 0} steps, ${((num(totals.data['distance']) ?? 0) / 1000).toFixed(2)} km, ${num(totals.data['kcal']) ?? 0} kcal.` : '';
     box.appendChild(section('Activity', note, rows.length ? table(['Day', 'Steps', 'km', 'kcal', 'Heart rate (range)', 'Resting HR', 'SpO₂ % (min)'], rows) : null));
   }
 

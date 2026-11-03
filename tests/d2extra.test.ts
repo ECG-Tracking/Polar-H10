@@ -33,20 +33,27 @@ const day = Math.floor(new Date(2026, 10, 2, 8, 0).getTime() / 1000);
 
 test('D2 link: activity, totals and the data dictionary are read from the watch', async () => {
   const w = new FakeWatch({
-    activity: [{ start: day, minutes: [[0, MINUTE], [1, MINUTE]] }, { start: day + 3600, minutes: [[0, MINUTE]] }],
+    activity: [{ start: day, minutes: [[0, MINUTE], [1, MINUTE]] }, { start: day + 3600, minutes: [[0, MINUTE]] }, { start: 1596204660, minutes: [[0, MINUTE]] }],
     totals: { steps: 8000, kcal: 250, distance: 6100 },
     readings: { 10002: [{ start: day * 1000, values: { 10002001: 128, 10002002: 82 } }], 500044: [{ start: day * 1000 + 5000, values: { 500044831: 41 } }] },
   });
   const { link, log } = await connected(w);
   const minutes = await downloadActivity(link, day - 86400, day + 86400);
-  assert.deepEqual(minutes.map((m) => m.t), [day, day + 60, day + 3600]);
-  assert.deepEqual(await downloadTotals(link), { steps: 8000, kcal: 250, distance: 6100 });
+  assert.deepEqual(minutes.map((m) => m.t), [day, day + 60, day + 3600], 'a minute from 2020 (before the clock was set) is left out');
+  assert.deepEqual(await downloadTotals(link, (l) => log.push(l)), { steps: 8000, kcal: 250, distance: 6100 });
   const readings = await downloadReadings(link, 0, (l) => log.push(l));
   const bp = readings.find((r) => r.cls === 10002);
   assert.deepEqual(bp?.values, { 10002001: 128, 10002002: 82 });
   assert.equal(readings.find((r) => r.cls === 500044)?.values['500044831'], 41);
   assert.ok(w.acks.length >= 2, 'each data message from the watch is acknowledged');
   assert.ok(log.some((l) => /Blood pressure: 1 record/.test(l)));
+});
+
+test('D2 link: an answer without totals gives none, and its layout is logged', async () => {
+  const w = new FakeWatch({ totals: { steps: 0, kcal: 0, distance: 0 } });
+  const { link, log } = await connected(w);
+  assert.equal(await downloadTotals(link, (l) => log.push(l)), null);
+  assert.ok(log.some((l) => /no totals \(fields: 81\{83\{5:4 6:2 7:4\}\}\)/.test(l)));
 });
 
 test('D2 link: without the data sync service, measurements are skipped with a note', async () => {

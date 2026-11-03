@@ -23,7 +23,8 @@ const sint = (v: number, bits: number): number => (v >= 2 ** (bits - 1) ? v - 2 
 /** One minute of activity; null where the watch didn't measure it. */
 export interface ActivityMinute {
   t: number; // seconds since 1970
-  steps: number | null; kcal: number | null; distance: number | null; // distance in metres
+  // `kcal` is as the watch sends it: in calories (1/1000 kcal), e.g. 165 246 in a day = 165 kcal. Distance in metres.
+  steps: number | null; kcal: number | null; distance: number | null;
   hr: number | null; restingHr: number | null; spo2: number | null;
   /** Values the watch sent whose meaning isn't known yet: "bitmap.bit" → value. */
   other?: Record<string, number>;
@@ -82,7 +83,8 @@ export async function downloadActivity(link: D2Link, start: number, end: number,
     out.push(...parseActivityBlock(b));
     progress(i + 1, count);
   }
-  return out;
+  // the watch can also return minutes from long before (e.g. from before its clock was set): keep only the period asked for
+  return out.filter((m) => m.t >= start - 86400 && m.t <= end + 3600);
 }
 
 // ---------- today's totals ----------
@@ -99,8 +101,14 @@ export function parseTotals(t: Tlv): ActivityTotals {
   return totals;
 }
 
-export async function downloadTotals(link: D2Link): Promise<ActivityTotals> {
-  return parseTotals(await link.request({ service: FITNESS, command: 0x03, tlv: new Tlv().put(0x01) }, 8000, 'the totals request'));
+/** Today's totals; null when the watch answers without any (the layout of its answer is then logged, without values). */
+export async function downloadTotals(link: D2Link, log: Log): Promise<ActivityTotals | null> {
+  const r = await link.request({ service: FITNESS, command: 0x03, tlv: new Tlv().put(0x01) }, 8000, 'the totals request');
+  const t = parseTotals(r);
+  if (t.steps || t.kcal || t.distance) return t;
+  const shape = (x: Tlv): string => x.items.map((i) => (i.tag & 0x80 ? `${i.tag.toString(16)}{${shape(Tlv.parse(i.value))}}` : `${i.tag.toString(16)}:${i.value.length}`)).join(' ');
+  try { log(`Totals: the watch’s answer has no totals (fields: ${shape(r)}).`); } catch { log('Totals: the watch’s answer has no totals.'); }
+  return null;
 }
 
 // ---------- the watch's data dictionary (measurements by kind) ----------

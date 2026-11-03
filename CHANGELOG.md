@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.3.2 – D2 Link: activity fixes from the first real download *(GitHub)*
+Why: the first “all data” export from the watch showed calories 1000× too high, a stray day from 2020 and empty totals.
+
+| File | Change |
+|---|---|
+| `src/d2/dataui.ts` | Calories per day shown in kcal (the watch sends them per minute in calories, 1/1000 kcal) |
+| `src/d2/extra.ts` | Minutes outside the period asked for are left out (the watch also sent two from 2020, before its clock was set). An answer without totals is not saved; the layout of the watch’s answer (no values) goes to the connection log |
+| `src/d2/ui.ts` | Totals are saved only when the watch sends some |
+| `tests/d2extra.test.ts` | Tests for both |
+
 ## 3 Nov 2026 – v1.3.1 – D2 Link: export all data *(GitHub)*
 Why: save everything downloaded from the watch in one file.
 

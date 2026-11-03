@@ -417,7 +417,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     };
     const existing = await store.listRecords(user, 'activity');
     await step('activity days', async () => activityRecords(await downloadActivity(link, start, end, (d, t) => { progress.textContent = `Downloading activity… ${d} of ${t}`; }), user, name, existing));
-    await step('daily totals', async () => [totalsRecord(await downloadTotals(link), user, name)]);
+    await step('daily totals', async () => { const t = await downloadTotals(link, log); return t ? [totalsRecord(t, user, name)] : []; });
     await step('measurements', async () => readingRecords(await downloadReadings(link, start * 1000, log), user, name));
     await step('stress records', async () => stressRecords(parseStressFile(await link.downloadFile({ name: 'rrisqi_data.bin', type: 0x10, start, end, what: 'stress' })), user, name));
     await step('ECG recordings', async () => ecgRecords(parseEcgFile(await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start, end, what: 'ECG' })), user, name));
