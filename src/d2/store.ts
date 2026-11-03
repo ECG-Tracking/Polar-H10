@@ -102,6 +102,10 @@ export async function saveRecords(records: D2Record[]): Promise<void> {
   await tx('readwrite', (s) => { for (const r of records) s.put(r); }, 'records');
 }
 
+export async function deleteRecords(keys: readonly string[]): Promise<void> {
+  if (keys.length) await tx('readwrite', (s) => { for (const k of keys) s.delete(k); }, 'records');
+}
+
 export async function listAllRecords(): Promise<D2Record[]> {
   return (await tx<D2Record[]>('readonly', (s) => s.getAll() as IDBRequest<D2Record[]>, 'records')) ?? [];
 }
@@ -121,6 +125,15 @@ export function pendingCloudDeletes(): string[] {
 
 export function setPendingCloudDeletes(ids: readonly string[]): void {
   try { localStorage.setItem(tombstoneKey(), JSON.stringify(ids)); } catch { /* storage unavailable */ }
+}
+
+const droppedKey = (): string => `d2link-dropped-kinds-1-${account}`;
+/** Whether this device already removed the dropped measurement kinds from the cloud. */
+export function droppedKindsCleared(): boolean {
+  try { return localStorage.getItem(droppedKey()) === '1'; } catch { return false; }
+}
+export function setDroppedKindsCleared(): void {
+  try { localStorage.setItem(droppedKey(), '1'); } catch { /* storage unavailable */ }
 }
 
 const watchAccountKey = (): string => `d2link-watch-account-${account}`;

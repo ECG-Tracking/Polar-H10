@@ -4,6 +4,7 @@
 
 import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
 import { renderAllData } from './dataui';
+import { renderGraphs, RANGES, type Range } from './graphsui';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile } from './extra';
 import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
@@ -216,7 +217,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, the watch’s measurements (such as blood pressure, HRV and skin temperature), stress, ECG recordings and workouts; numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress, ECG recordings and workouts; numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
 
   const listHead = el('h3', '', 'Nights from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
@@ -234,8 +235,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   // Nights / Week / Month
   const tabs = el('div', 'd2-tabs');
   tabs.setAttribute('role', 'tablist');
-  const tabBtns = (['nights', 'week', 'month', 'data'] as const).map((v) => {
-    const b = button(v === 'nights' ? 'Nights' : v === 'week' ? 'Week' : v === 'month' ? 'Month' : 'All data');
+  const TAB_NAMES = { nights: 'Nights', week: 'Week', month: 'Month', data: 'All data', graphs: 'Graphs' } as const;
+  const tabBtns = (['nights', 'week', 'month', 'data', 'graphs'] as const).map((v) => {
+    const b = button(TAB_NAMES[v]);
     b.setAttribute('role', 'tab');
     b.dataset['view'] = v;
     tabs.appendChild(b);
@@ -243,7 +245,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   });
   const trendsBox = el('div', 'd2-trends');
   const dataBox = el('div', 'd2-alldata');
-  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox, dataBox);
+  const graphsBox = el('div', 'd2-alldata d2-graphs');
+  home.append(title, card, help, listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
 
   const log = (line: string): void => {
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
@@ -302,15 +305,27 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   // ---------- Nights / Week / Month ----------
-  let view: 'nights' | 'data' | Period = 'nights';
+  let view: 'nights' | 'data' | 'graphs' | Period = 'nights';
+  const RANGE_KEY = 'd2link-graphs-range';
+  let range: Range = '7d';
+  try { const r = localStorage.getItem(RANGE_KEY); if (RANGES.some(([v]) => v === r)) range = r as Range; } catch { /* default */ }
   let anchor = new Date();
   function showView(): void {
     for (const b of tabBtns) b.setAttribute('aria-selected', String(b.dataset['view'] === view));
     list.hidden = view !== 'nights';
     empty.hidden = view !== 'nights' || nights.length > 0 || napsByDay.size > 0;
-    trendsBox.hidden = view === 'nights' || view === 'data';
+    trendsBox.hidden = view === 'nights' || view === 'data' || view === 'graphs';
     dataBox.hidden = view !== 'data';
+    graphsBox.hidden = view !== 'graphs';
     if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs)); return; }
+    if (view === 'graphs') {
+      void Promise.all([store.listNights(deps.user()), store.listRecords(deps.user())]).then(([ns, rs]) => renderGraphs(graphsBox, ns, rs, range, (r) => {
+        range = r;
+        try { localStorage.setItem(RANGE_KEY, r); } catch { /* not kept */ }
+        showView();
+      }));
+      return;
+    }
     if (view === 'nights') return;
     const period = view;
     renderTrends(trendsBox, nights, period, anchor, {
@@ -322,7 +337,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   for (const b of tabBtns) {
     b.addEventListener('click', () => {
       const v = b.dataset['view'];
-      if (v !== 'nights' && v !== 'week' && v !== 'month' && v !== 'data') return;
+      if (v !== 'nights' && v !== 'week' && v !== 'month' && v !== 'data' && v !== 'graphs') return;
       view = v;
       const latest = nights[0];
       anchor = latest ? dateOf(dayKey(latest)) : new Date(); // start at the most recent night

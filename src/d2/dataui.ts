@@ -82,11 +82,14 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
 
   // the watch's measurements, by kind
   const readings = of('reading');
-  const classes = [...new Set(readings.map((r) => num(r.data['cls']) ?? 0))];
+  // only the kinds still kept (others, e.g. altitude, are not shown and are deleted at the next sync)
+  const classes = [...new Set(readings.map((r) => num(r.data['cls']) ?? 0))].filter((c) => READING_CLASSES[c]);
   for (const cls of classes) {
     const spec = READING_CLASSES[cls];
     const rs = readings.filter((r) => r.data['cls'] === cls);
-    const fields = [...new Set(rs.flatMap((r) => Object.keys((r.data['values'] as Record<string, number> | undefined) ?? {})))].sort();
+    const named = (f: string): boolean => spec?.fields[Number(f)] != null;
+    const fields = [...new Set(rs.flatMap((r) => Object.keys((r.data['values'] as Record<string, number> | undefined) ?? {})))]
+      .sort((a, b) => Number(named(b)) - Number(named(a)) || (named(a) ? Object.keys(spec!.fields).indexOf(a) - Object.keys(spec!.fields).indexOf(b) : a.localeCompare(b)));
     const withText = rs.some((r) => r.local?.['texts']);
     const rows = rs.map((r) => {
       const v = (r.data['values'] as Record<string, number> | undefined) ?? {};
@@ -95,7 +98,7 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[]): v
       return withText ? [...cells, Object.values(texts).join(' · ')] : cells;
     });
     const head = ['Time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
-    const note = spec && !Object.keys(spec.fields).length ? 'The meaning of these fields isn’t known yet: they are shown by number. Compare with the watch to name them.' : '';
+    const note = fields.some((f) => !named(f)) ? 'Fields shown by number: their meaning isn’t known yet.' : '';
     box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows)));
   }
 

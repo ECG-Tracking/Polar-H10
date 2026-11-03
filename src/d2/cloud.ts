@@ -5,6 +5,7 @@
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { emptySummary, type D2Summary } from './sleepfile';
+import { DROPPED_CLASSES } from './extra';
 import { mergeMinutes, minutesOf } from './records';
 import * as store from './store';
 import type { D2Kind, D2Night, D2Record } from './store';
@@ -19,7 +20,7 @@ export interface CloudClient {
   from(table: string): {
     select(columns: string): Query;
     upsert(row: Record<string, unknown> | Record<string, unknown>[]): PromiseLike<CloudResult>;
-    delete(): { eq(column: string, value: string): PromiseLike<CloudResult> };
+    delete(): { eq(column: string, value: string): PromiseLike<CloudResult>; like(column: string, pattern: string): PromiseLike<CloudResult> };
   };
 }
 
@@ -135,9 +136,24 @@ export function parseCloudRecord(row: unknown): D2Record | null {
   };
 }
 
+/** Measurement kinds no longer kept: removed here, and once per device from the cloud (all users of this account). */
+async function dropOldKinds(client: CloudClient): Promise<number> {
+  const old = (await store.listAllRecords()).filter((r) => r.kind === 'reading' && DROPPED_CLASSES.includes(Number(r.data['cls'])));
+  await store.deleteRecords(old.map((r) => r.key));
+  if (!store.droppedKindsCleared()) {
+    for (const cls of DROPPED_CLASSES) {
+      const { error } = await client.from(DATA_TABLE).delete().like('id', `reading:%:${cls}-%`);
+      if (error) fail(error);
+    }
+    store.setDroppedKindsCleared();
+  }
+  return old.length;
+}
+
 /** One sync of the other watch data: the most recently downloaded copy of each record wins; activity days are merged. */
 export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
   const result: D2SyncResult = { uploaded: 0, downloaded: 0, deleted: 0 };
+  result.deleted += await dropOldKinds(client);
   const list = await client.from(DATA_TABLE).select('kind, id, saved_at');
   if (list.error) fail(list.error);
   const inCloud = new Map<string, number>();

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — everything else the watch keeps besides sleep: activity per minute, today's totals, measurements kept by
-// the watch's data dictionary (blood pressure, HRV, skin temperature and others), stress, ECG recordings and workouts.
+// the watch's data dictionary (blood pressure, HRV, emotion), stress, ECG recordings and workouts.
 // Ported from Gadgetbridge's fitness data, data dictionary sync, stress, ECG file and workout code
 // (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
@@ -113,17 +113,16 @@ export async function downloadTotals(link: D2Link, log: Log): Promise<ActivityTo
 
 // ---------- the watch's data dictionary (measurements by kind) ----------
 
-/** Kinds of measurement the watch keeps in its data dictionary, with the meaning of the fields that are known. */
+/** Kinds of measurement read from the watch's data dictionary, with the meaning of the fields that are known. */
 export const READING_CLASSES: Readonly<Record<number, { name: string; fields: Readonly<Record<number, string>> }>> = {
-  10002: { name: 'Blood pressure', fields: {} }, // fields not yet described by Gadgetbridge: shown by number
+  // blood pressure fields aren't described by Gadgetbridge; these three were identified from 127 readings of a Watch D2
+  10002: { name: 'Blood pressure', fields: { 2006: 'Systolic (mmHg)', 2007: 'Diastolic (mmHg)', 10002537: 'Pulse (bpm)' } },
   500044: { name: 'HRV', fields: { 500044831: 'RMSSD (ms)' } },
-  400012: { name: 'Skin temperature', fields: { 400012430: '°C' } },
   500031: { name: 'Emotion', fields: { 500031195: 'Status', 500031347: 'Valence', 500031160: 'Original status', 500031842: 'Arousal' } },
-  500002: { name: 'Sleep apnoea', fields: { 500002847: 'Level' } },
-  400017: { name: 'Arterial stiffness', fields: {} },
-  200003: { name: 'Altitude', fields: {} },
-  500006: { name: 'Altitude sickness check', fields: {} },
 };
+
+/** Kinds no longer read or shown (altitude, skin temperature, sleep apnoea, arterial stiffness, altitude sickness): stored ones are deleted. */
+export const DROPPED_CLASSES: readonly number[] = [200003, 400012, 500002, 400017, 500006];
 
 export interface Reading {
   cls: number;

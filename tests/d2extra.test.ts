@@ -194,3 +194,28 @@ test('D2 set-up: the account goes to the watch only when its ID was entered', as
   await setUpWatch(b.link, { watchName: 'W', profile: null, accountId: '20007000023812345', log: (l) => b.log.push(l) });
   assert.ok(w2.setup.includes('1a:5'));
 });
+
+import { aggregate, bucketStart, modeFor, rangeStart } from '../src/d2/graphsui';
+import { DROPPED_CLASSES, READING_CLASSES } from '../src/d2/extra';
+
+test('D2 graphs: periods, how finely they are shown, and per-day values', () => {
+  const now = new Date(2026, 10, 3, 12, 0).getTime();
+  assert.equal(rangeStart('1d', now, null), now - 86400000);
+  assert.equal(new Date(rangeStart('3m', now, null)).getMonth(), 7); // 3 Aug
+  assert.equal(new Date(rangeStart('5y', now, null)).getFullYear(), 2021);
+  assert.equal(rangeStart('all', now, now - 5 * 86400000), now - 5 * 86400000);
+  assert.equal(modeFor(now - 86400000, now), 'raw');
+  assert.equal(modeFor(now - 90 * 86400000, now), 'day');
+  assert.equal(modeFor(now - 3 * 365 * 86400000, now), 'week');
+  assert.equal(new Date(bucketStart(new Date(2026, 10, 5, 15).getTime(), 'week')).getDay(), 1); // weeks start on Monday
+  const d0 = new Date(2026, 10, 2).getTime();
+  const pts = [{ t: d0 + 3600000, v: 10 }, { t: d0 + 7200000, v: 30 }, { t: d0 + 86400000 + 60000, v: 5 }];
+  assert.deepEqual(aggregate(pts, 'day', 'sum').map((p) => p.v), [40, 5]);
+  assert.deepEqual(aggregate(pts, 'day', 'mean').map((p) => [p.v, p.lo, p.hi]), [[20, 10, 30], [5, 5, 5]]);
+});
+
+test('D2 measurements: blood pressure fields are named; dropped kinds are no longer read', () => {
+  assert.deepEqual(READING_CLASSES[10002]?.fields, { 2006: 'Systolic (mmHg)', 2007: 'Diastolic (mmHg)', 10002537: 'Pulse (bpm)' });
+  for (const cls of DROPPED_CLASSES) assert.equal(READING_CLASSES[cls], undefined);
+  assert.deepEqual(Object.keys(READING_CLASSES).map(Number).sort(), [10002, 500031, 500044]);
+});

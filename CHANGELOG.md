@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.4.0 – D2 Link: Graphs, blood pressure named *(GitHub)*
+Why: see all the watch’s data over time; name the blood pressure values; stop reading kinds that aren’t needed.
+
+| File | Change |
+|---|---|
+| `src/d2/graphsui.ts` (new), `src/d2/ui.ts`, `styles.css` | New “Graphs” tab after “All data”, with a choice of 1 day, 7 days, 1, 3, 6 or 9 months, 1, 3 or 5 years, or all. Graphs: sleep (deep, light, REM), sleep score, steps, distance, calories, heart rate (with its range), resting heart rate, SpO₂, blood pressure (systolic and diastolic), pulse, HRV, stress, emotion, ECG recordings and workouts. Up to 2 days shows each reading, up to 13 months one value per day, longer one per week. The choice is remembered |
+| `src/d2/extra.ts`, `src/d2/dataui.ts` | Blood pressure fields named: systolic (2006), diastolic (2007) and pulse (10002537). Altitude, skin temperature, sleep apnoea, arterial stiffness and altitude sickness are no longer requested or shown |
+| `src/d2/cloud.ts`, `src/d2/store.ts` | Records already downloaded of those five kinds are deleted on each device at its next sync, and once from the cloud |
+| `tests/d2extra.test.ts` | Tests for the periods, per-day and per-week values, and the measurement kinds |
+
 ## 3 Nov 2026 – v1.3.4 – D2 Link: watch account ID *(GitHub)*
 Why: the watch held back stress, ECG, workouts and measurements (code 100004), and after the set-up sent an empty account it also held back totals and data sync: it shares health data with its own account.
 

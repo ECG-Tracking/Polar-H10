@@ -410,3 +410,11 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
 .d2-acct { margin-top: 10px; }
 .d2-acct summary { cursor: pointer; font-weight: 600; }
 .d2-acct input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; width: 14em; max-width: 100%; }
+.d2-graphs > .d2-days { margin-bottom: 8px; }
+.d2-graphcard h3 { margin: 0; }
+.d2-graph-legend { gap: 14px; font-size: 0.85rem; color: var(--ink-2); margin: 4px 0 2px; }
+.d2-graph-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+@media (max-width: 480px) {
+  .d2-tabs button { padding: 0 2px; font-size: 0.85rem; white-space: nowrap; }
+  .d2-graph .d2-axis { font-size: 17px; }
+}
