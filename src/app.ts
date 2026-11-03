@@ -37,6 +37,9 @@ function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
   const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
+  // the page's name in the top bar (a report is named for what it reports on)
+  const tabLabel = document.querySelector<HTMLButtonElement>(`.tabs button[data-view="${tab}"]`)?.textContent?.trim() ?? '';
+  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' ? 'Sleep report' : tabLabel;
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();

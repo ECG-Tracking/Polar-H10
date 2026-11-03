@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.10.0 – Desktop look like Portfolio Optimizer: left sidebar and top bar *(GitHub)*
+Why: a clearer desktop layout, in the same style as the Portfolio Optimizer app.
+
+| File | Change |
+|---|---|
+| `index.html`, `styles.css` | Desktop: a left sidebar with the logo, name and subtitle, the pages with line icons in groups (ECG · Sleep · Watch D2 · Polar H10 + Watch D2 · Account), the selected page marked in red, and the signed-in email, sync status and version at the bottom; a top bar with the page’s title, the sync status and “Sync now”. Colours and typeface (Plus Jakarta Sans) as in Portfolio Optimizer, keeping OpenBeat’s red; cards with a soft shadow. Narrower screens and phones: a compact bar at the top with the pages wrapping under the logo |
+| `src/app.ts`, `src/main.ts` | The top bar shows the page’s name; the sidebar and top bar show the sync status; “Sync now” in the top bar |
+
 ## 3 Nov 2026 – v1.9.1 – Tracking ECGs summarised in ECG history; tab bar on wide screens *(GitHub)*
 Why: a recording from Synchronised Tracking showed “Open to analyse” instead of HR, HRV and events; on wide screens the last tabs were cut off.
 

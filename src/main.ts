@@ -96,16 +96,24 @@ function waitForSignIn(): Promise<Account> {
   });
 }
 
+/** The sync status in Settings, and in short in the sidebar and top bar. */
 function showSyncStatus(): void {
   const el = $('syncStatus');
   const a = current.account, c = current.cloud;
   if (!a) return;
-  if (a.offline || !c) { el.textContent = 'Offline: your history will sync when you’re back online and reopen the app.'; return; }
+  const short = (text: string, state: 'ok' | 'busy' | 'off' | 'fail'): void => {
+    $('navSync').textContent = text;
+    $('topSync').textContent = text;
+    $('navSyncDot').className = `nav-sync-dot ${state}`;
+  };
+  if (a.offline || !c) { el.textContent = 'Offline: your history will sync when you’re back online and reopen the app.'; short('Offline', 'off'); return; }
   const r = c.lastResult;
-  if (!r) { el.textContent = 'Syncing…'; return; }
-  if (!r.ok) { el.textContent = `Sync failed: ${r.reason ?? 'unknown error'}.`; return; }
+  if (!r) { el.textContent = 'Syncing…'; short('Syncing…', 'busy'); return; }
+  if (!r.ok) { el.textContent = `Sync failed: ${r.reason ?? 'unknown error'}.`; short('Sync failed', 'fail'); return; }
   const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
-  el.textContent = `Synced at ${new Date(c.lastSyncAt ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${parts.length ? ` (${parts.join(', ')})` : ''}.`;
+  const at = new Date(c.lastSyncAt ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.textContent = `Synced at ${at}${parts.length ? ` (${parts.join(', ')})` : ''}.`;
+  short(`Synced ${at}`, 'ok');
 }
 
 async function boot(): Promise<void> {
@@ -122,12 +130,17 @@ async function boot(): Promise<void> {
   $('authOverlay').hidden = true;
   $('appShell').hidden = false;
   $('accountEmail').textContent = account.email;
+  $('navEmail').textContent = account.email;
+  $('navVersion').textContent = `Version ${versionText()}`;
   await import('./app'); // the app reads this account's storage, so it starts only now
 
   $button('btnSignOut').addEventListener('click', () => void signOut());
   const sync = current.cloud;
   $button('btnSyncNow').disabled = !sync;
-  $button('btnSyncNow').addEventListener('click', () => { $('syncStatus').textContent = 'Syncing…'; void sync?.sync(); });
+  const syncNow = (): void => { $('syncStatus').textContent = 'Syncing…'; $('topSync').textContent = 'Syncing…'; $('navSync').textContent = 'Syncing…'; void sync?.sync(); };
+  $button('btnSyncNow').addEventListener('click', syncNow);
+  $button('btnTopSync').disabled = !sync;
+  $button('btnTopSync').addEventListener('click', syncNow);
   sync?.addEventListener('synced', showSyncStatus);
   showSyncStatus();
   void sync?.sync();
