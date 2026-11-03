@@ -5,6 +5,7 @@
 import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
 import { renderAllData } from './dataui';
 import { renderGraphs, RANGES, type Range } from './graphsui';
+import { dateInput, downloadPeriod } from './period';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile } from './extra';
 import { D2Link, WatchError } from './link';
 import { openWatch, serialAvailable } from './serial';
@@ -169,8 +170,20 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   for (const [v, t] of [[1, 'Last night'], [3, 'Last 3 days'], [7, 'Last 7 days'], [14, 'Last 14 days'], [30, 'Last 30 days']] as const) {
     const o = el('option', '', t); o.value = String(v); if (v === 7) o.selected = true; days.appendChild(o);
   }
+  { const o = el('option', '', 'Choose dates…'); o.value = 'custom'; days.appendChild(o); }
   const daysLabel = el('label', 'd2-days', 'Download ');
   daysLabel.appendChild(days);
+  // custom period: start and end dates
+  const dateRow = el('div', 'row wrap d2-dates');
+  const fromIn = el('input'), toIn = el('input');
+  for (const i of [fromIn, toIn]) { i.type = 'date'; i.max = dateInput(new Date()); }
+  fromIn.value = dateInput(new Date(Date.now() - 29 * 86400000));
+  toIn.value = dateInput(new Date());
+  const fromLabel = el('label', 'd2-days', 'From '), toLabel = el('label', 'd2-days', 'to ');
+  fromLabel.appendChild(fromIn); toLabel.appendChild(toIn);
+  dateRow.append(fromLabel, toLabel);
+  dateRow.hidden = true;
+  days.addEventListener('change', () => { dateRow.hidden = days.value !== 'custom'; });
   const actions = el('div', 'row wrap');
   actions.append(goButtons, daysLabel, btnSystem, btnDemo, btnForget);
   // the account the watch belongs to (optional): the watch may keep health data back from a phone without it
@@ -204,7 +217,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   logBox.appendChild(el('summary', '', 'Connection log'));
   const logPre = el('pre', 'log');
   logBox.appendChild(logPre);
-  card.append(status, noSerial, actions, acct, progress, logBox);
+  card.append(status, noSerial, actions, dateRow, acct, progress, logBox);
 
   const help = el('details', 'card d2-help');
   help.appendChild(el('summary', '', 'Before you start (first time)'));
@@ -399,6 +412,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
 
   // ---------- download ----------
   const download = (mode: 'bluetooth' | 'system', all = false): void => void (async () => {
+    const period = downloadPeriod(days.value, fromIn.value, toIn.value);
+    if ('error' in period) { progress.textContent = period.error; return; }
     syncButtons(true);
     progress.textContent = '';
     setStatus('Choose the watch in Chrome’s list…', 'busy');
@@ -412,7 +427,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       store.savePairing(kept);
       const name = watchName(link.info?.name || link.info?.model || '');
       setStatus(`${name}${link.info?.battery != null ? ` · battery ${link.info.battery}%` : ''} – downloading…`, 'on');
-      const end = Math.floor(Date.now() / 1000), start = end - Number(days.value) * 86400;
+      const { start, end } = period;
+      if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
       const got = parseSleepFile(file).map((d) => store.nightFromData(d, deps.user(), name));
       await store.saveNights(got);

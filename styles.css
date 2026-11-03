@@ -416,3 +416,5 @@ button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff
   .d2-tabs button { padding: 0 2px; font-size: 0.85rem; white-space: nowrap; }
   .d2-graph .d2-axis { font-size: 17px; }
 }
+.d2-dates { margin-top: 10px; }
+.d2-dates input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; }

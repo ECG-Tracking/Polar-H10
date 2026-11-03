@@ -210,3 +210,15 @@ test('D2: ECG recordings are no longer downloaded, kept or sent the ECG switch',
   await setUpWatch(link, { watchName: 'W', profile: null, log: (l) => log.push(l) });
   assert.ok(!w.setup.includes('23:10'));
 });
+
+import { downloadPeriod } from '../src/d2/period';
+
+test('D2 download period: last days, or chosen dates from the start of one day to the end of the other', () => {
+  const now = new Date(2026, 10, 3, 14, 0).getTime(), nowS = now / 1000;
+  assert.deepEqual(downloadPeriod('7', '', '', now), { start: nowS - 7 * 86400, end: nowS });
+  assert.deepEqual(downloadPeriod('custom', '2026-10-01', '2026-10-31', now), { start: new Date(2026, 9, 1).getTime() / 1000, end: new Date(2026, 10, 1).getTime() / 1000 - 1 });
+  assert.deepEqual(downloadPeriod('custom', '2026-11-01', '2026-11-03', now), { start: new Date(2026, 10, 1).getTime() / 1000, end: nowS }, 'not after now');
+  assert.ok('error' in downloadPeriod('custom', '2026-11-02', '2026-11-01', now));
+  assert.ok('error' in downloadPeriod('custom', '', '2026-11-01', now));
+  assert.ok('error' in downloadPeriod('custom', '2026-12-01', '2026-12-02', now));
+});

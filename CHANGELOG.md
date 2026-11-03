@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 3 Nov 2026 – v1.4.2 – D2 Link: download by start and end dates *(GitHub)*
+Why: choose exactly which days to download from the watch.
+
+| File | Change |
+|---|---|
+| `src/d2/period.ts` (new), `src/d2/ui.ts`, `styles.css` | The “Download” list has a new choice “Choose dates…”, which shows “From” and “to” dates: the download covers the start of the first day to the end of the last (not after now). Both download buttons use it; a start after the end, or in the future, is refused with a note |
+| `tests/d2extra.test.ts` | Tests for the period |
+
 ## 3 Nov 2026 – v1.4.1 – D2 Link: no ECG recordings *(GitHub)*
 Why: ECG recordings from the watch are not wanted.
 
