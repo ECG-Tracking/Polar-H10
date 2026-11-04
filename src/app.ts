@@ -66,7 +66,7 @@ function show(view: View): void {
 // ---------- D2 Link (a separate, open-source script, loaded on first use) ----------
 
 declare const __D2_VERSION__: string; // set by scripts/build.mjs
-let d2: { refresh: () => void; openNight: (id: string, back: () => void) => Promise<void> } | null = null;
+let d2: { refresh: () => void; openNight: (id: string, back: () => void, copy?: unknown) => Promise<void> } | null = null;
 let d2Loading: Promise<void> | null = null;
 /** D2 Link switched to its history page itself (e.g. to show a night): keep what it shows. */
 let d2KeepPage = false;
@@ -123,7 +123,8 @@ function openSyncSleep(): ReturnType<typeof initSyncSleep> {
       elapsed: () => sleepUI?.recording.elapsed() ?? '',
     },
     openPolar: (id, back) => void sleepUI?.openReport(id, back),
-    openWatch: (id, back) => void openD2Night(id, back),
+    openWatch: (id, back, copy) => void openD2Night(id, back, copy),
+    openPolarCopy: (copy, back) => void sleepUI?.openCopy(copy.session, copy.report, back),
     openEcg: (id) => void openReport(id),
     ecgDuring,
     show,
@@ -131,10 +132,10 @@ function openSyncSleep(): ReturnType<typeof initSyncSleep> {
   return syncSleepUI;
 }
 
-async function openD2Night(id: string, back: () => void): Promise<void> {
+async function openD2Night(id: string, back: () => void, copy?: unknown): Promise<void> {
   if (!d2) { d2KeepPage = false; await openD2(); }
   d2KeepPage = true;
-  await d2?.openNight(id, back);
+  await d2?.openNight(id, back, copy);
 }
 
 async function openD2(): Promise<void> {

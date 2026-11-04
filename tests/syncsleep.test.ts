@@ -124,4 +124,11 @@ test('saved reports stay until a recording changes, and say which one did', () =
   assert.equal(next.generatedAt, 2000);
   assert.equal(next.changed, 'watch');
   assert.equal(next.agreement.stagePct, 0);
+  assert.equal(next.past?.length, 1);
+  assert.equal(next.past?.[0]?.generatedAt, 1000);
+  assert.equal(next.past?.[0]?.agreement.stagePct, 100);
+
+  const third = buildReports(pairOf(polarChanged, watchChanged), polarFigures, stages, 30, 3000, next);
+  assert.deepEqual(third.past?.map((v) => v.generatedAt), [1000, 2000]);
+  assert.ok(third.past?.every((v) => !('past' in v)));
 });

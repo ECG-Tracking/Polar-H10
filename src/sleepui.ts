@@ -12,7 +12,7 @@ import type { Session, SleepSession, UserNumber } from './store';
 import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
-import { parseSleepReport, toAnalysis } from './summary';
+import { parseSleepReport, toAnalysis, type SleepReport } from './summary';
 
 export interface SleepDeps {
   /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
@@ -36,6 +36,7 @@ const MIN_SAVE_S = 10 * 60;
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
   openReport: (id: string, from?: () => void) => Promise<void>;
+  openCopy: (session: SleepSession, report: SleepReport, from: () => void) => Promise<void>;
   isRecording: () => boolean;
   /** For Synchronised Sleep Tracking, which records through this page. */
   recording: { canStart: () => boolean; start: () => Promise<void>; stop: () => Promise<string | null>; elapsed: () => string };
@@ -334,12 +335,27 @@ export function initSleep(deps: SleepDeps): {
       session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
       store.updateSleep(session).catch(() => {});
     }
+    await showReport(session, analysis, from);
+  }
+
+  /** A saved version of a report, for Synchronised Sleep Tracking: it shows that version's results and can't be deleted. */
+  async function openCopy(session: SleepSession, report: SleepReport, from: () => void): Promise<void> {
+    backTo = from;
+    $('btnSleepBack').textContent = '← Back';
+    deps.showSleepView('sleepReport');
+    await showReport(session, toAnalysis(report), from, true);
+  }
+
+  async function showReport(session: SleepSession, analysis: SleepAnalysis, from?: () => void, copy = false): Promise<void> {
+    const busy = $('sleepBusy'), body = $('sleepBody');
     current = { session, analysis };
     // naps compare with naps and nights with nights: a nap would skew a night's ranges
     const nap = isNap(session.start, session.durationS);
     const all = await store.listSleeps(session.user);
     const earlier = all.filter((n) => n.start < session.start && isNap(n.start, n.durationS) === nap);
-    renderReport(session, analysis, earlier, all);
+    renderReport(session, analysis, earlier, copy ? [session] : all);
+    $button('btnSleepDelete').hidden = copy;
+    if (copy) $('sleepMeta').textContent += ' · Saved version of this report';
     busy.hidden = true;
     body.hidden = false;
     hypno.draw(); bars.draw(); hrPlot.draw(); brPlot.draw();
@@ -611,6 +627,7 @@ export function initSleep(deps: SleepDeps): {
   return {
     renderHistory,
     openReport,
+    openCopy,
     isRecording: () => recorder !== null,
     recording: {
       canStart: () => polar?.connected === true && polar.accOk === true,

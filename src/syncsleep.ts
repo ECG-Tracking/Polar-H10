@@ -3,6 +3,7 @@
 
 import { isNap, sleepScore, type Stage } from './sleep';
 import type { SleepSession } from './store';
+import type { SleepReport } from './summary';
 
 /** A night or nap from the watch, as D2 Link hands it over. Times are ms since 1970; the stages run from falling asleep to waking up. */
 export interface WatchSleep {
@@ -249,7 +250,14 @@ export interface SavedSleepReports {
   start: number; end: number; nap: boolean; demo: boolean; ecgId: string | null;
   timelineStart: number; polarMinutes: Minute[]; watchMinutes: Minute[]; combined: (Known | null)[];
   figures: CombinedFigures; agreement: Agreement; tips: string[]; polar: PolarFigures; watch: Omit<WatchSleep, 'stages'>;
+  /** The Polar H10 and D2 reports as they were at this version, so that each version has all four reports. */
+  polarCopy?: SleepCopy; watchCopy?: unknown;
+  /** Every earlier version, oldest first. */
+  past?: PastSleepReports[];
 }
+
+export type PastSleepReports = Omit<SavedSleepReports, 'past'>;
+export interface SleepCopy { session: SleepSession; report: SleepReport }
 
 function hash(text: string): string {
   let h = 5381;
@@ -274,7 +282,7 @@ export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair):
   return polar && watch ? 'both' : polar ? 'polar' : watch ? 'watch' : null;
 }
 
-export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly Stage[], epochS: number, now: number, before?: SavedSleepReports): SavedSleepReports {
+export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly Stage[], epochS: number, now: number, before?: SavedSleepReports, copies?: { polar: SleepCopy; watch: unknown }): SavedSleepReports {
   const t = lineUp(stages, p.polar.start, epochS, p.watch);
   const combined = combine(t.polar, t.watch);
   const agreement = compareMinutes(t.polar, t.watch);
@@ -282,7 +290,10 @@ export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly
   const minutes = (x: number | null, y: number | null): number | null => (x == null || y == null ? null : (y - x) / 60000);
   const diff = (x: number, y: number | null): number | null => (y == null ? null : y - x);
   const watchPct = (v: number): number => (watch.sleepMin ? (100 * v) / watch.sleepMin : 0);
+  const { past = [], ...last } = before ?? {};
   return {
+    ...(before ? { past: [...past, last as PastSleepReports] } : {}),
+    ...(copies ? { polarCopy: copies.polar, watchCopy: copies.watch } : {}),
     id: p.id, user: p.polar.user, polarId: p.polar.id, watchId: p.watch.id,
     polarStamp: polarStamp(p.polar), watchStamp: watchStamp(p.watch),
     firstAt: before?.firstAt ?? now, generatedAt: now, changed: whatChanged(before, p) ?? 'new',

@@ -157,7 +157,7 @@ function wakeBars(nights: D2Night[]): SVGSVGElement {
 
 // ---------- the screen ----------
 
-export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; openNight: (id: string, back: () => void) => Promise<void> } {
+export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; openNight: (id: string, back: () => void, copy?: unknown) => Promise<void> } {
   store.useAccount(deps.account);
   root.replaceChildren();
   // two pages: D2 Link (connect and download) and D2 Link History (the nights and other data, and a night's report)
@@ -615,14 +615,15 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
 
   // ---------- report ----------
   /** `from` is set when another page opened the report: its back button returns there. */
-  function openReport(id: string, from?: () => void): void {
-    const i = nights.findIndex((n) => n.id === id);
-    const n = nights[i] ?? [...napsByDay.values()].flat().find((x) => x.id === id);
+  function openReport(id: string, from?: () => void, copy?: D2Night): void {
+    const i = copy ? -1 : nights.findIndex((n) => n.id === id);
+    const n = copy ?? nights[i] ?? [...napsByDay.values()].flat().find((x) => x.id === id);
     if (!n) return;
-    renderReport(report, n, nights, napsByDay.get(dayKey(n)) ?? [], model, {
+    renderReport(report, n, nights, copy ? [] : napsByDay.get(dayKey(n)) ?? [], model, {
       back: () => { report.hidden = true; histHome.hidden = false; window.scrollTo(0, 0); from?.(); },
       backLabel: from ? '← Back' : '← Sleep',
-      older: nights[i + 1] ? () => openReport(nights[i + 1]!.id, from) : null,
+      copy: copy != null,
+      older: !copy && nights[i + 1] ? () => openReport(nights[i + 1]!.id, from) : null,
       newer: i > 0 ? () => openReport(nights[i - 1]!.id, from) : null,
       ecg: (box) => {
         const f = figures(n);
@@ -665,11 +666,11 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   void renderList().then(sync);
   return {
     refresh: () => { report.hidden = true; histHome.hidden = false; renderHistory(); void renderList().then(sync); },
-    openNight: async (id, back) => { await renderList(); openReport(id, back); },
+    openNight: async (id, back, copy) => { await renderList(); openReport(id, back, copy as D2Night | undefined); },
   };
 }
 
-interface ReportActions { back: () => void; backLabel: string; ecg: (box: HTMLElement) => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
+interface ReportActions { back: () => void; backLabel: string; copy: boolean; ecg: (box: HTMLElement) => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
 
 const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
 
@@ -728,7 +729,8 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   });
   const del = button('Delete', 'danger');
   del.addEventListener('click', () => void act.remove());
-  right.append(json, del);
+  right.append(json);
+  if (!act.copy) right.appendChild(del); // a saved version: the recording itself is deleted from its own report
   bar.append(back, right);
 
   // date and night sleep with the stage chart
@@ -751,6 +753,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
     const it = el('span'); const sw = el('i'); sw.style.background = STAGE_VAR[code] ?? ''; it.append(sw, document.createTextNode(STAGE_NAME[code] ?? '')); legend.appendChild(it);
   }
   top.append(nav, big, hypnogram(f.shown), times, legend);
+  if (act.copy) top.appendChild(el('p', 'note', 'Saved version of this report.'));
   if (n.source === 'demo') top.appendChild(el('p', 'note', 'Demo night (made-up data) to show the report layout.'));
 
   // score, recent awakenings and the stage donut

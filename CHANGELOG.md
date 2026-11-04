@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.16.2 – Every version of the combined and comparison reports is kept *(GitHub)*
+Why: an earlier result should stay readable after a recording changes.
+- When either recording changes, the new reports no longer replace the old ones. Each version has its own row in the history, newest first, with its own four reports: Polar H10, D2, Combined and Comparison. Older rows open the reports as they were at that version.
+- Deleting a recording no longer removes its reports: they wait until it is restored from the Recovery centre. They go only when a recording is deleted permanently.
+
 ## 4 Nov 2026 – v1.16.1 – Combined and comparison reports are generated automatically *(GitHub)*
 Why: the reports should be ready as soon as both recordings are there, and stay right when either changes.
 - The combined and comparison reports are generated and saved as soon as a Polar H10 recording and the watch's sleep match: after a recording stops, after a watch download, after a sync from another device, and when the app opens.

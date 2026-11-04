@@ -5,7 +5,7 @@
 import { READING_CLASSES } from './extra';
 import { isNap } from './night';
 import * as store from './store';
-import type { D2BinItem, D2Record } from './store';
+import type { D2BinItem, D2Night, D2Record } from './store';
 
 export interface RecoveryRow { id: string; category: 'Watch D2 sleep' | 'Watch D2 data' | 'D2 Link download history'; user: number; recorded: number; deletedAt: number; what: string; length: number | null; detail: string; size: number; elsewhere: boolean }
 
@@ -26,6 +26,18 @@ export function describe(item: D2BinItem): RecoveryRow {
 export async function listRecovery(account: string): Promise<RecoveryRow[]> {
   store.useAccount(account);
   return (await store.listBin()).map(describe);
+}
+
+/** A night or nap as it is now, kept with a version of the synchronised sleep reports. */
+export async function nightCopy(account: string, id: string): Promise<D2Night | undefined> {
+  store.useAccount(account);
+  return (await store.listAllNights()).find((n) => n.id === id);
+}
+
+/** The nights and naps waiting in the Recovery centre, by their own ids. */
+export async function deletedNightIds(account: string): Promise<string[]> {
+  store.useAccount(account);
+  return (await store.listBin()).flatMap((i) => (i.night ? [i.night.id] : []));
 }
 
 export async function restoreRecovery(account: string, id: string): Promise<void> {
