@@ -244,6 +244,12 @@ function runs<T>(a: readonly T[]): { value: T; from: number; to: number }[] {
   return out;
 }
 
+/** Day-time sleep: the middle of the recording falls between 08:00 and 20:00 local time. */
+export function isNap(start: number, durationS: number): boolean {
+  const hour = new Date(start + durationS * 500).getHours();
+  return hour >= 8 && hour < 20;
+}
+
 /** Overall score from documented components; see SCORE_EXPLANATION. */
 export function sleepScore(m: Pick<SleepMetrics, 'sleepMin' | 'efficiency' | 'deepPct' | 'remPct' | 'awakenings'>): number {
   const hours = m.sleepMin / 60;

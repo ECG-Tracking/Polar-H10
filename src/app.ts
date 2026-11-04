@@ -739,20 +739,20 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
 
 /** "ECG during the night" in a sleep report: that night's ECG results, with a link to the full ECG report. */
 async function renderNightEcg(box: HTMLElement, ecgId: string): Promise<void> {
-  box.replaceChildren(make('p', 'muted', 'Analysing the night’s ECG…'));
+  box.replaceChildren(make('p', 'muted', 'Analysing the sleep ECG…'));
   await new Promise((r) => setTimeout(r, 30)); // let the message paint before a long analysis
   const { session, samples } = await store.loadSession(ecgId);
-  if (!session) { box.replaceChildren(make('p', 'muted', 'The ECG recorded this night isn’t on this device (it may have been deleted).')); return; }
+  if (!session) { box.replaceChildren(make('p', 'muted', 'The ECG recorded with this sleep isn’t on this device (it may have been deleted).')); return; }
   let m: SessionMetrics;
   if (session.cloudOnly) {
     const copy = parseEcgSummary(await store.loadSummaryCopy(ecgId));
-    if (!copy) { box.replaceChildren(make('p', 'muted', 'The night’s ECG summary could not be read.')); return; }
+    if (!copy) { box.replaceChildren(make('p', 'muted', 'The sleep ECG summary could not be read.')); return; }
     m = copy.metrics;
   } else if (samples) {
     const a = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
     m = sessionMetrics(a, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   } else {
-    box.replaceChildren(make('p', 'muted', 'The night’s ECG signal is missing.'));
+    box.replaceChildren(make('p', 'muted', 'The sleep ECG signal is missing.'));
     return;
   }
   const sink: Outlier[] = [];

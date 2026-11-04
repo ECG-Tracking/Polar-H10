@@ -2,6 +2,7 @@
 // Recovery centre. Each item can be put back (it then syncs to the other devices again) or deleted for good.
 
 import { current, historyChanged, supabase } from './account';
+import { isNap } from './sleep';
 import * as store from './store';
 import type { BinItem } from './store';
 import { deleteButton, frontDeletes, make } from './ui';
@@ -62,7 +63,7 @@ export function describe(item: BinItem): RecoveryItem {
   if (item.kind === 'ecg') {
     return { ...base, category: 'ECG recordings', what: 'ECG recording', recorded: item.session.start, length: item.session.durationS, detail: [item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
   }
-  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
+  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: isNap(item.session.start, item.session.durationS) ? 'Nap' : 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
   return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', recorded: item.entry.start, length: item.entry.durationS, detail: '' };
 }
 

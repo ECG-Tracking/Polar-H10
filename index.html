@@ -283,7 +283,7 @@
     <section id="view-sleepHistory" class="view">
       <h2>Sleep history <span class="muted" id="sleepHistoryUser"></span></h2>
       <ul class="sessions" id="sleepList"></ul>
-      <p class="muted" id="sleepEmpty">No nights recorded for this user yet. Use Sleep monitor, or try a Demo night there.</p>
+      <p class="muted" id="sleepEmpty">No sleep recorded for this user yet. Use Sleep monitor, or try a Demo night there.</p>
     </section>
 
     <!-- SLEEP REPORT -->
@@ -297,11 +297,11 @@
           <button class="danger" id="btnSleepDelete">Delete</button>
         </div>
       </div>
-      <div id="sleepBusy" class="busy" hidden>Analysing the night…</div>
+      <div id="sleepBusy" class="busy" hidden>Analysing the recording…</div>
       <div id="sleepBody">
         <p class="muted" id="sleepMeta"></p>
         <div class="sleep-hero">
-          <div class="muted">Night sleep</div>
+          <div class="muted" id="sleepHeroLabel">Night sleep</div>
           <div class="big-duration" id="sleepDuration"></div>
         </div>
         <figure class="chart hypno" aria-label="Sleep stages through the night">
@@ -335,12 +335,12 @@
         <div class="metrics sleep-metrics" id="sleepTiles"></div>
 
         <div class="grid2">
-          <figure class="chart"><figcaption>Heart rate through the night</figcaption><canvas></canvas></figure>
-          <figure class="chart"><figcaption>Breathing rate through the night</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption id="sleepHrCaption">Heart rate through the night</figcaption><canvas></canvas></figure>
+          <figure class="chart"><figcaption id="sleepBrCaption">Breathing rate through the night</figcaption><canvas></canvas></figure>
         </div>
 
         <section id="sleepEcgSection" class="night-ecg" hidden>
-          <h3>ECG during the night</h3>
+          <h3 id="sleepEcgHeading">ECG during the night</h3>
           <div id="sleepEcgBody"></div>
         </section>
 

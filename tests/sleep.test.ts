@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSleep, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S } from '../src/sleep';
+import { analyzeSleep, isNap, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S } from '../src/sleep';
 import { simulateNight } from '../src/sleepsim';
 import { personalRange, checkRange, sleepRanges } from '../src/ranges';
 
@@ -71,4 +71,13 @@ test('personal range needs 3 nights and is mean ± 1 SD', () => {
   assert.ok(r && r.lo === 50 && r.hi === 54);
   assert.equal(checkRange(sleepRanges().sleepHours, 6.5), 'low');
   assert.equal(checkRange(sleepRanges().awakenings, 3), 'high');
+});
+
+test('sleep in the day counts as a nap, sleep overnight as a night', () => {
+  const at = (h: number, m = 0): number => new Date(2026, 10, 4, h, m).getTime();
+  assert.equal(isNap(at(7, 40), 110 * 60), true); // 07:40–09:30
+  assert.equal(isNap(at(14), 3600), true);
+  assert.equal(isNap(at(23, 38), 7.5 * 3600), false); // 23:38–07:08
+  assert.equal(isNap(at(2), 9 * 3600), false); // a late night: 02:00–11:00
+  assert.equal(isNap(at(21), 3600), false);
 });
