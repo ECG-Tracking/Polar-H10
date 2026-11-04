@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.28.0 – Identical downloads are left alone *(GitHub)*
+Why: downloading the same data again shouldn't replace it, sync it again or make new report versions.
+- A sleep record or other watch record identical to the stored one is no longer replaced. The download history says "nil change", for example "2 sleep records (nil change)" or "3 sleep records (1 nil change)".
+
+## 4 Nov 2026 – v1.27.1 – Downloads count sleep records *(GitHub)*
+Why: a download can hold naps as well as nights.
+- D2 Link now says "sleep records" instead of "nights" when counting a download, in the download history and its messages, including earlier entries.
+
 ## 4 Nov 2026 – v1.27.0 – Computers keep everything *(GitHub)*
 Why: a computer should hold every tracking and every download, not just the latest ones.
 - Computers now keep every synchronised tracking and the whole D2 Link download history, and fetch what was left out. Phones and tablets keep the latest 500 trackings and 300 downloads, and the rest stay in the cloud.

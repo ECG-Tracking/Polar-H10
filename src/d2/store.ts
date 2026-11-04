@@ -233,7 +233,7 @@ export function saveWatchAccount(id: string): void {
 // ---------- download history ----------
 
 /** One kind of data in a download: how many were saved, or null with a note when it wasn't downloaded. */
-export interface DownloadLogItem { what: string; count: number | null; note?: string }
+export interface DownloadLogItem { what: string; count: number | null; note?: string; nil?: number } // nil: how many were identical to what is stored
 export interface DownloadLogEntry {
   at: number; // when the download started, ms since 1970
   user: number;

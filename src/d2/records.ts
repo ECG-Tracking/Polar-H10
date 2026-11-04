@@ -4,7 +4,7 @@
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import type { ActivityMinute, ActivityTotals, Reading, StressRecord, Workout } from './extra';
-import { recordKey, type D2Kind, type D2Record } from './store';
+import { recordKey, type D2Kind, type D2Night, type D2Record } from './store';
 import { keyOf } from './trends';
 
 const hasKeys = (o: Record<string, unknown>): boolean => Object.keys(o).length > 0;
@@ -50,3 +50,17 @@ export const stressRecords = (rs: readonly StressRecord[], user: number, watch: 
 
 export const workoutRecords = (ws: readonly Workout[], user: number, watch: string): D2Record[] => ws.map(({ texts, ...w }) =>
   record('workout', user, String(w.start), w.start, { ...w }, watch, hasKeys(texts) ? { texts } : undefined));
+
+/** What a download changes: anything identical to what is stored is left alone, so it isn't replaced or synced again. */
+export function onlyChanged<T>(incoming: readonly T[], stored: readonly T[], keyOf: (x: T) => string, contentOf: (x: T) => unknown): { changed: T[]; same: T[] } {
+  const have = new Map(stored.map((x) => [keyOf(x), JSON.stringify(contentOf(x))]));
+  const changed: T[] = [], same: T[] = [];
+  for (const x of incoming) (have.get(keyOf(x)) === JSON.stringify(contentOf(x)) ? same : changed).push(x);
+  return { changed, same };
+}
+
+/** Added to a count: how many of them were identical to what is stored. */
+export const nilText = (count: number, nil: number): string => (!nil ? '' : nil === count ? ' (nil change)' : ` (${nil} nil change)`);
+
+export const nightContent = (n: D2Night): unknown => [n.user, n.start, n.stages, n.summary];
+export const recordContent = (r: D2Record): unknown => [r.user, r.start, r.data, r.local ?? null];

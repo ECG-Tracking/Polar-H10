@@ -16,7 +16,7 @@ import { dateTime, button, clock, dayLabel, deleteButton, el, frontDeletes, hm, 
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import type { Profile } from './setup';
-import { activityRecords, readingRecords, stressRecords, totalsRecord, workoutRecords } from './records';
+import { activityRecords, readingRecords, stressRecords, totalsRecord, workoutRecords, nightContent, nilText, onlyChanged, recordContent } from './records';
 import * as store from './store';
 import type { D2Night } from './store';
 import { addDays, dateOf } from './trends';
@@ -296,7 +296,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       tr.append(delTd);
       if (!e.ok) tr.classList.add('d2-history-failed');
       // what came back, on its own full-width row
-      const got = e.items.filter((i) => i.count != null).map((i) => `${i.count} ${i.what}`).join(' · ');
+      const got = e.items.filter((i) => i.count != null).map((i) => `${/^nights?$/.test(i.what) ? sleepRecords(i.count ?? 0) : `${i.count} ${i.what}`}${nilText(i.count ?? 0, i.nil ?? 0)}`).join(' · '); // older entries say nights
       const missed = e.items.filter((i) => i.count == null).map((i) => `${i.what}${i.note ? ` (${i.note})` : ''}`);
       const detail = el('tr', 'd2-history-detail');
       const td = el('td', '', `${got ? `Downloaded: ${got}` : 'Nothing downloaded'}${missed.length ? `. Not downloaded: ${missed.join(', ')}` : ''}${e.watch ? ` · ${e.watch}` : ''}`);
@@ -523,18 +523,19 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
       const got = parseSleepFile(file).map((d) => store.nightFromData(d, deps.user(), name));
-      await store.saveNights(got);
-      entry.items.push({ what: got.length === 1 ? 'night' : 'nights', count: got.length });
-      log(`${got.length} night${got.length === 1 ? '' : 's'} saved.`);
+      const { changed, same } = onlyChanged(got, await store.listAllNights(), (n) => n.id, nightContent);
+      await store.saveNights(changed);
+      entry.items.push({ what: got.length === 1 ? 'sleep record' : 'sleep records', count: got.length, nil: same.length });
+      log(`${sleepRecords(got.length)}: ${changed.length} saved, ${same.length} nil change.`);
       void sync();
-      progress.textContent = got.length ? `${got.length} night${got.length === 1 ? '' : 's'} downloaded.` : 'The watch has no sleep records for this period.';
+      progress.textContent = got.length ? `${sleepRecords(got.length)} downloaded${nilText(got.length, same.length)}.` : 'The watch has no sleep records for this period.';
       setStatus(`${name} – done`, 'on');
       await renderList();
       const latest = got.sort((a, b) => b.start - a.start)[0];
       if (all) {
         setStatus(`${name} – downloading the other data…`, 'on');
         const counts = await downloadOthers(link, start, end, name, entry.items);
-        progress.textContent = `${got.length} night${got.length === 1 ? '' : 's'}${counts ? `; ${counts}` : '; no other data'}.`;
+        progress.textContent = `${sleepRecords(got.length)}${nilText(got.length, same.length)}${counts ? `; ${counts}` : '; no other data'}.`;
         setStatus(`${name} – done`, 'on');
         void sync();
         view = 'data';
@@ -570,11 +571,16 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       progress.textContent = `Downloading ${what}…`;
       try {
         const rs = await fn();
-        if (rs.length) { await store.saveRecords(rs); parts.push(`${rs.length} ${what}`); }
+        const { changed, same } = onlyChanged(rs, await store.listAllRecords(), (r) => r.key, recordContent);
+        if (changed.length) await store.saveRecords(changed);
+        if (rs.length) parts.push(`${rs.length} ${what}${nilText(rs.length, same.length)}`);
         if (what === 'measurements') { // one line per kind, e.g. "127 blood pressure"
-          for (const [cls, spec] of Object.entries(READING_CLASSES)) items.push({ what: spec.name, count: rs.filter((r) => r.data['cls'] === Number(cls)).length });
-        } else items.push({ what, count: rs.length });
-        log(`${what}: ${rs.length} saved.`);
+          for (const [cls, spec] of Object.entries(READING_CLASSES)) {
+            const ofKind = (l: readonly store.D2Record[]): number => l.filter((r) => r.data['cls'] === Number(cls)).length;
+            items.push({ what: spec.name, count: ofKind(rs), nil: ofKind(same) });
+          }
+        } else items.push({ what, count: rs.length, nil: same.length });
+        log(`${what}: ${changed.length} saved, ${same.length} nil change.`);
       } catch (e) {
         items.push({ what, count: null, note: e instanceof Error ? e.message.replace(/^The watch /, '').replace(/\.$/, '') : String(e) });
         log(`${what}: not downloaded (${e instanceof Error ? e.message : String(e)}).`);
@@ -594,7 +600,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   btnAll.addEventListener('click', () => download(via.value as Via, true));
 
   btnForget.addEventListener('click', () => {
-    if (!window.confirm('Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded nights are kept.')) return;
+    if (!window.confirm('Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded sleep records are kept.')) return;
     store.savePairing(null);
     log('Pairing forgotten.');
     syncButtons();
@@ -673,6 +679,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
 interface ReportActions { back: () => void; backLabel: string; copy: boolean; ecg: (box: HTMLElement) => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
 
 const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
+
+/** A download can hold naps as well as nights. */
+const sleepRecords = (n: number): string => `${n} sleep record${n === 1 ? '' : 's'}`;
 
 /** "What made your score": the estimate's parts for this night. */
 function scoreCardFor(n: D2Night, model: ScoreModel): HTMLElement | null {

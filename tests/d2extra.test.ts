@@ -9,6 +9,8 @@ import {
 } from '../src/d2/extra';
 import { activityRecords, mergeMinutes, readingRecords, workoutRecords } from '../src/d2/records';
 import { parseCloudDownload, parseCloudRecord, planDownloads } from '../src/d2/cloud';
+import { nightContent, nilText, onlyChanged, recordContent } from '../src/d2/records';
+import { emptySummary } from '../src/d2/sleepfile';
 import { Tlv } from '../src/d2/tlv';
 import { FakeWatch } from './d2fake';
 
@@ -300,4 +302,18 @@ test('D2 download history in the cloud: uploaded once, fetched from elsewhere, a
   assert.deepEqual(planDownloads([log(5, true), log(6, true)], new Set([id(5), id(6), id(4), id(9)]), new Set(), 2).fetch, [id(9)], 'a full history skips older ones');
   assert.equal(parseCloudDownload({ data: { at: 'x' } }), null);
   assert.equal(parseCloudDownload({ data: log(1, false) })?.synced, true);
+});
+
+test('D2 downloads: an identical record is left alone and counted as nil change', () => {
+  const rec = (key: string, v: number, downloadedAt: number) => ({ key, kind: 'stress' as const, id: key, user: 1, start: 5, data: { score: v }, source: 'd2' as const, watch: 'W', downloadedAt });
+  const stored = [rec('a', 1, 10), rec('b', 2, 10)];
+  const { changed, same } = onlyChanged([rec('a', 1, 99), rec('b', 3, 99), rec('c', 4, 99)], stored, (r) => r.key, recordContent);
+  assert.deepEqual(same.map((r) => r.key), ['a'], 'the time of the download doesn’t count as a change');
+  assert.deepEqual(changed.map((r) => r.key), ['b', 'c']);
+  const night = (stages: number[]) => ({ id: 'd2-1', user: 1, start: 1000, stages, summary: emptySummary(), source: 'd2' as const, watch: 'W', downloadedAt: 1 });
+  assert.equal(onlyChanged([night([1, 2])], [{ ...night([1, 2]), downloadedAt: 9, synced: true }], (n) => n.id, nightContent).same.length, 1);
+  assert.equal(onlyChanged([night([1, 3])], [night([1, 2])], (n) => n.id, nightContent).changed.length, 1);
+  assert.equal(nilText(2, 2), ' (nil change)');
+  assert.equal(nilText(3, 1), ' (1 nil change)');
+  assert.equal(nilText(3, 0), '');
 });
