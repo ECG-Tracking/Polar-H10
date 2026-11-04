@@ -85,6 +85,7 @@ export function fmtRange(ref: Range): string {
 // ---------- Sleep ----------
 
 export const SLEEP_SOURCES: readonly (readonly [string, string])[] = [
+  ['References in this report', 'Times woke up, sleep length and the deep, light and REM shares use the same references as D2 Link’s report, so the two can be compared directly: those of the watch’s phone app. They are wider than the medical guidance below.'],
   ['Sleep duration', 'American Academy of Sleep Medicine & Sleep Research Society consensus (Watson et al. 2015): adults should sleep 7 h or more; National Sleep Foundation (Hirshkowitz et al. 2015): 7–9 h recommended for adults.'],
   ['Sleep stages', 'Ohayon M.M. et al., Sleep 2004 (meta-analysis of normal sleep in healthy adults): deep sleep (N3) roughly 15–25 %, REM roughly 20–25 %, light sleep (N1+N2) about 50–60 %; deep sleep declines with age.'],
   ['Efficiency, time to fall asleep, awake time', 'Commonly used clinical thresholds (e.g. insomnia research criteria): sleep efficiency of 85 % or more, falling asleep within 30 min, and 30 min or less awake after falling asleep.'],
@@ -99,11 +100,12 @@ export interface SleepRanges {
 
 export function sleepRanges(): SleepRanges {
   return {
-    sleepHours: { lo: 7, hi: 9 },
-    deepPct: { lo: 15, hi: 30, note: 'approximate' },
-    lightPct: { hi: 60, note: 'approximate' },
-    remPct: { lo: 15, hi: 30, note: 'approximate' },
-    awakenings: { hi: 2, note: 'awake ≥ 2 min' },
+    // the same references as D2 Link's report
+    sleepHours: { lo: 6, hi: 10, lowLabel: 'Below average' },
+    deepPct: { lo: 20, hi: 60 },
+    lightPct: { hi: 55, edgesFlagged: true },
+    remPct: { lo: 10, hi: 30 },
+    awakenings: { hi: 1 },
     efficiency: { lo: 85 },
     latency: { hi: 30 },
     waso: { hi: 30 },

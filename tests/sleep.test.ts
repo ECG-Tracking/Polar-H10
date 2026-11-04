@@ -69,7 +69,9 @@ test('personal range needs 3 nights and is mean ± 1 SD', () => {
   assert.equal(personalRange([50, 52]), null);
   const r = personalRange([50, 52, 54]);
   assert.ok(r && r.lo === 50 && r.hi === 54);
-  assert.equal(checkRange(sleepRanges().sleepHours, 6.5), 'low');
+  assert.equal(checkRange(sleepRanges().sleepHours, 5.5), 'low');
+  assert.equal(checkRange(sleepRanges().sleepHours, 6.5), null);
+  assert.equal(checkRange(sleepRanges().lightPct, 55), 'high'); // as D2 Link: under 55 % is normal
   assert.equal(checkRange(sleepRanges().awakenings, 3), 'high');
 });
 

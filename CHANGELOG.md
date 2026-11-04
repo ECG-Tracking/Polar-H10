@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.8 – Sleep reports use the same reference ranges *(GitHub)*
+Why: one night should get the same verdict whichever report shows it.
+- The Sleep history report now uses D2 Link's references: times woke up 0–1, night sleep 6–10 h, light sleep under 55 %, deep sleep 20–60 %, REM 10–30 %. "About these numbers" says where they come from.
+- The sleep score is calculated as before.
+
 ## 4 Nov 2026 – v1.15.7 – Sleep report laid out like the D2 Link report *(GitHub)*
 Why: the same kind of report should read the same way, whichever device recorded the sleep.
 - The Sleep history report now follows the D2 Link report: date with ‹ and › to step through your sleep, sleep time with the stage chart, a score card with stars, times woke up and the stage ring, tiles in the same order and style, then a "More from the strap" card.

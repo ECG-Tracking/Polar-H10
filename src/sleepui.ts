@@ -459,10 +459,10 @@ export function initSleep(deps: SleepDeps): {
     const prev = (f: (s: NonNullable<SleepSession['summary']>) => number): number[] => earlier.flatMap((n) => (n.summary ? [f(n.summary)] : []));
     // in the order of D2 Link's report
     $('sleepTiles').replaceChildren(
-      tile('Times woke up', String(m.awakenings), 'times', '', normal({ range: R.awakenings, value: m.awakenings, rangeText: '0–2 times' })),
-      tile('Light sleep', fmt(m.lightPct), '%', fmtHM(m.lightMin), normal({ range: R.lightPct, value: m.lightPct })),
+      tile('Times woke up', String(m.awakenings), 'times', '', normal({ range: R.awakenings, value: m.awakenings, rangeText: '0–1 times' })),
+      tile('Light sleep', fmt(m.lightPct), '%', fmtHM(m.lightMin), normal({ range: R.lightPct, value: m.lightPct, rangeText: '<55 %' })),
       tile('Avg heart rate', fmt(m.avgHR), 'bpm', `lowest ${fmt(m.minHR)} bpm`, personal(prev((s) => s.avgHR), m.avgHR, 'bpm')),
-      tile(`${nap ? 'Nap' : 'Night'} sleep`, fmtHM(m.sleepMin), '', 'deep + light + REM', nap ? null : normal({ range: R.sleepHours, value: m.sleepMin / 60, rangeText: '7–9 h' })),
+      tile(`${nap ? 'Nap' : 'Night'} sleep`, fmtHM(m.sleepMin), '', 'deep + light + REM', nap ? null : normal({ range: R.sleepHours, value: m.sleepMin / 60, rangeText: '6–10 h' })),
       tile('Deep sleep', fmt(m.deepPct), '%', fmtHM(m.deepMin), normal({ range: R.deepPct, value: m.deepPct })),
       tile('REM sleep', fmt(m.remPct), '%', fmtHM(m.remMin), normal({ range: R.remPct, value: m.remPct })),
       tile('Deep sleep continuity', fmt(m.deepContinuity), 'points', 'deep sleep in spells of 10 min or more', normal({ range: R.continuity, value: m.deepContinuity, rangeText: '70–100 points' })),
