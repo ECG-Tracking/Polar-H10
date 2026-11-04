@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.17.1 – Storage moved to the About page *(GitHub)*
+Why: it belongs with the other information about the app.
+- Storage is now a section of the About page instead of its own item in the menu. Search finds it under the same words.
+
 ## 4 Nov 2026 – v1.17.0 – Storage page *(GitHub)*
 Why: to see how much space the app takes on a device, and what each recording needs.
 - New Storage page in the Account section. It shows this app's data, what the browser reports as used, and the space it still allows, with about how many hours of ECG would fit.

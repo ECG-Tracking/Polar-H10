@@ -33,8 +33,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'settings' | 'backups' | 'recovery' | 'storage' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'settings', 'backups', 'recovery', 'storage', 'about'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'settings' | 'backups' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'settings', 'backups', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
@@ -55,7 +55,7 @@ function show(view: View): void {
   if (view === 'syncSleepHistory') void openSyncSleep().refreshHistory();
   if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2 }); }
   if (view === 'recovery') void renderRecovery($('recoveryRoot'), { loadD2, user: () => currentUser });
-  if (view === 'storage') void renderStorage($('storageRoot'), { loadD2 });
+  if (view === 'about') void renderStorage($('storageRoot'), { loadD2 });
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
   // the licence lines only on the D2 Link page; D2 Link History has the plain copyright line, like the other pages

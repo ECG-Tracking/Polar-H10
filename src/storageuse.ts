@@ -1,4 +1,4 @@
-// The Storage page: how much space the app takes on this device, what takes it, and what each kind of recording needs.
+// The Storage part of the About page: how much space the app takes on this device, what takes it, and what each kind of recording needs.
 
 import { current } from './account';
 import { ECG_FS } from './polar';
