@@ -189,7 +189,6 @@ export interface SleepSummary {
   avgHR: number;
   avgHrv: number;
   breathingRate: number;
-  efficiency?: number; // for a nap's score; older summaries don't have it
 }
 
 export interface SleepSession {

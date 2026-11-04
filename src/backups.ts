@@ -143,7 +143,7 @@ export async function restoreBackup(b: AccountBackup, d2: D2Api | null): Promise
   const d2Bin = d2 && b.d2 ? await d2.backup.importD2Bin(current.account?.id ?? 'local', b.d2) : 0;
   const deleted = bin.length + d2Bin;
   historyChanged();
-  return `${ecg} ECG recording${ecg === 1 ? '' : 's'}, ${sleep} night${sleep === 1 ? '' : 's'}, biodata of ${users} user${users === 1 ? '' : 's'}, ${b.syncTracking?.length ?? 0} tracking${(b.syncTracking?.length ?? 0) === 1 ? '' : 's'}, ${d2n} D2 Link item${d2n === 1 ? '' : 's'} and ${deleted} Recovery centre item${deleted === 1 ? '' : 's'}`;
+  return `${ecg} ECG recording${ecg === 1 ? '' : 's'}, ${sleep} sleep recording${sleep === 1 ? '' : 's'}, biodata of ${users} user${users === 1 ? '' : 's'}, ${b.syncTracking?.length ?? 0} tracking${(b.syncTracking?.length ?? 0) === 1 ? '' : 's'}, ${d2n} D2 Link item${d2n === 1 ? '' : 's'} and ${deleted} Recovery centre item${deleted === 1 ? '' : 's'}`;
 }
 
 // ---------- the cloud copy ----------
@@ -322,7 +322,7 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
   const all = [backupBtn, restoreBtn, compareBtn, overwriteBtn, restoreCloudBtn];
   card.append(
     make('h3', 'backup-h', 'Account backup and restore'),
-    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep night with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history, D2 Link’s download history and everything in the Recovery centre. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
+    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep recording with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history, D2 Link’s download history and everything in the Recovery centre. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
     r1,
     make('hr', 'backup-sep'),
     make('h3', 'backup-h', 'This device and the cloud copy'),
@@ -339,7 +339,7 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
     const b = await makeBackup(await d2());
     const blob = new Blob([JSON.stringify(b)], { type: 'application/json' });
     download(blob, `openbeat-backup-${stamp()}.json`);
-    return `Backup saved (${(blob.size / 1048576).toFixed(1)} MB): ${b.ecg.length} ECG recordings, ${b.sleep.length} nights, ${Object.keys(b.settings).length} users’ biodata. Keep the file somewhere safe.`;
+    return `Backup saved (${(blob.size / 1048576).toFixed(1)} MB): ${b.ecg.length} ECG recordings, ${b.sleep.length} sleep recordings, ${Object.keys(b.settings).length} users’ biodata. Keep the file somewhere safe.`;
   }));
 
   restoreBtn.addEventListener('click', () => void run(all, 'Restoring', async () => {
@@ -355,7 +355,7 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
     const c = await makeComparison(await d2());
     download(new Blob([JSON.stringify(c, null, 1)], { type: 'application/json' }), `openbeat-local-and-cloud-${stamp()}.json`);
     const n = (t: Table): number => c.cloud[t].length;
-    return `Exported. Cloud: ${n('ecg_sessions')} ECG recordings, ${n('sleep_nights')} nights, ${n('d2_nights')} D2 nights, ${n('user_data')} other items. This device: ${c.local.ecg.length} ECG recordings, ${c.local.sleep.length} nights.`;
+    return `Exported. Cloud: ${n('ecg_sessions')} ECG recordings, ${n('sleep_nights')} sleep recordings, ${n('d2_nights')} D2 sleep recordings, ${n('user_data')} other items. This device: ${c.local.ecg.length} ECG recordings, ${c.local.sleep.length} nights.`;
   }));
 
   overwriteBtn.addEventListener('click', () => void (async () => {

@@ -263,17 +263,6 @@ export function sleepScore(m: Pick<SleepMetrics, 'sleepMin' | 'efficiency' | 'de
   return Math.round(clamp(score, 0, 100));
 }
 
-/** A nap's score leaves out length and everything that follows from it (a short nap has little deep sleep or REM). */
-export function napScore(m: Pick<SleepMetrics, 'efficiency' | 'awakenings'>): number {
-  let score = 100;
-  if (m.efficiency < 85) score -= Math.min(20, 85 - m.efficiency);
-  if (m.awakenings > 1) score -= Math.min(15, (m.awakenings - 1) * 3);
-  return Math.round(clamp(score, 0, 100));
-}
-
-export const NAP_SCORE_EXPLANATION =
-  'Starts at 100. Minus 1 per % of sleep efficiency under 85 % (max 20); minus 3 per awakening after the first (max 15). The length of the nap doesn’t count, and neither do deep sleep and REM, which a short nap rarely reaches.';
-
 export const SCORE_EXPLANATION =
   'Starts at 100. Minus 10 per hour of sleep under 7 h (max 40) and 5 per hour over 9 h; minus 1 per % of sleep efficiency under 85 % (max 20); ' +
   'minus 1 per % of deep sleep under 15 % and of REM under 15 % (max 10 each); minus 3 per awakening after the first (max 15).';

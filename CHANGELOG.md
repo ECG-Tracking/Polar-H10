@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.5 – Same labels across tables and histories; naps are not scored *(GitHub)*
+Why: the same thing should have the same name everywhere, with ECG history as the reference.
+- Naps have no score at all: none in Sleep history, no score card in the report and none in the JSON export. This replaces the nap score of v1.15.4.
+- Tables now use "Date and time" and "Duration" (the Recovery centre, D2 Link and Synchronised Tracking History), with dates written as in ECG history. Activity keeps "Day", as each row is a whole day.
+- Sleep history and the D2 Link nights list start with the date and time, as ECG history does, followed by a Night or Nap tag, with the duration at the end of the line.
+- Recovery centre categories are now ECG recordings, Sleep, Watch D2 sleep, Watch D2 data, Synchronised tracking and D2 Link download history.
+- Anything that includes naps says "sleep" instead of "nights": the D2 Link history tab, its heading and export, and the backup counts. Night-only views, such as Week and Month, still say nights.
+- A deleted watch nap is now called a nap in the Recovery centre, and deleting one says it can be restored there.
+
 ## 4 Nov 2026 – v1.15.4 – Naps have their own score *(GitHub)*
 Why: the sleep score expects 7–9 hours, so it marks every nap down for being short.
 - A nap is now scored only on sleep efficiency and awakenings. Its length doesn't count, and neither do deep sleep and REM, which a short nap rarely reaches.

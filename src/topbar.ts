@@ -179,9 +179,9 @@ export function initTopbar(deps: TopbarDeps): void {
   logOut.addEventListener('click', () => deps.signOut());
   const reset = make('button', 'acct-reset', 'Reset my account data');
   reset.type = 'button';
-  reset.title = 'Deletes all of this account’s recordings, nights, watch data, histories, settings and Recovery centre items – on this device and in the cloud';
+  reset.title = 'Deletes all of this account’s recordings, sleep, watch data, histories, settings and Recovery centre items – on this device and in the cloud';
   reset.addEventListener('click', () => void (async () => {
-    const typed = window.prompt('This deletes ALL of this account’s data – every ECG recording, sleep night, D2 Link record, history and setting – on this device AND in the cloud (so on your other devices too). It cannot be undone.\n\nTo confirm, type DELETE:');
+    const typed = window.prompt('This deletes ALL of this account’s data – every ECG recording, sleep recording, D2 Link record, history and setting – on this device AND in the cloud (so on your other devices too). It cannot be undone.\n\nTo confirm, type DELETE:');
     if (typed !== 'DELETE') { if (typed != null) window.alert('Not deleted: the word didn’t match.'); return; }
     reset.disabled = true;
     reset.textContent = 'Deleting…';

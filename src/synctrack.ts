@@ -487,7 +487,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
   function renderHistory(): void {
     const entries = store.loadSyncHistory().filter((e) => e.user === deps.user());
     if (!entries.length) { historyBox.replaceChildren(make('p', 'muted', 'No synchronised tracking yet on this device.')); return; }
-    const day = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
     const head = ['Date and time', 'Duration', 'Polar HR', 'Watch HR', 'Difference', 'Polar RMSSD', 'Watch RMSSD', 'Polar SDNN', 'Watch SDNN', 'Polar beats', 'Watch beats', 'Blood pressure', 'Pulse (BP)', 'BP time', 'ECG', ''];
     const units = ['', 'm:ss', 'bpm', 'bpm', 'bpm', 'ms', 'ms', 'ms', 'ms', '', '', 'mmHg', 'bpm', '', '', ''];
     const wrap = make('div', 'd2-table-wrap');
@@ -500,7 +499,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, de
     for (const e of entries) {
       const diff = e.polar?.hr != null && e.watch?.hr != null ? e.watch.hr - e.polar.hr : null;
       const cells = [
-        `${day(e.start)} ${clock(e.start)}`, mmss(e.durationS), r0(e.polar?.hr ?? null), r0(e.watch?.hr ?? null),
+        new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), mmss(e.durationS), r0(e.polar?.hr ?? null), r0(e.watch?.hr ?? null),
         diff == null ? '--' : `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`,
         r0(e.polar?.rmssd ?? null), r0(e.watch?.rmssd ?? null), r0(e.polar?.sdnn ?? null), r0(e.watch?.sdnn ?? null),
         e.polar ? String(e.polar.beats) : '--', e.watch ? String(e.watch.beats) : '--',

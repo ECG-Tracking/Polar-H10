@@ -2,7 +2,7 @@
 
 import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } from './devices';
 import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
-import { analyzeSleep, isNap, napScore, NAP_SCORE_EXPLANATION, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
+import { analyzeSleep, isNap, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
 import { EcgFilter } from './dsp';
 import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
@@ -272,13 +272,12 @@ export function initSleep(deps: SleepDeps): {
     for (const n of nights) {
       const s = n.summary;
       const nap = isNap(n.start, n.durationS);
-      const score = !s ? null : !nap ? s.score : s.efficiency == null ? null : napScore({ efficiency: s.efficiency, awakenings: s.awakenings });
       const li = make('li');
+      const stats = s ? [nap ? '' : `Score ${s.score}`, `${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'}`, `HR ${fmt(s.avgHR)} bpm`, `HRV ${fmt(s.avgHrv)} ms`, fmtHM(s.sleepMin)] : ['Open to analyse', fmtTime(n.durationS)];
       li.append(
-        make('span', 'when', `${nap ? 'Nap' : 'Night'} of ${new Date(n.start).toLocaleDateString([], { dateStyle: 'medium' })}`),
-        make('span', 'dur', s ? fmtHM(s.sleepMin) : fmtTime(n.durationS)),
-        make('span', 'stats', s ? `${score == null ? '' : `Score ${score} · `}${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'} · HR ${fmt(s.avgHR)} · HRV ${fmt(s.avgHrv)} ms` : 'Open to analyse'),
-        make('span', 'muted', [`${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`, n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
+        make('span', 'when', `${new Date(n.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${nap ? 'Nap' : 'Night'}`),
+        make('span', 'dur', [n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
+        make('span', 'stats', stats.filter(Boolean).join(' · ')),
       );
       const word = nap ? 'nap' : 'night';
       li.appendChild(deleteButton(`this ${word}`, async () => { await deleteNight(n); void renderHistory(); }, `Delete this ${word}? You can get it back from the Recovery centre. It is also removed from your other devices.`));
@@ -315,16 +314,12 @@ export function initSleep(deps: SleepDeps): {
       const report = parseSleepReport(session.report);
       if (!report) { busy.textContent = 'This synced recording could not be read.'; return; }
       analysis = toAnalysis(report);
-      if (session.summary && session.summary.efficiency == null) {
-        session.summary = { ...session.summary, efficiency: analysis.metrics.efficiency };
-        store.updateSleep(session).catch(() => {});
-      }
     } else {
       if (!signals) { busy.textContent = 'Recording not found.'; return; }
       const data: SleepData = { durationS: session.durationS, ...signals };
       analysis = analyzeSleep(data);
       const m = analysis.metrics;
-      session.summary = { sleepMin: m.sleepMin, score: isNap(session.start, session.durationS) ? napScore(m) : m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate, efficiency: m.efficiency };
+      session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
       store.updateSleep(session).catch(() => {});
     }
     current = { session, analysis };
@@ -374,10 +369,10 @@ export function initSleep(deps: SleepDeps): {
     }));
 
     // score
-    const score = nap ? napScore(m) : m.score;
-    $('sleepScore').textContent = m.sleepMin ? String(score) : '--';
-    $('sleepScoreWord').textContent = !m.sleepMin ? '' : `${score >= 85 ? 'Very good' : score >= 70 ? 'Good' : score >= 55 ? 'Fair' : 'Poor'} ${word}`;
-    $('sleepScoreHow').textContent = nap ? NAP_SCORE_EXPLANATION : SCORE_EXPLANATION;
+    $('sleepScoreCard').hidden = nap; // the score expects a full night, so naps aren't scored
+    $('sleepScore').textContent = m.sleepMin ? String(m.score) : '--';
+    $('sleepScoreWord').textContent = !m.sleepMin ? '' : m.score >= 85 ? 'Very good night' : m.score >= 70 ? 'Good night' : m.score >= 55 ? 'Fair night' : 'Poor night';
+    $('sleepScoreHow').textContent = SCORE_EXPLANATION;
 
     // times woke up, last 7 nights (or naps) including this one
     const week = [...earlier.slice(0, 6).reverse(), session];
@@ -506,8 +501,10 @@ export function initSleep(deps: SleepDeps): {
   $button('btnSleepJson').addEventListener('click', () => {
     if (!current) return;
     const { session, analysis } = current;
-    const m = analysis.metrics;
-    const out = { app: 'OpenBeat ECG', sleep: { ...session }, metrics: isNap(session.start, session.durationS) ? { ...m, score: napScore(m) } : m, ranges: sleepRanges(), epochS: EPOCH_S, stages: analysis.stages };
+    const { score: _metricsScore, ...napMetrics } = analysis.metrics;
+    const { score: _summaryScore, ...napSummary } = session.summary ?? { score: 0 };
+    const nap = isNap(session.start, session.durationS);
+    const out = { app: 'OpenBeat ECG', sleep: nap ? { ...session, summary: napSummary } : { ...session }, metrics: nap ? napMetrics : analysis.metrics, ranges: sleepRanges(), epochS: EPOCH_S, stages: analysis.stages };
     download(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `${fileStem(session)}_sleep.json`);
   });
 

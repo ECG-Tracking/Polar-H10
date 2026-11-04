@@ -20,6 +20,8 @@ export function button(text: string, cls = ''): HTMLButtonElement { const b = el
 export const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 export const shortDate = (ms: number): string => { const d = new Date(ms); return `${d.getMonth() + 1}/${d.getDate()}`; };
 export const dayLabel = (ms: number): string => new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+/** Date and time as ECG history shows them. */
+export const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 export const hm = (min: number): string => {
   const total = Math.round(min);
   return total < 60 ? `${total} min` : `${Math.floor(total / 60)} h ${total % 60} min`;

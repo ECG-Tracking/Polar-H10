@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSleep, isNap, napScore, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S } from '../src/sleep';
+import { analyzeSleep, isNap, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S } from '../src/sleep';
 import { simulateNight } from '../src/sleepsim';
 import { personalRange, checkRange, sleepRanges } from '../src/ranges';
 
@@ -80,10 +80,4 @@ test('sleep in the day counts as a nap, sleep overnight as a night', () => {
   assert.equal(isNap(at(23, 38), 7.5 * 3600), false); // 23:38–07:08
   assert.equal(isNap(at(2), 9 * 3600), false); // a late night: 02:00–11:00
   assert.equal(isNap(at(21), 3600), false);
-});
-
-test('a nap score depends on efficiency and awakenings, not on length', () => {
-  assert.equal(napScore({ efficiency: 90, awakenings: 0 }), 100);
-  assert.equal(napScore({ efficiency: 80, awakenings: 3 }), 89); // 5 for efficiency, 6 for awakenings
-  assert.equal(napScore({ efficiency: 10, awakenings: 30 }), 65); // both capped
 });

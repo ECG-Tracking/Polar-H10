@@ -2,7 +2,7 @@
 // D2 Link — the "All data" view: activity per day, the watch's measurements, stress and workouts.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { clock, dayLabel, deleteButton, el, frontDeletes, hm } from './dom';
+import { clock, dateTime, dayLabel, deleteButton, el, frontDeletes, hm } from './dom';
 import { READING_CLASSES, WORKOUT_TYPES, type ActivityMinute } from './extra';
 import { minutesOf } from './records';
 import * as store from './store';
@@ -12,7 +12,6 @@ import { dateOf } from './trends';
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const round = (v: number | null, digits = 0): string => (v == null ? '--' : v.toFixed(digits));
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
-const when = (ms: number): string => `${dayLabel(ms)} ${clock(ms)}`;
 
 /** A table; with `recs`, each row ends in a × that deletes its record (row i ↔ recs[i]). */
 function table(head: string[], rows: string[][], recs?: readonly D2Record[], onDelete?: (r: D2Record) => void): HTMLElement {
@@ -95,10 +94,10 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[], ch
     const rows = rs.map((r) => {
       const v = (r.data['values'] as Record<string, number> | undefined) ?? {};
       const texts = (r.local?.['texts'] as Record<string, string> | undefined) ?? {};
-      const cells = [when(r.start), ...fields.map((f) => (v[f] == null ? '--' : String(Math.round(v[f]! * 100) / 100)))];
+      const cells = [dateTime(r.start), ...fields.map((f) => (v[f] == null ? '--' : String(Math.round(v[f]! * 100) / 100)))];
       return withText ? [...cells, Object.values(texts).join(' · ')] : cells;
     });
-    const head = ['Time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
+    const head = ['Date and time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
     const note = fields.some((f) => !named(f)) ? 'Fields shown by number: their meaning isn’t known yet.' : '';
     box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows, rs, del)));
   }
@@ -106,22 +105,22 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[], ch
   // stress
   const stress = of('stress');
   if (stress.length) {
-    box.appendChild(section('Stress', 'Score and level as the watch measured them.', table(['Time', 'Score', 'Level'], stress.map((r) => [
-      `${when(r.start)}–${clock(num(r.data['end']) ?? r.start)}`, String(num(r.data['score']) ?? '--'), String(num(r.data['level']) ?? '--'),
+    box.appendChild(section('Stress', 'Score and level as the watch measured them.', table(['Date and time', 'Score', 'Level'], stress.map((r) => [
+      `${dateTime(r.start)}–${clock(num(r.data['end']) ?? r.start)}`, String(num(r.data['score']) ?? '--'), String(num(r.data['level']) ?? '--'),
     ]), stress, del)));
   }
 
   // workouts
   const workouts = of('workout');
   if (workouts.length) {
-    box.appendChild(section('Workouts', '', table(['Start', 'Type', 'Time', 'km', 'kcal', 'Steps', 'Heart rate'], workouts.map((r) => {
+    box.appendChild(section('Workouts', '', table(['Date and time', 'Type', 'Duration', 'km', 'kcal', 'Steps', 'Heart rate'], workouts.map((r) => {
       const t = (r.data['totals'] as Record<string, number> | undefined) ?? {};
       const samples = Array.isArray(r.data['samples']) ? (r.data['samples'] as Record<string, number>[]) : [];
       const hr = samples.map((x) => x['hr']).filter((v): v is number => typeof v === 'number' && v > 0 && v < 255);
       const end = num(r.data['end']) ?? r.start;
       const type = t['type'];
       return [
-        when(r.start), type != null ? WORKOUT_TYPES[type] ?? `Type ${type}` : '--', hm((end - r.start) / 60000),
+        dateTime(r.start), type != null ? WORKOUT_TYPES[type] ?? `Type ${type}` : '--', hm((end - r.start) / 60000),
         t['distance'] != null ? (t['distance'] / 1000).toFixed(2) : '--', t['kcal'] != null ? String(t['kcal']) : '--', t['steps'] != null ? String(t['steps']) : '--',
         hr.length ? `${round(mean(hr))} avg, ${Math.max(...hr)} max` : t['hrMax'] ? `${t['hrMax']} max` : '--',
       ];

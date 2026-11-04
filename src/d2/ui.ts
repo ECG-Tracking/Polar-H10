@@ -12,7 +12,7 @@ import { serialAvailable } from './serial';
 import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch, openedWatch, watchName } from './watch';
 import { parseSleepFile, type D2Summary } from './sleepfile';
 import { writeSleepFile } from './sleepfile-writer';
-import { button, clock, dayLabel, deleteButton, el, frontDeletes, hm, shortDate, svg } from './dom';
+import { dateTime, button, clock, dayLabel, deleteButton, el, frontDeletes, hm, shortDate, svg } from './dom';
 import { dayKey, figures, isNap } from './night';
 import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreModel } from './score';
 import type { Profile } from './setup';
@@ -276,7 +276,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     const t = el('table', 'd2-table d2-history-table');
     const hr = el('tr');
     hr.appendChild(el('th', 'del-col del-front'));
-    for (const h of ['When', 'Download', 'Dates', 'Result', '']) hr.appendChild(el('th', '', h));
+    for (const h of ['Date and time', 'Download', 'Dates', 'Result', '']) hr.appendChild(el('th', '', h));
     t.appendChild(el('thead')).appendChild(hr);
     const body = el('tbody');
     for (const e of entries) {
@@ -285,7 +285,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const frontTd = el('td', 'del-col del-front');
       frontTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.appendChild(frontTd);
-      for (const c of [`${day(e.at)} ${clock(e.at)}`, `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
       const delTd = el('td', 'del-col');
       delTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.append(delTd);
@@ -305,23 +305,23 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
     historyBox.replaceChildren(el('p', 'note', 'Kept on this device only. Newest first.'), wrap);
   };
 
-  const listHead = el('h3', '', 'Nights from the watch');
+  const listHead = el('h3', '', 'Sleep from the watch');
   const syncRow = el('div', 'row between wrap d2-sync');
   const syncText = el('span', 'note');
   const btnSync = button('Sync now');
-  const btnExport = button('Export all nights');
-  btnExport.title = 'Save every night of this user from the watch as one JSON file';
+  const btnExport = button('Export all sleep');
+  btnExport.title = 'Save all sleep of this user from the watch (nights and naps) as one JSON file';
   const btnExportAll = button('Export all data');
-  btnExportAll.title = 'Save everything downloaded from the watch for this user (nights, activity, measurements, stress, workouts) as one JSON file';
+  btnExportAll.title = 'Save everything downloaded from the watch for this user (sleep, activity, measurements, stress, workouts) as one JSON file';
   const syncButtons2 = el('div', 'row wrap');
   syncButtons2.append(btnSync, btnExport, btnExportAll);
   syncRow.append(syncText, syncButtons2);
   const list = el('ul', 'sessions');
-  const empty = el('p', 'muted', 'No nights yet. Download from the watch, or try the demo nights.');
+  const empty = el('p', 'muted', 'No sleep yet. Download from the watch, or try the demo nights.');
   // Nights / Week / Month
   const tabs = el('div', 'd2-tabs');
   tabs.setAttribute('role', 'tablist');
-  const TAB_NAMES = { nights: 'Nights', week: 'Week', month: 'Month', data: 'All data', graphs: 'Graphs' } as const;
+  const TAB_NAMES = { nights: 'Sleep', week: 'Week', month: 'Month', data: 'All data', graphs: 'Graphs' } as const;
   const tabBtns = (['nights', 'week', 'month', 'data', 'graphs'] as const).map((v) => {
     const b = button(TAB_NAMES[v]);
     b.setAttribute('role', 'tab');
@@ -379,8 +379,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       const naps = napsByDay.get(dayKey(n)) ?? [];
       const li = el('li');
       const left = el('div');
-      left.append(el('div', 'when', `Night of ${dayLabel(f.wokeMs)}`), el('div', 'stats', `${clock(f.bedMs)}–${clock(f.wokeMs)} · ${n.summary.sleepScore != null ? `${n.summary.sleepScore} points` : 'no score'}${naps.length ? ` · + ${naps.length} nap${naps.length > 1 ? 's' : ''}` : ''}${n.source === 'demo' ? ' · demo' : ''}`));
-      li.append(left, el('div', 'dur', f.sleepMin ? hm(f.sleepMin) : '--'), deleteButton('this night', () => removeNights([n]),
+      const stats = [n.summary.sleepScore != null ? `Score ${n.summary.sleepScore}` : '', f.wakeups != null ? `${f.wakeups} awakening${f.wakeups === 1 ? '' : 's'}` : '', f.sleepMin ? hm(f.sleepMin) : ''];
+      left.append(el('div', 'when', `${dateTime(f.bedMs)} · Night`), el('div', 'stats', stats.filter(Boolean).join(' · ')));
+      li.append(left, el('div', 'dur', [naps.length ? `+ ${naps.length} nap${naps.length > 1 ? 's' : ''}` : '', n.source === 'demo' ? 'demo' : ''].filter(Boolean).join(' · ')), deleteButton('this night', () => removeNights([n]),
         n.synced ? 'Delete this night from this device and from your other devices? You can get it back from the Recovery centre.' : 'Delete this night from this device? You can get it back from the Recovery centre.'));
       li.addEventListener('click', () => openReport(n.id));
       return { ms: f.wokeMs, li };
@@ -390,8 +391,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
       if (nightDays.has(k) || !naps[0]) continue;
       const li = el('li', 'd2-naps-only');
       const left = el('div');
-      left.append(el('div', 'when', `Naps on ${dayLabel(figures(naps[0]).wokeMs)}`), el('div', 'stats', naps.map(napText).join(' · ')));
-      li.append(left, el('div', 'dur', hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0))), deleteButton(`these naps`, () => removeNights(naps), `Delete ${naps.length === 1 ? 'this nap' : `these ${naps.length} naps`}?`));
+      const asleep = hm(naps.reduce((m, x) => m + figures(x).sleepMin, 0));
+      left.append(el('div', 'when', `${dateTime(figures(naps[0]).bedMs)} · ${naps.length === 1 ? 'Nap' : `${naps.length} naps`}`), el('div', 'stats', [...naps.map(napText), asleep].join(' · ')));
+      li.append(left, el('div', 'dur'), deleteButton('these naps', () => removeNights(naps), `Delete ${naps.length === 1 ? 'this nap' : `these ${naps.length} naps`}? You can get ${naps.length === 1 ? 'it' : 'them'} back from the Recovery centre.`));
       rows.push({ ms: figures(naps[0]).wokeMs, li });
     }
     list.replaceChildren(...rows.sort((a, b) => b.ms - a.ms).map((r) => r.li));
@@ -443,7 +445,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   let syncing: Promise<void> | null = null;
   function sync(): Promise<void> {
     if (!deps.cloud) {
-      syncText.textContent = 'Offline: nights stay on this device and sync when you’re back online.';
+      syncText.textContent = 'Offline: sleep stays on this device and syncs when you’re back online.';
       btnSync.disabled = true;
       return Promise.resolve();
     }
@@ -457,7 +459,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
         try { rec = await syncRecords(client); } catch (e) { if (e instanceof CloudSetupError) throw e; log(`Sync of the other watch data failed: ${e instanceof Error ? e.message : String(e)}`); }
         const r = { uploaded: n.uploaded + rec.uploaded, downloaded: n.downloaded + rec.downloaded, deleted: n.deleted };
         const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
-        syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Nights and the watch’s numbers are shared with your other devices; demo nights and text from the watch stay here.`;
+        syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Sleep and the watch’s numbers are shared with your other devices; demo nights and text from the watch stay here.`;
         if (r.downloaded || r.deleted) await renderList();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -479,7 +481,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   };
   btnExport.addEventListener('click', () => void (async () => {
     const all = (await store.listNights(deps.user())).filter((n) => n.source !== 'demo').sort((a, b) => a.start - b.start);
-    if (!all.length) { window.alert('There are no nights from the watch to export yet.'); return; }
+    if (!all.length) { window.alert('There is no sleep from the watch to export yet.'); return; }
     saveJson({ app: 'OpenBeat ECG – D2 Link', exportedAt: new Date().toISOString(), user: deps.user(), nights: all }, 'd2-nights');
   })());
   // everything for this user, grouped by kind (each record with its numbers and, where there is any, the text kept on this device)

@@ -11,12 +11,12 @@ import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d
 
 /** The groups on the page, in the order of the sidebar, with the columns each one's original table has. */
 const GROUPS = [
-  { name: 'ECG recordings', first: 'Recorded', length: true, detail: 'Details' },
-  { name: 'Sleep nights', first: 'Recorded', length: true, detail: '' },
-  { name: 'Watch D2 nights', first: 'Recorded', length: true, detail: '' },
-  { name: 'Watch D2 data', first: 'Recorded', length: false, detail: 'Kind' },
-  { name: 'Synchronised tracking', first: 'Recorded', length: true, detail: '' },
-  { name: 'D2 Link download history', first: 'Downloaded', length: false, detail: 'Result' },
+  { name: 'ECG recordings', length: true, detail: 'Details' },
+  { name: 'Sleep', length: true, detail: '' },
+  { name: 'Watch D2 sleep', length: true, detail: '' },
+  { name: 'Watch D2 data', length: false, detail: 'Kind' },
+  { name: 'Synchronised tracking', length: true, detail: '' },
+  { name: 'D2 Link download history', length: false, detail: 'Result' },
 ] as const;
 export type Category = (typeof GROUPS)[number]['name'];
 
@@ -63,7 +63,7 @@ export function describe(item: BinItem): RecoveryItem {
   if (item.kind === 'ecg') {
     return { ...base, category: 'ECG recordings', what: 'ECG recording', recorded: item.session.start, length: item.session.durationS, detail: [item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
   }
-  if (item.kind === 'sleep') return { ...base, category: 'Sleep nights', what: isNap(item.session.start, item.session.durationS) ? 'Nap' : 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
+  if (item.kind === 'sleep') return { ...base, category: 'Sleep', what: isNap(item.session.start, item.session.durationS) ? 'Nap' : 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
   return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', recorded: item.entry.start, length: item.entry.durationS, detail: '' };
 }
 
@@ -154,8 +154,8 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
     }
 
     const columns: { key: SortKey; label: string; text: (i: RecoveryItem) => string }[] = [
-      { key: 'recorded', label: g.first, text: (i) => dateTime(i.recorded) },
-      ...(g.length ? [{ key: 'length' as const, label: 'Length', text: (i: RecoveryItem) => formatLength(i.length) }] : []),
+      { key: 'recorded', label: 'Date and time', text: (i) => dateTime(i.recorded) },
+      ...(g.length ? [{ key: 'length' as const, label: 'Duration', text: (i: RecoveryItem) => formatLength(i.length) }] : []),
       ...(g.detail ? [{ key: 'detail' as const, label: g.detail, text: (i: RecoveryItem) => i.detail }] : []),
       { key: 'deletedAt', label: 'Deleted', text: (i) => dateTime(i.deletedAt) },
       { key: 'elsewhere', label: 'Deleted on', text: (i) => (i.elsewhere ? 'Another device' : 'This device') },
