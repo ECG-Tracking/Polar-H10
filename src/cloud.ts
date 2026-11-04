@@ -280,7 +280,7 @@ export class CloudSync extends EventTarget {
         const m = report.metrics;
         await store.saveSleepCopy({
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, source: r.source,
-          summary: { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate },
+          summary: { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate, efficiency: m.efficiency },
           synced: true, cloudOnly: true, report, ...(report.ecgId ? { ecgId: report.ecgId } : {}),
         });
         result.downloaded++;

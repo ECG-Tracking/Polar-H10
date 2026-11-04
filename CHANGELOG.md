@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.4 – Naps have their own score *(GitHub)*
+Why: the sleep score expects 7–9 hours, so it marks every nap down for being short.
+- A nap is now scored only on sleep efficiency and awakenings. Its length doesn't count, and neither do deep sleep and REM, which a short nap rarely reaches.
+- The nap's report says "Good nap" and so on, and "How the score works" explains the nap score. Nights are scored as before.
+
 ## 4 Nov 2026 – v1.15.3 – Day-time sleep is labelled as a nap *(GitHub)*
 Why: a recording made in the day is not a night's sleep.
 - Sleep history now says "Nap of 4 Nov 2026" when the middle of the recording falls between 08:00 and 20:00. The sleep report, delete messages and Recovery centre use the same word.
