@@ -218,7 +218,9 @@ export interface BeatMeasure {
   tAmp: number | null; // µV
   jAmp: number;
   st60: number;
-  rAmp: number;
+  qrsAmp: number; // the QRS's main wave, up or down: negative in a lead whose main wave points down
+  rAmp: number; // the tallest upward wave of the QRS, 0 if there is none
+  sAmp: number; // the deepest downward wave of the QRS, 0 if there is none
   iso: number;
 }
 
@@ -240,9 +242,13 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
   const onLimit = r - s(0.12);
   while (on > onLimit && (Math.abs(d(on)) >= thr || Math.abs(d(on - 1)) >= thr)) on--;
 
-  // QRS offset (J point): step past S, then forward until flat
-  let sIdx = r, sv = Infinity;
-  for (let i = r + 1; i <= r + s(0.06); i++) if (polarity * at(x, i) < sv) { sv = polarity * at(x, i); sIdx = i; }
+  // QRS offset (J point): step past a real S wave, then forward until flat. Past the main wave the trace may simply
+  // run on into the ST segment, which is no wave to step over, so S must turn back and reach 10 % of the main wave.
+  const height = (i: number): number => polarity * (at(x, i) - iso);
+  let sIdx = r;
+  for (let i = r + 1; i <= r + s(0.06); i++) {
+    if (height(i) < -0.1 * height(r) && height(i) <= height(i - 1) && height(i) < height(i + 1)) { sIdx = i; break; }
+  }
   let off = sIdx + 1;
   const offLimit = r + s(0.14);
   while (off < offLimit && (Math.abs(d(off)) >= thr || Math.abs(d(off + 1)) >= thr)) off++;
@@ -250,7 +256,9 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
   const qrsMs = ((off - on) / fs) * 1000;
   const jAmp = at(x, off) - iso;
   const st60 = at(x, Math.min(n - 1, off + s(0.06))) - iso;
-  const rAmp = at(x, r) - iso;
+  const qrsAmp = at(x, r) - iso;
+  let rAmp = 0, sAmp = 0;
+  for (let i = on; i <= off; i++) { rAmp = Math.max(rAmp, at(x, i) - iso); sAmp = Math.min(sAmp, at(x, i) - iso); }
 
   // T wave: largest deflection between J+60 ms and the next beat
   const tEndLimit = r + s(Math.min(0.55, 0.7 * (rrNextS || rrPrevS || 1)));
@@ -286,7 +294,9 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
     tAmp: tp > 0 ? tv : null,
     jAmp,
     st60,
+    qrsAmp,
     rAmp,
+    sAmp,
     iso,
   };
 }
@@ -611,10 +621,11 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   qt: number;
   tPositive: number;
   tAmp: number; // µV, median T-wave peak vs the PR baseline (negative = T points down)
-  trRatio: number; // median of |T| / |R| per beat
+  trRatio: number; // median of |T| / |main QRS wave| per beat
   jPoint: number;
   st60: number;
-  rAmp: number;
+  rAmp: number; // µV, the tallest upward wave of the QRS
+  sAmp: number; // µV, the deepest downward wave of the QRS
   hf: number;
   eventCount: number;
   eventPct: number;
@@ -628,19 +639,22 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
   const pick = (f: (m: BeatMeasure) => number | null | undefined): number[] => clean.map(f).filter(finite);
   const tVals = pick((m) => m.tAmp);
   const hr = hrSeries(beats, durationS);
+  // timing comes from the median beat when it can be measured: noise moves each beat's markers, not the median beat's
+  const tm = analysis.templateMeasure;
   return {
     durationS,
     beatCount: beats.length,
     ...hrvStats(beats),
-    qrs: median(pick((m) => m.qrs)),
-    qtc: median(pick((m) => m.qtc)),
-    qt: median(pick((m) => m.qt)),
+    qrs: tm?.qrs ?? median(pick((m) => m.qrs)),
+    qtc: tm?.qtc ?? median(pick((m) => m.qtc)),
+    qt: tm?.qt ?? median(pick((m) => m.qt)),
     tPositive: tVals.length ? (100 * tVals.filter((v) => v > 0).length) / tVals.length : NaN,
     tAmp: median(tVals),
-    trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.rAmp ? [Math.abs(m.tAmp) / Math.abs(m.rAmp)] : []))),
+    trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.qrsAmp ? [Math.abs(m.tAmp) / Math.abs(m.qrsAmp)] : []))),
     jPoint: median(pick((m) => m.jAmp)),
     st60: median(pick((m) => m.st60)),
     rAmp: median(pick((m) => m.rAmp)),
+    sAmp: median(pick((m) => m.sAmp)),
     hf: bandEnergyShare(x, fs),
     eventCount: analysis.events.length,
     eventPct: beats.length ? (100 * beats.filter((b) => b.flags.length).length) / beats.length : 0,

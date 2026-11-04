@@ -11,9 +11,9 @@
   --line: #d8dee4;
   --accent-soft: rgba(15, 118, 110, 0.10);
   --shadow: 0 1px 2px rgba(31, 35, 40, 0.06), 0 8px 24px -12px rgba(31, 35, 40, 0.18);
-  --grid: #f3d9d9;
-  --chart-grid: #e8e6e0;
-  --grid-major: #e8b4b4;
+  --grid: #faeeee;
+  --chart-grid: #f0eee9;
+  --grid-major: #f3d5d5;
   --trace: #111111;
   --accent: #0f766e;
   --accent-ink: #ffffff;
@@ -233,7 +233,7 @@ legend { font-size: 0.85rem; color: var(--ink-2); padding: 0 4px; }
   .app-nav, .app-topbar, .no-print, #view-live, #view-history, #view-settings { display: none !important; }
   body { background: #fff; }
   main { max-width: none; padding: 0; }
-  .card, .chart, .metric { break-inside: avoid; }
+  .card, .chart, .metric { break-inside: avoid; box-shadow: none !important; }
 }
 
 /* ---------- Sleep ---------- */

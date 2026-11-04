@@ -6,6 +6,31 @@ export function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+/** What to draw on each chart again when the colours change. */
+const painters = new Map<HTMLCanvasElement, () => void>();
+
+function watch(canvas: HTMLCanvasElement, draw: () => void): void {
+  painters.set(canvas, draw);
+  new ResizeObserver(draw).observe(canvas);
+}
+
+function repaint(): void {
+  for (const [canvas, draw] of painters) {
+    if (canvas.isConnected) draw(); else painters.delete(canvas);
+  }
+}
+
+/** Charts are pixels in the page's colours: for printing they are drawn again in the light ones, for white paper. */
+export function printInLightColours(): void {
+  const root = document.documentElement;
+  let theme: string | undefined;
+  window.addEventListener('beforeprint', () => { theme = root.dataset['theme']; root.dataset['theme'] = 'light'; repaint(); });
+  window.addEventListener('afterprint', () => {
+    if (theme == null) delete root.dataset['theme']; else root.dataset['theme'] = theme;
+    repaint();
+  });
+}
+
 function setup(canvas: HTMLCanvasElement): { ctx: CanvasRenderingContext2D; w: number; h: number } | null {
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
@@ -76,7 +101,7 @@ export class Plot {
     wrap.appendChild(this.tip);
     canvas.addEventListener('pointermove', (e) => this.move(e));
     canvas.addEventListener('pointerleave', () => { this.hover = null; this.tip.style.display = 'none'; this.draw(); });
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    watch(canvas, () => this.draw());
   }
 
   set(spec: PlotSpec): void { this.spec = spec; this.hover = null; this.draw(); }
@@ -218,7 +243,7 @@ export class LiveTrace {
   constructor(private readonly canvas: HTMLCanvasElement, private readonly fs: number, seconds = 6) {
     this.len = Math.round(fs * seconds);
     this.buf = new Float32Array(this.len).fill(NaN);
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    watch(canvas, () => this.draw());
   }
 
   push(values: ArrayLike<number>): void {
@@ -303,7 +328,7 @@ export class EcgViewer extends EventTarget {
       if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.pan((e.deltaX / canvas.clientWidth) * this.span);
       else this.zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15);
     }, { passive: false });
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    watch(canvas, () => this.draw());
   }
 
   load(analysis: Analysis, events: readonly ReportEvent[]): void {
@@ -424,7 +449,7 @@ export class Hypnogram {
     wrap.appendChild(this.tip);
     canvas.addEventListener('pointermove', (e) => this.move(e));
     canvas.addEventListener('pointerleave', () => { this.hover = null; this.tip.style.display = 'none'; this.draw(); });
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    watch(canvas, () => this.draw());
   }
 
   set(stages: readonly (SleepStageKey | null)[], startMs: number, epochS: number): void {
@@ -510,6 +535,7 @@ export class Hypnogram {
 
 /** Ring of stage shares with a 2 px gap between segments; labels are shown next to it in HTML. */
 export function drawDonut(canvas: HTMLCanvasElement, parts: readonly { key: SleepStageKey; value: number }[]): void {
+  painters.set(canvas, () => drawDonut(canvas, parts));
   const surface = setup(canvas);
   if (!surface) return;
   const { ctx, w, h } = surface;
@@ -548,7 +574,7 @@ export class Bars {
     wrap.appendChild(this.tip);
     canvas.addEventListener('pointermove', (e) => this.move(e));
     canvas.addEventListener('pointerleave', () => { this.hover = -1; this.tip.style.display = 'none'; this.draw(); });
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    watch(canvas, () => this.draw());
   }
 
   set(items: readonly { label: string; value: number; title: string; highlight?: boolean }[]): void {

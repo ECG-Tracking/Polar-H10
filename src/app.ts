@@ -2,7 +2,7 @@ import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetai
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
-import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent } from './charts';
+import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
@@ -37,6 +37,7 @@ type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepRep
 const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'settings', 'backups', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
+printInLightColours();
 
 function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
@@ -715,15 +716,16 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
     metric('Events', String(m.eventCount), '', `${fmt(m.eventPct, 1)} % of beats`, { range: { ...R.eventPct, note: 'of beats' }, value: m.eventPct, display: `${fmt(m.eventPct, 1)} % of beats` }),
   ];
   const waves = [
-    metric('QRS duration', fmt(m.qrs), 'ms', 'median', ref('qrs', m.qrs)),
-    metric('QT', fmt(m.qt), 'ms', 'median'),
-    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median`, ref('qtc', m.qtc)),
+    metric('QRS duration', fmt(m.qrs), 'ms', 'median beat', ref('qrs', m.qrs)),
+    metric('QT', fmt(m.qt), 'ms', 'median beat'),
+    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median beat`, ref('qtc', m.qtc)),
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
     metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
-    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R size, median', ref('trRatio', m.trRatio)),
+    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ main QRS wave size, median', ref('trRatio', m.trRatio)),
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
-    metric('R amplitude', fmt(m.rAmp), 'µV', 'no reference range'),
+    metric('R amplitude', fmt(m.rAmp), 'µV', 'tallest upward wave; no reference range'),
+    metric('S amplitude', fmt(m.sAmp), 'µV', 'deepest downward wave; no reference range'),
     metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
   ];
   const maxSeen = Math.max(0, ...m.hr.filter((v): v is number => v != null));
@@ -852,7 +854,7 @@ function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number, is
   beatPlot?.set({
     type: 'line',
     points: analysis.template ? Array.from(analysis.template, (v, i): Point => [toMs(i), v]) : [],
-    xLabel: 'ms from R peak', yLabel: 'µV', empty: 'Not enough clean beats',
+    xLabel: 'ms from main QRS peak', yLabel: 'µV', empty: 'Not enough clean beats',
     vLines: tm ? [
       { x: toMs(tm.onset), label: 'Q', row: 0 },
       { x: toMs(tm.offset), label: 'J', row: 1 },
@@ -936,11 +938,11 @@ $button('btnExportEdf').addEventListener('click', () => {
 });
 $button('btnExportCsv').addEventListener('click', () => {
   if (!current) return;
-  const rows: string[][] = [['time_s', 'rr_ms', 'hr_bpm', 'flags', 'qrs_ms', 'qt_ms', 'qtc_ms', 't_amp_uv', 'j_point_uv', 'st60_uv', 'r_amp_uv']];
+  const rows: string[][] = [['time_s', 'rr_ms', 'hr_bpm', 'flags', 'qrs_ms', 'qt_ms', 'qtc_ms', 't_amp_uv', 'j_point_uv', 'st60_uv', 'r_amp_uv', 's_amp_uv']];
   const r = (v: number | null | undefined, d = 1): string => (v == null || !Number.isFinite(v) ? '' : v.toFixed(d));
   for (const b of current.analysis.beats) {
     rows.push([r(b.t, 3), r(b.rr), b.rr ? r(60000 / b.rr) : '', b.flags.join('|'), r(b.m?.qrs), r(b.m?.qt), r(b.m?.qtc),
-      r(b.m?.tAmp, 0), r(b.m?.jAmp, 0), r(b.m?.st60, 0), r(b.m?.rAmp, 0)]);
+      r(b.m?.tAmp, 0), r(b.m?.jAmp, 0), r(b.m?.st60, 0), r(b.m?.rAmp, 0), r(b.m?.sAmp, 0)]);
   }
   download(new Blob([rows.map((x) => x.join(',')).join('\n')], { type: 'text/csv' }), `${fileStem(current.session)}_beats.csv`);
 });

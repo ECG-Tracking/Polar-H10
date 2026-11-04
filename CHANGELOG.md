@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.18.0 – Corrected QRS and QT, true R and S waves, clearer printed charts *(GitHub)*
+Why: on a recording whose main wave points down, QRS was overestimated, "R amplitude" was really the S wave, and printed charts could not be read.
+- QRS: in such a lead the app stepped past a wave that isn't there and put the J point too late. J is now where the trace returns to the baseline, so QRS is shorter and J point and ST move with it.
+- QRS, QT and QTc now come from the median beat, the same one shown in the Median beat chart, so the numbers and the chart agree.
+- R amplitude is now the tallest upward wave, and there is a new S amplitude (also in the CSV). The T/R ratio still uses the main wave, whichever way it points.
+- Printing and PDF: charts are drawn in light colours, with a black ECG trace, even when the app is in dark mode. The chart grids are a lighter tone in the light theme and on paper.
+- Reports open from the full ECG use the new measurements. Summary copies on other devices keep their earlier figures.
+
 ## 4 Nov 2026 – v1.17.1 – Storage moved to the About page *(GitHub)*
 Why: it belongs with the other information about the app.
 - Storage is now a section of the About page instead of its own item in the menu. Search finds it under the same words.

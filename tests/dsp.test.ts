@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EcgSimulator, type Scenario } from '../src/sim';
-import { analyze, sessionMetrics } from '../src/dsp';
+import { analyze, delineate, sessionMetrics } from '../src/dsp';
 
 const FS = 130;
 const PROFILE = { hrRest: 60, hrMax: 180, sex: 'male' as const };
@@ -53,13 +53,51 @@ test('workout yields effort and a heart-rate recovery', () => {
   assert.ok(m.recovery && m.recovery.hrr60 > 40, `recovery ${JSON.stringify(m.recovery)}`);
 });
 
-test('an upside-down signal gives a negative R amplitude but the same timing', () => {
+test('an upside-down signal swaps the R and S waves but keeps the timing', () => {
   const { raw } = simulate('rest', 120, 41);
   const up = sessionMetrics(analyze(raw, { fs: FS }), 120, PROFILE);
   const down = sessionMetrics(analyze(raw.map((v) => -v), { fs: FS }), 120, PROFILE);
-  assert.ok(up.rAmp > 0 && down.rAmp < 0);
+  assert.ok(up.rAmp > 0 && down.rAmp >= 0 && down.sAmp < 0);
   assert.ok(up.tAmp > 0 && down.tAmp < 0);
   assert.equal(down.trRatio, up.trRatio); // sizes, so direction doesn't matter
   assert.equal(down.qrs, up.qrs);
   assert.equal(down.qtc, up.qtc);
+});
+
+/** One beat at the given wave heights: [offset s, amplitude µV, width s]. */
+function beat(waves: readonly (readonly [number, number, number])[]): { x: Float64Array; r: number } {
+  const r = FS, x = new Float64Array(2 * FS);
+  for (let i = 0; i < x.length; i++) for (const [at, a, w] of waves) x[i]! += a * Math.exp(-(((i - r) / FS - at) ** 2) / (2 * w * w));
+  return { x, r };
+}
+
+test('a lead whose main wave points down: J where the trace meets the baseline, and R and S told apart', () => {
+  // a small r, a deep S taken as the main wave, then the trace runs straight into a slowly rising ST and T
+  const { x, r } = beat([[-0.14, 30, 0.02], [-0.03, 340, 0.01], [0, -560, 0.012], [0.18, 130, 0.06]]);
+  const m = delineate(x, r, FS, 0.74, 0.74, -1);
+  assert.ok(m);
+  const jMs = ((m.offset - r) / FS) * 1000;
+  assert.ok(jMs < 50, `J at ${jMs} ms`);
+  assert.ok(m.qrs != null && m.qrs < 100, `QRS ${m.qrs}`);
+  assert.ok(Math.abs(m.rAmp - 340) < 60, `R ${m.rAmp}`);
+  assert.ok(Math.abs(m.sAmp + 560) < 60, `S ${m.sAmp}`);
+  assert.ok(m.qrsAmp < 0);
+});
+
+test('a real S wave is still stepped over', () => {
+  const { x, r } = beat([[0, 1000, 0.01], [0.03, -300, 0.01], [0.25, 250, 0.05]]);
+  const m = delineate(x, r, FS, 0.8, 0.8, 1);
+  assert.ok(m);
+  assert.ok(((m.offset - r) / FS) * 1000 >= 40, `J ${m.offset - r}`);
+  assert.ok(Math.abs(m.sAmp + 300) < 80, `S ${m.sAmp}`);
+});
+
+test('QRS, QT and QTc are the median beat’s, so the report matches its chart', () => {
+  const { raw } = simulate('rest', 120, 41);
+  const a = analyze(raw, { fs: FS });
+  const m = sessionMetrics(a, 120, PROFILE);
+  assert.ok(a.templateMeasure?.qt);
+  assert.equal(m.qrs, a.templateMeasure.qrs);
+  assert.equal(m.qt, a.templateMeasure.qt);
+  assert.equal(m.qtc, a.templateMeasure.qtc);
 });
