@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.20.0 – Screen calibration for the live ECG *(GitHub)*
+Why: a web page can't know a screen's real size, so a small square was not a true 1 mm on screen.
+- Below each live trace, Calibrate screen shows a bar to match against a ruler or the short side of a bank card. After saving, a small square on that device is 1 mm × 1 mm, and the note says so.
+- It is saved on that device only, and browser zoom is allowed for. Calibrate again after changing the display setting or using another screen.
+- Printed strips don't need it: they are always true size at 100 %.
+
 ## 4 Nov 2026 – v1.19.1 – Calibration mark on the ECG tracings *(GitHub)*
 Why: a standard ECG shows its scale on the tracing itself, so a resized printout can be recognised.
 - The live traces and the printed event tracings start with the standard calibration mark, 1 mV tall and 0.2 s wide. It is drawn by the app, not a signal from the strap.

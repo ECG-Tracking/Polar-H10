@@ -1,6 +1,7 @@
 // Canvas charts: line/scatter plots with hover, live ECG sweep, and a zoomable ECG viewer.
 
 import type { Analysis, EventType, Samples } from './dsp';
+import { DEFAULT_PX_PER_MM, pxPerMm, scaleNote } from './screenscale';
 
 export function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -233,24 +234,25 @@ export class Plot {
   }
 }
 
-// The standard clinical ECG: 25 mm/s and 10 mm/mV. On screen one small square stands for 1 mm.
-const PX_PER_MM = 4;
-export const PX_PER_S = 25 * PX_PER_MM;
-export const PX_PER_MV = 10 * PX_PER_MM;
+// The standard clinical ECG: 25 mm/s and 10 mm/mV. A small square stands for 1 mm: on paper exactly, on a screen once it is calibrated.
+const MM_PER_S = 25, MM_PER_MV = 10;
+export const PX_PER_S = MM_PER_S * DEFAULT_PX_PER_MM;
+export const PX_PER_MV = MM_PER_MV * DEFAULT_PX_PER_MM;
 export const ECG_SCALE_NOTE = 'Standard ECG scale: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The box at the left is the calibration mark: 1 mV tall and 0.2 s wide.';
 // the calibration mark takes one large square, one large square in from the left; the trace starts after it
-const CAL_LEFT = 0.2 * PX_PER_S, CAL_WIDTH = 0.2 * PX_PER_S;
-export const CAL_MARGIN = CAL_LEFT + CAL_WIDTH + 4;
+const CAL_LEFT_MM = 5, CAL_WIDTH_MM = 5, CAL_MARGIN_MM = CAL_LEFT_MM + CAL_WIDTH_MM + 1;
+export const CAL_MARGIN = CAL_MARGIN_MM * DEFAULT_PX_PER_MM;
 
 /** The standard calibration mark, on the trace's baseline. It is drawn, not a signal from the strap. */
-function drawCalibration(ctx: CanvasRenderingContext2D, base: number): void {
+function drawCalibration(ctx: CanvasRenderingContext2D, base: number, mm: number): void {
+  const left = CAL_LEFT_MM * mm, right = left + CAL_WIDTH_MM * mm, top = base - MM_PER_MV * mm;
   ctx.beginPath();
-  ctx.moveTo(CAL_LEFT - 8, base);
-  ctx.lineTo(CAL_LEFT, base);
-  ctx.lineTo(CAL_LEFT, base - PX_PER_MV);
-  ctx.lineTo(CAL_LEFT + CAL_WIDTH, base - PX_PER_MV);
-  ctx.lineTo(CAL_LEFT + CAL_WIDTH, base);
-  ctx.lineTo(CAL_MARGIN, base);
+  ctx.moveTo(left - 2 * mm, base);
+  ctx.lineTo(left, base);
+  ctx.lineTo(left, top);
+  ctx.lineTo(right, top);
+  ctx.lineTo(right, base);
+  ctx.lineTo(CAL_MARGIN_MM * mm, base);
   ctx.stroke();
 }
 
@@ -264,15 +266,12 @@ export class LiveTrace {
     this.len = Math.round(fs * seconds);
     this.buf = new Float32Array(this.len).fill(NaN);
     watch(canvas, () => this.draw());
-    const note = document.createElement('p');
-    note.className = 'note';
-    note.textContent = ECG_SCALE_NOTE;
-    canvas.after(note);
+    canvas.after(scaleNote(ECG_SCALE_NOTE));
   }
 
   /** The sweep is as many seconds as the canvas shows at the standard speed. */
-  private fit(w: number): void {
-    const len = Math.round((w / PX_PER_S) * this.fs);
+  private fit(w: number, pxPerS: number): void {
+    const len = Math.round((w / pxPerS) * this.fs);
     if (len === this.len) return;
     this.len = len;
     this.buf = new Float32Array(len).fill(NaN);
@@ -291,16 +290,17 @@ export class LiveTrace {
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
-    this.fit(w - CAL_MARGIN);
-    drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
+    const mm = pxPerMm(), pxPerS = MM_PER_S * mm, pxPerMv = MM_PER_MV * mm, margin = CAL_MARGIN_MM * mm;
+    this.fit(w - margin, pxPerS);
+    drawEcgGrid(ctx, w, h, pxPerS, pxPerMv);
     ctx.strokeStyle = css('--trace'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
-    drawCalibration(ctx, h / 2);
+    drawCalibration(ctx, h / 2, mm);
     ctx.beginPath();
     let pen = false;
     for (let i = 0; i < this.len; i++) {
       const v = this.buf[i] ?? NaN;
       if (!Number.isFinite(v)) { pen = false; continue; }
-      const x = CAL_MARGIN + (i / this.fs) * PX_PER_S, y = h / 2 - (v / 1000) * PX_PER_MV;
+      const x = margin + (i / this.fs) * pxPerS, y = h / 2 - (v / 1000) * pxPerMv;
       if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
     }
     ctx.stroke();
@@ -311,7 +311,7 @@ export class LiveTrace {
 function drawEcgGrid(ctx: CanvasRenderingContext2D, w: number, h: number, pxPerS: number, pxPerMv: number, t0 = 0): void {
   const minor = css('--grid'), major = css('--grid-major');
   const drawSet = (stepS: number, stepMv: number, color: string): void => {
-    if (pxPerS * stepS < 4) return;
+    if (pxPerS * stepS < 2.5) return;
     ctx.strokeStyle = color; ctx.lineWidth = 1;
     ctx.beginPath();
     const first = Math.ceil(t0 / stepS) * stepS;
@@ -337,7 +337,7 @@ export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number
   const t0 = Math.max(0, Math.min(x.length / fs - STRIP_S, t - STRIP_S / 2));
   drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
   ctx.strokeStyle = css('--trace'); ctx.lineWidth = 1; ctx.lineJoin = 'round';
-  drawCalibration(ctx, h / 2);
+  drawCalibration(ctx, h / 2, DEFAULT_PX_PER_MM);
   ctx.beginPath();
   const i0 = Math.ceil(t0 * fs), i1 = Math.min(x.length - 1, Math.floor((t0 + STRIP_S) * fs));
   for (let i = i0; i <= i1; i++) {
