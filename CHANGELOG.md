@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.25.0 – Text syncs to the cloud too *(GitHub)*
+Why: numbers and text can now go to the cloud and to other devices.
+- Text the watch sends, stored with its measurements, now syncs with the numbers. Text already downloaded goes up at the next sync.
+- Saved sleep reports keep the watch's name in the cloud.
+- The watch pairing and watch account ID still stay on each device, and the D2 Link download history is unchanged.
+
 ## 4 Nov 2026 – v1.24.0 – ECG history and trending; sleep report versions in the cloud *(GitHub)*
 Why: to follow each figure over time, and to keep every report version safe in the cloud.
 - ECG history is now ECG history and trending. At the top, choose a period from 1 day to 3 years, All or Custom, tick the figures you want, or Select all. Each ticked figure gets its own graph, one point per recording. The choices are kept on that device.

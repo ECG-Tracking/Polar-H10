@@ -135,15 +135,14 @@ test('saved reports stay until a recording changes, and say which one did', () =
 
 import { forCloud, mergeSleepReports, parseSleepReportsRow, type SavedSleepReports } from '../src/syncsleep';
 
-test('sleep reports in the cloud: versions from two devices are kept, and the watch’s name stays here', () => {
+test('sleep reports in the cloud: versions from two devices are kept, and the watch’s name goes with them', () => {
   const v = (generatedAt: number, past?: SavedSleepReports[]) => ({ id: 'x', user: 1, generatedAt, watchCopy: { watch: 'My watch', stages: [1] }, ...(past ? { past } : {}) }) as unknown as SavedSleepReports;
   const merged = mergeSleepReports(v(3, [v(1)]), v(4, [v(2), v(1)]));
   assert.equal(merged.generatedAt, 4);
   assert.deepEqual(merged.past?.map((p) => p.generatedAt), [1, 2, 3]);
   const sent = forCloud({ ...merged, synced: true });
   assert.equal('synced' in sent, false);
-  assert.deepEqual(sent.watchCopy, { watch: '', stages: [1] });
-  assert.ok(sent.past?.every((p) => (p.watchCopy as { watch: string }).watch === ''));
+  assert.deepEqual(sent.watchCopy, { watch: 'My watch', stages: [1] });
   assert.equal(parseSleepReportsRow({ id: 5 }), null);
   assert.equal(parseSleepReportsRow(v(1))?.id, 'x');
 });

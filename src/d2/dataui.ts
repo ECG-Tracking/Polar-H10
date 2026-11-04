@@ -97,7 +97,7 @@ export function renderAllData(box: HTMLElement, records: readonly D2Record[], ch
       const cells = [dateTime(r.start), ...fields.map((f) => (v[f] == null ? '--' : String(Math.round(v[f]! * 100) / 100)))];
       return withText ? [...cells, Object.values(texts).join(' · ')] : cells;
     });
-    const head = ['Date and time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text (this device only)'] : [])];
+    const head = ['Date and time', ...fields.map((f) => spec?.fields[Number(f)] ?? `Field ${f}`), ...(withText ? ['Text'] : [])];
     const note = fields.some((f) => !named(f)) ? 'Fields shown by number: their meaning isn’t known yet.' : '';
     box.appendChild(section(spec?.name ?? `Measurements (kind ${cls})`, note, table(head, rows, rs, del)));
   }

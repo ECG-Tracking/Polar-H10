@@ -266,7 +266,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress and workouts (not ECG recordings); numbers sync to your other devices, text the watch sends stays on this device. If the watch refuses something, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress and workouts (not ECG recordings); numbers and any text the watch sends sync to your other devices. If the watch refuses something, the connection log shows where it stopped.'));
 
   // download history: when, which button, how, which dates, and what came back
   const history = el('details', 'card d2-history');

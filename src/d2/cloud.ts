@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — syncs downloaded nights with the signed-in account's cloud copy (Supabase table d2_nights),
-// so nights downloaded on one device (e.g. a phone) can be seen on the others; and the other numerical data from the
+// so nights downloaded on one device (e.g. a phone) can be seen on the others; and the other data from the
 // watch (activity, measurements, stress, workouts) through the general table user_data, kinds 'd2-…'.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
@@ -122,8 +122,8 @@ export async function syncNights(client: CloudClient): Promise<D2SyncResult> {
 
 const cloudKind = (k: D2Kind): string => `d2-${k}`;
 
-/** What goes into the cloud row: the record without its non-numerical part (`local`), which stays on this device. */
-const recordPayload = (r: D2Record): Record<string, unknown> => ({ v: 1, kind: r.kind, id: r.id, user: r.user, start: r.start, data: r.data, watch: r.watch, downloadedAt: r.downloadedAt });
+/** What goes into the cloud row, numbers and text. */
+const recordPayload = (r: D2Record): Record<string, unknown> => ({ v: 1, kind: r.kind, id: r.id, user: r.user, start: r.start, data: r.data, ...(r.local ? { local: r.local } : {}), watch: r.watch, downloadedAt: r.downloadedAt });
 
 /** Checks a record that came from the network; null if it can't be used. */
 export function parseCloudRecord(row: unknown): D2Record | null {
@@ -131,11 +131,12 @@ export function parseCloudRecord(row: unknown): D2Record | null {
   const d = (row as Record<string, unknown>)['data'];
   if (typeof d !== 'object' || d === null) return null;
   const v = d as Record<string, unknown>;
-  const kind = v['kind'], id = v['id'], user = v['user'], start = v['start'], data = v['data'];
+  const kind = v['kind'], id = v['id'], user = v['user'], start = v['start'], data = v['data'], local = v['local'];
   if (v['v'] !== 1 || !store.D2_KINDS.includes(kind as D2Kind) || typeof id !== 'string' || typeof start !== 'number' || typeof data !== 'object' || data === null || Array.isArray(data)) return null;
   const u = typeof user === 'number' && user >= 1 && user <= 9 ? user : 1;
   return {
     key: store.recordKey(kind as D2Kind, u, id), kind: kind as D2Kind, id, user: u, start, data: data as Record<string, unknown>, source: 'd2',
+    ...(typeof local === 'object' && local !== null && !Array.isArray(local) ? { local: local as Record<string, unknown>, textSynced: true } : {}),
     watch: typeof v['watch'] === 'string' ? v['watch'] : 'Watch D2', downloadedAt: typeof v['downloadedAt'] === 'number' ? v['downloadedAt'] : 0, synced: true,
   };
 }
@@ -190,7 +191,8 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
   for (const r of local) {
     const at = inCloud.get(r.key);
     if (at == null && r.synced) { await store.deleteRecordFromElsewhere(r); result.deleted++; continue; } // deleted on another device
-    if (at == null || r.downloadedAt > at) uploads.push(r);
+    if (at != null && r.local && !r.textSynced && r.downloadedAt >= at) uploads.push({ ...r, downloadedAt: r.downloadedAt + 1 }); // its text was kept back before v1.25.0: a newer copy, so other devices fetch it
+    else if (at == null || r.downloadedAt > at) uploads.push(r);
     else if (at > r.downloadedAt) fetch.push(r.key);
     else if (!r.synced) await store.saveRecords([{ ...r, synced: true }]);
   }
@@ -200,7 +202,7 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
     const batch = uploads.slice(i, i + 20);
     const up = await client.from(DATA_TABLE).upsert(batch.map((r) => ({ kind: cloudKind(r.kind), id: r.key, data: recordPayload(r), saved_at: r.downloadedAt })));
     if (up.error) fail(up.error);
-    await store.saveRecords(batch.map((r) => ({ ...r, synced: true })));
+    await store.saveRecords(batch.map((r) => ({ ...r, synced: true, ...(r.local ? { textSynced: true } : {}) })));
     result.uploaded += batch.length;
   }
 
@@ -211,7 +213,7 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
     for (const c of (Array.isArray(res.data) ? res.data : []).map(parseCloudRecord)) {
       if (!c) continue;
       const mine = byKey.get(c.key);
-      if (mine?.local) c.local = mine.local; // text from the watch stays with this device's copy
+      if (mine?.local && !c.local) c.local = mine.local; // a copy from before text was uploaded
       if (c.kind === 'activity' && mine) { // keep minutes only this device has; upload the merged day next time
         const merged = mergeMinutes(minutesOf(mine), minutesOf(c));
         if (merged.length > minutesOf(c).length) Object.assign(c, { data: { ...c.data, minutes: merged }, downloadedAt: Date.now(), synced: false });

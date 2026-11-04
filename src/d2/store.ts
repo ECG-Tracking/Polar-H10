@@ -30,8 +30,7 @@ export const D2_KINDS: readonly D2Kind[] = ['activity', 'totals', 'reading', 'st
 export const DROPPED_KINDS: readonly string[] = ['ecg'];
 
 /**
- * One record of other watch data. `data` holds numbers only (it is what syncs to the cloud); `local` holds the
- * non-numerical parts (text the watch sent), which stay on this device.
+ * One record of other watch data. `data` holds its numbers; `local` holds the text the watch sent. Both sync to the cloud.
  */
 export interface D2Record {
   key: string; // `${kind}:${user}:${id}`
@@ -41,6 +40,7 @@ export interface D2Record {
   start: number; // ms since 1970
   data: Record<string, unknown>;
   local?: Record<string, unknown>;
+  textSynced?: boolean; // its text is in the cloud too (kept back before v1.25.0)
   source: 'd2' | 'demo';
   watch: string;
   downloadedAt: number;

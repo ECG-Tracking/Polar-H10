@@ -4,7 +4,7 @@
 //   • Sleep history: table sleep_nights holds each night's report outputs (numbers and graph data).
 //   • Everything else: table user_data, one row per (kind, id) with the data as JSON, so new kinds need no new SQL.
 //     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
-//     Kind 'tracking': each synchronised tracking with its beats and report versions, id = its id; the same rule, numbers only.
+//     Kind 'tracking': each synchronised tracking with its beats and report versions, id = its id; the same rule.
 //     Kind 'sleep-reports': each synchronised sleep's four reports with every version, id = its id; the same rule.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 

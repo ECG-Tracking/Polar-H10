@@ -280,3 +280,11 @@ test('D2 watch: one connection is shared by D2 Link and Synchronised Tracking', 
     (globalThis as { WebSocket?: unknown }).WebSocket = saved;
   }
 });
+
+test('D2 records: text from the watch comes back from the cloud', () => {
+  const data = { v: 1, kind: 'reading', id: 'a', user: 1, start: 5, data: { cls: 1 }, local: { texts: { 2: 'note' } } };
+  const r = parseCloudRecord({ data });
+  assert.deepEqual(r?.local, { texts: { 2: 'note' } });
+  assert.equal(r?.textSynced, true);
+  assert.equal(parseCloudRecord({ data: { ...data, local: undefined } })?.local, undefined);
+});

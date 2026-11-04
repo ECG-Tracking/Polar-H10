@@ -298,11 +298,10 @@ export function mergeSleepReports(a: SavedSleepReports, b: SavedSleepReports): S
   return { ...latest, ...(all.length > 1 ? { past: all.slice(0, -1) } : {}) };
 }
 
-/** A copy for the cloud: numbers only, so the watch's name stays on this device. */
+/** A copy for the cloud, without this device's own note of being synced. */
 export function forCloud(r: SavedSleepReports): SavedSleepReports {
-  const clean = <T extends PastSleepReports>(v: T): T => ({ ...v, watch: { ...v.watch, watch: '' }, watchCopy: typeof v.watchCopy === 'object' && v.watchCopy !== null ? { ...v.watchCopy, watch: '' } : v.watchCopy });
-  const { synced: _s, past, ...last } = r;
-  return { ...clean(last), ...(past ? { past: past.map(clean) } : {}) };
+  const { synced: _s, ...sent } = r;
+  return sent;
 }
 
 export function parseSleepReportsRow(v: unknown): SavedSleepReports | null {

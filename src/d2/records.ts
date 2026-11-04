@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // D2 Link — turns the other data downloaded from the watch into stored records: numbers in `data` (synced to the
-// cloud), text the watch sent in `local` (kept on this device).
+// cloud), text the watch sent in `local` (synced too).
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import type { ActivityMinute, ActivityTotals, Reading, StressRecord, Workout } from './extra';
