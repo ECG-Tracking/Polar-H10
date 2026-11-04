@@ -25,6 +25,23 @@ export async function exportD2(account: string, withBin = false): Promise<D2Back
   return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog(), ...(withBin ? { bin: await store.listBin() } : {}) };
 }
 
+export interface D2Use { count: number; bytes: number }
+export interface D2Storage { nights: D2Use; activity: D2Use; measurements: D2Use; stress: D2Use; workouts: D2Use; bin: D2Use }
+
+/** How much D2 Link holds on this device; `size` is the app's own way of counting, so both pages' figures add up. */
+export async function d2Storage(account: string, size: (v: unknown) => number): Promise<D2Storage> {
+  store.useAccount(account);
+  const add = (u: D2Use, v: unknown): void => { u.count++; u.bytes += size(v); };
+  const zero = (): D2Use => ({ count: 0, bytes: 0 });
+  const out: D2Storage = { nights: zero(), activity: zero(), measurements: zero(), stress: zero(), workouts: zero(), bin: zero() };
+  for (const n of await store.listAllNights()) add(out.nights, n);
+  for (const r of await store.listAllRecords()) {
+    add(r.kind === 'reading' ? out.measurements : r.kind === 'stress' ? out.stress : r.kind === 'workout' ? out.workouts : out.activity, r);
+  }
+  for (const i of await store.listBin()) add(out.bin, i);
+  return out;
+}
+
 /** Puts a backup's deleted items back into the Recovery centre. Returns how many. */
 export async function importD2Bin(account: string, b: unknown): Promise<number> {
   const items = typeof b === 'object' && b !== null && Array.isArray((b as D2Backup).bin) ? (b as D2Backup).bin ?? [] : [];

@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.17.0 – Storage page *(GitHub)*
+Why: to see how much space the app takes on a device, and what each recording needs.
+- New Storage page in the Account section. It shows this app's data, what the browser reports as used, and the space it still allows, with about how many hours of ECG would fit.
+- What takes the space: ECG recordings, sleep, each kind of Watch D2 data, synchronised sleep reports, the Recovery centre, settings and the app itself, largest first, with the number of items, size and share.
+- Storage needed per recording: a minute and an hour of ECG, 8 hours of sleep with and without ECG, one Watch D2 sleep, and the reports for one sleep. It is measured when the page opens, on that device only.
+
 ## 4 Nov 2026 – v1.16.2 – Every version of the combined and comparison reports is kept *(GitHub)*
 Why: an earlier result should stay readable after a recording changes.
 - When either recording changes, the new reports no longer replace the old ones. Each version has its own row in the history, newest first, with its own four reports: Polar H10, D2, Combined and Comparison. Older rows open the reports as they were at that version.

@@ -97,7 +97,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports';
+export type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -108,6 +108,33 @@ function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransac
     t.onerror = () => reject(t.error);
     t.onabort = () => reject(t.error ?? new Error('storage error')); // e.g. the device's storage is full
   }));
+}
+
+const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports'];
+
+/** `seconds` is the length of the recordings whose raw data is on this device. */
+export interface StoreUse { count: number; bytes: number; seconds: number }
+
+/** How much each store holds, as `size` counts it. One record at a time, so long recordings don't all load at once. */
+export async function measureStores(size: (v: unknown) => number): Promise<Record<StoreName, StoreUse>> {
+  const out = {} as Record<StoreName, StoreUse>;
+  for (const name of STORE_NAMES) {
+    const use: StoreUse = { count: 0, bytes: 0, seconds: 0 };
+    out[name] = use;
+    await tx([name], 'readonly', (t) => {
+      const req = t.objectStore(name).openCursor();
+      req.onsuccess = () => {
+        const c = req.result;
+        if (!c) return;
+        const v = c.value as Partial<Session>;
+        use.count++;
+        use.bytes += size(v);
+        if (typeof v.durationS === 'number' && !v.cloudOnly) use.seconds += v.durationS;
+        c.continue();
+      };
+    });
+  }
+  return out;
 }
 
 export async function saveSession(session: Session, samples: Int16Array): Promise<void> {

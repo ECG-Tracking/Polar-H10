@@ -35,6 +35,7 @@ const KEYWORDS: Readonly<Record<string, string>> = {
   settings: 'settings biodata age height weight users notch alias',
   backups: 'sync backups backup restore export cloud compare overwrite account',
   recovery: 'recovery recover restore deleted undelete bin trash',
+  storage: 'storage memory space size disk usage',
   about: 'about browsers requirements bluetooth backed up privacy',
 };
 
