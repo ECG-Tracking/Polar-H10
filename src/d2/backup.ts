@@ -110,11 +110,12 @@ export async function pairingSleep(account: string, user: number): Promise<Pairi
 }
 
 /** Ids this device has, per cloud table (to make the cloud match this device). */
-export async function localD2Ids(account: string): Promise<{ nights: string[]; records: string[] }> {
+export async function localD2Ids(account: string): Promise<{ nights: string[]; records: string[]; downloads: string[] }> {
   store.useAccount(account);
   return {
     nights: (await store.listAllNights()).filter((n) => n.source !== 'demo').map((n) => n.id),
     records: (await store.listAllRecords()).filter((r) => r.source !== 'demo').map((r) => r.key),
+    downloads: store.loadDownloadLog().map(store.logId),
   };
 }
 
@@ -123,6 +124,7 @@ export async function markD2Unsynced(account: string): Promise<void> {
   store.useAccount(account);
   await store.saveNights((await store.listAllNights()).map((n) => ({ ...n, synced: false })));
   await store.saveRecords((await store.listAllRecords()).map((r) => ({ ...r, synced: false })));
+  store.replaceDownloadLog(store.loadDownloadLog().map((e) => ({ ...e, synced: false })));
 }
 
 /** Blood pressure readings already downloaded to this device (e.g. by D2 Link), oldest first. */

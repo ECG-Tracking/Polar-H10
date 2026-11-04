@@ -124,7 +124,8 @@ export async function restoreBin(id: string): Promise<void> {
     await saveRecords([{ ...item.record, synced: false }]);
   }
   if (item.download) {
-    const back = item.download;
+    const { synced: _s, ...back } = item.download; // not synced, so the next sync uploads it again
+    setPendingLogDeletes(pendingLogDeletes().filter((x) => x !== logId(back)));
     replaceDownloadLog([...loadDownloadLog().filter((e) => e.at !== back.at), back].sort((a, b) => b.at - a.at));
   }
   await purgeBin(id);
@@ -229,7 +230,7 @@ export function saveWatchAccount(id: string): void {
   } catch { /* storage unavailable */ }
 }
 
-// ---------- download history (this device only) ----------
+// ---------- download history ----------
 
 /** One kind of data in a download: how many were saved, or null with a note when it wasn't downloaded. */
 export interface DownloadLogItem { what: string; count: number | null; note?: string }
@@ -243,6 +244,7 @@ export interface DownloadLogEntry {
   items: DownloadLogItem[];
   ok: boolean;
   result: string; // "Done", or why it stopped
+  synced?: boolean; // in the account's cloud copy
 }
 
 const logKey = (): string => `d2link-downloads-${account}`;
@@ -260,8 +262,33 @@ export function replaceDownloadLog(entries: readonly DownloadLogEntry[]): void {
   try { localStorage.setItem(logKey(), JSON.stringify(entries.slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
 }
 
-export async function removeDownloadLog(at: number): Promise<void> {
+const logDeletesKey = (): string => `d2link-download-deletes-${account}`;
+
+/** Downloads deleted here that the cloud still has; removed there on the next sync. */
+export function pendingLogDeletes(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(logDeletesKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch { return []; }
+}
+
+export function setPendingLogDeletes(ids: readonly string[]): void {
+  try { localStorage.setItem(logDeletesKey(), JSON.stringify(ids)); } catch { /* storage unavailable */ }
+}
+
+/** The cloud's name for a download in the history. */
+export const logId = (e: Pick<DownloadLogEntry, 'user' | 'at'>): string => `log:${e.user}:${e.at}`;
+
+/** The history as it should be: newest first, keeping the last 300. */
+export function saveDownloadLog(entries: readonly DownloadLogEntry[]): void {
+  replaceDownloadLog([...entries].sort((a, b) => b.at - a.at));
+}
+
+export const MAX_DOWNLOADS = MAX_LOG;
+
+export async function removeDownloadLog(at: number, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const entry = loadDownloadLog().find((e) => e.at === at);
+  if (fromCloud && entry?.synced) setPendingLogDeletes([...new Set([...pendingLogDeletes(), logId(entry)])]);
   if (entry) await keepInBin({ id: `download:${at}`, user: entry.user, deletedAt: Date.now(), download: entry });
   try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }

@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.26.0 – D2 Link download history syncs *(GitHub)*
+Why: the history of downloads should be the same on every device.
+- D2 Link's download history now syncs to the cloud and your other devices. Removing a download from the history removes it from your other devices too, and it stays in the Recovery centre. Each device keeps the latest 300.
+
 ## 4 Nov 2026 – v1.25.0 – Text syncs to the cloud too *(GitHub)*
 Why: numbers and text can now go to the cloud and to other devices.
 - Text the watch sends, stored with its measurements, now syncs with the numbers. Text already downloaded goes up at the next sync.

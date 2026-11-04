@@ -8,7 +8,7 @@ import {
   classBytes, downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseActivityMinute, parseStressFile, parseWorkoutSamples,
 } from '../src/d2/extra';
 import { activityRecords, mergeMinutes, readingRecords, workoutRecords } from '../src/d2/records';
-import { parseCloudRecord } from '../src/d2/cloud';
+import { parseCloudDownload, parseCloudRecord, planDownloads } from '../src/d2/cloud';
 import { Tlv } from '../src/d2/tlv';
 import { FakeWatch } from './d2fake';
 
@@ -287,4 +287,17 @@ test('D2 records: text from the watch comes back from the cloud', () => {
   assert.deepEqual(r?.local, { texts: { 2: 'note' } });
   assert.equal(r?.textSynced, true);
   assert.equal(parseCloudRecord({ data: { ...data, local: undefined } })?.local, undefined);
+});
+
+test('D2 download history in the cloud: uploaded once, fetched from elsewhere, and deletions carry across', () => {
+  const log = (at: number, synced: boolean) => ({ at, user: 1, button: 'all' as const, via: 'x', from: 0, to: 1, watch: 'W', items: [], ok: true, result: 'Done', synced });
+  const id = (at: number) => `log:1:${at}`;
+  const plan = planDownloads([log(1, false), log(2, true), log(3, true), log(4, false)], new Set([id(1), id(3), id(7), id(8)]), new Set([id(8)]));
+  assert.deepEqual(plan.markSynced.map((e) => e.at), [1]);
+  assert.deepEqual(plan.upload.map((e) => e.at), [4]);
+  assert.deepEqual(plan.removeHere.map((e) => e.at), [2]);
+  assert.deepEqual(plan.fetch, [id(7)]);
+  assert.deepEqual(planDownloads([log(5, true), log(6, true)], new Set([id(5), id(6), id(4), id(9)]), new Set(), 2).fetch, [id(9)], 'a full history skips older ones');
+  assert.equal(parseCloudDownload({ data: { at: 'x' } }), null);
+  assert.equal(parseCloudDownload({ data: log(1, false) })?.synced, true);
 });

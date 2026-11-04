@@ -307,7 +307,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     t.appendChild(body);
     wrap.appendChild(t);
     frontDeletes(wrap);
-    historyBox.replaceChildren(el('p', 'note', 'Kept on this device only. Newest first.'), wrap);
+    historyBox.replaceChildren(el('p', 'note', 'Synced to your other devices. Newest first.'), wrap);
   };
 
   const listHead = el('h3', '', 'Sleep from the watch');
@@ -466,7 +466,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
         const r = { uploaded: n.uploaded + rec.uploaded, downloaded: n.downloaded + rec.downloaded, deleted: n.deleted };
         const parts = [r.uploaded && `${r.uploaded} uploaded`, r.downloaded && `${r.downloaded} downloaded`, r.deleted && `${r.deleted} removed`].filter(Boolean);
         syncText.textContent = `Synced at ${clock(Date.now())}${parts.length ? ` (${parts.join(', ')})` : ''}. Sleep and the watch’s numbers are shared with your other devices; demo nights and text from the watch stay here.`;
-        if (r.downloaded || r.deleted) await renderList();
+        if (r.downloaded || r.deleted) { await renderList(); renderHistory(); }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         syncText.textContent = e instanceof CloudSetupError ? e.message

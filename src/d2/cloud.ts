@@ -8,7 +8,7 @@ import { emptySummary, type D2Summary } from './sleepfile';
 import { DROPPED_CLASSES } from './extra';
 import { mergeMinutes, minutesOf } from './records';
 import * as store from './store';
-import type { D2Kind, D2Night, D2Record } from './store';
+import type { D2Kind, D2Night, D2Record, DownloadLogEntry } from './store';
 
 const TABLE = 'd2_nights';
 const DATA_TABLE = 'user_data';
@@ -223,5 +223,63 @@ export async function syncRecords(client: CloudClient): Promise<D2SyncResult> {
     await store.saveRecords(got);
     result.downloaded += got.length;
   }
+  await syncDownloads(client, rows, result);
   return result;
+}
+
+// ---------- download history (table user_data, one row per download) ----------
+
+const LOG_KIND = 'download-log';
+
+export interface DownloadPlan { upload: DownloadLogEntry[]; fetch: string[]; removeHere: DownloadLogEntry[]; markSynced: DownloadLogEntry[] }
+
+/** The history keeps the last 300 here, so older downloads in the cloud aren't fetched again. */
+export function planDownloads(local: readonly DownloadLogEntry[], cloud: ReadonlySet<string>, deleting: ReadonlySet<string>, max = store.MAX_DOWNLOADS): DownloadPlan {
+  const plan: DownloadPlan = { upload: [], fetch: [], removeHere: [], markSynced: [] };
+  const here = new Set(local.map(store.logId));
+  for (const e of local) {
+    if (cloud.has(store.logId(e))) { if (!e.synced) plan.markSynced.push(e); }
+    else (e.synced ? plan.removeHere : plan.upload).push(e);
+  }
+  const oldest = local.length >= max ? Math.min(...local.map((e) => e.at)) : 0;
+  for (const id of cloud) {
+    if (!here.has(id) && !deleting.has(id) && Number(id.split(':')[2]) > oldest) plan.fetch.push(id);
+  }
+  return plan;
+}
+
+/** Checks a download that came from the network; null if it can't be used. */
+export function parseCloudDownload(row: unknown): DownloadLogEntry | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const d = (row as Record<string, unknown>)['data'] as Partial<DownloadLogEntry> | null;
+  if (typeof d !== 'object' || d === null || typeof d.at !== 'number' || typeof d.user !== 'number' || !Array.isArray(d.items)) return null;
+  return { ...(d as DownloadLogEntry), synced: true };
+}
+
+async function syncDownloads(client: CloudClient, rows: readonly unknown[], result: D2SyncResult): Promise<void> {
+  const stillPending: string[] = [];
+  for (const id of store.pendingLogDeletes()) {
+    const { error } = await client.from(DATA_TABLE).delete().eq('id', id);
+    if (error) stillPending.push(id);
+  }
+  store.setPendingLogDeletes(stillPending);
+  const cloud = new Set(rows.flatMap((r) => { const o = r as Record<string, unknown>; return o['kind'] === LOG_KIND && typeof o['id'] === 'string' && !stillPending.includes(o['id']) ? [o['id']] : []; }));
+  const plan = planDownloads(store.loadDownloadLog(), cloud, new Set(stillPending));
+  for (const e of plan.removeHere) { await store.removeDownloadLog(e.at, { fromCloud: false }); result.deleted++; }
+
+  for (let i = 0; i < plan.upload.length; i += 20) {
+    const batch = plan.upload.slice(i, i + 20);
+    const up = await client.from(DATA_TABLE).upsert(batch.map((e) => { const { synced: _s, ...data } = e; return { kind: LOG_KIND, id: store.logId(e), data, saved_at: e.at }; }));
+    if (up.error) fail(up.error);
+    result.uploaded += batch.length;
+  }
+  const got: DownloadLogEntry[] = [];
+  for (let i = 0; i < plan.fetch.length; i += 20) {
+    const res = await client.from(DATA_TABLE).select('id, data').in('id', plan.fetch.slice(i, i + 20));
+    if (res.error) fail(res.error);
+    got.push(...(Array.isArray(res.data) ? res.data : []).map(parseCloudDownload).filter((e): e is DownloadLogEntry => e !== null));
+  }
+  result.downloaded += got.length;
+  const done = new Set([...plan.upload, ...plan.markSynced].map((e) => e.at));
+  if (done.size || got.length) store.saveDownloadLog([...store.loadDownloadLog().map((e) => (done.has(e.at) ? { ...e, synced: true } : e)), ...got]);
 }

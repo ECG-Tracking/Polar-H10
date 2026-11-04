@@ -216,8 +216,8 @@ export async function overwriteCloud(password: string, d2: D2Api | null): Promis
   const db = supabase();
   const ecgIds = new Set((await store.listAllSessions()).map((s) => s.id));
   const sleepIds = new Set((await store.listAllSleeps()).map((s) => s.id));
-  const d2Ids = d2 ? await d2.backup.localD2Ids(a.id) : { nights: [], records: [] };
-  const d2Nights = new Set(d2Ids.nights), d2Records = new Set(d2Ids.records);
+  const d2Ids = d2 ? await d2.backup.localD2Ids(a.id) : { nights: [], records: [], downloads: [] };
+  const d2Nights = new Set(d2Ids.nights), d2Records = new Set(d2Ids.records), d2Downloads = new Set(d2Ids.downloads);
   let removed = 0;
   const gone = async (table: Table, keep: (r: Record<string, unknown>) => boolean): Promise<void> => {
     const ids = (await cloudRows(db, table)).filter((r) => !keep(r)).map((r) => String(r['id']));
@@ -232,6 +232,7 @@ export async function overwriteCloud(password: string, d2: D2Api | null): Promis
   if (d2) {
     await gone('d2_nights', (r) => d2Nights.has(String(r['id'])));
     await gone('user_data', (r) => r['kind'] === 'settings' || !String(r['kind']).startsWith('d2-') || d2Records.has(String(r['id'])));
+    await gone('user_data', (r) => r['kind'] !== 'download-log' || d2Downloads.has(String(r['id'])));
   }
   // biodata and settings: this device's copy becomes the newest, so it replaces the cloud's
   for (const u of store.USERS) if (store.hasSavedSettings(u)) store.saveSettings(u, store.loadSettings(u), Date.now());
