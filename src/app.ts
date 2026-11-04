@@ -725,7 +725,7 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
     metric('R amplitude', fmt(m.rAmp), 'µV', 'tallest upward wave; no reference range'),
-    metric('S amplitude', fmt(m.sAmp), 'µV', 'deepest downward wave; no reference range'),
+    metric('S amplitude', fmt(Math.abs(m.sAmp)), 'µV', 'depth of the deepest downward wave; no reference range'),
     metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
   ];
   const maxSeen = Math.max(0, ...m.hr.filter((v): v is number => v != null));

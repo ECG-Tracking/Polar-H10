@@ -219,7 +219,7 @@ export interface BeatMeasure {
   jAmp: number;
   st60: number;
   rAmp: number; // the tallest upward wave of the QRS, 0 if there is none
-  sAmp: number; // the deepest downward wave of the QRS, 0 if there is none
+  sAmp: number; // how far the deepest downward wave of the QRS goes below the baseline, as a positive size; 0 if there is none
   iso: number;
 }
 
@@ -256,7 +256,7 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
   const jAmp = at(x, off) - iso;
   const st60 = at(x, Math.min(n - 1, off + s(0.06))) - iso;
   let rAmp = 0, sAmp = 0;
-  for (let i = on; i <= off; i++) { rAmp = Math.max(rAmp, at(x, i) - iso); sAmp = Math.min(sAmp, at(x, i) - iso); }
+  for (let i = on; i <= off; i++) { rAmp = Math.max(rAmp, at(x, i) - iso); sAmp = Math.max(sAmp, iso - at(x, i)); }
 
   // T wave: largest deflection between J+60 ms and the next beat
   const tEndLimit = r + s(Math.min(0.55, 0.7 * (rrNextS || rrPrevS || 1)));
@@ -622,7 +622,7 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   jPoint: number;
   st60: number;
   rAmp: number; // µV, the tallest upward wave of the QRS
-  sAmp: number; // µV, the deepest downward wave of the QRS
+  sAmp: number; // µV, positive size of the deepest downward wave of the QRS
   hf: number;
   eventCount: number;
   eventPct: number;

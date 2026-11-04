@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.18.2 – S amplitude shown as a positive number *(GitHub)*
+Why: medical literature usually gives the S wave as a depth, a positive size.
+- S amplitude is now its depth below the baseline, as a positive number, in the report and the CSV.
+
 ## 4 Nov 2026 – v1.18.1 – T/R ratio uses the R wave only *(GitHub)*
 Why: the ratio should compare the T wave with the R wave, never the S wave.
 - The T/R ratio now always divides by the R amplitude. A beat with no upward R wave has no ratio.

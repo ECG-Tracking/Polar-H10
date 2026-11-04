@@ -57,7 +57,7 @@ test('an upside-down signal swaps the R and S waves but keeps the timing', () =>
   const { raw } = simulate('rest', 120, 41);
   const up = sessionMetrics(analyze(raw, { fs: FS }), 120, PROFILE);
   const down = sessionMetrics(analyze(raw.map((v) => -v), { fs: FS }), 120, PROFILE);
-  assert.ok(up.rAmp > 0 && down.rAmp >= 0 && down.sAmp < 0);
+  assert.ok(up.rAmp > 0 && down.rAmp >= 0 && down.sAmp > up.sAmp && up.sAmp > 0);
   assert.ok(up.tAmp > 0 && down.tAmp < 0);
   assert.ok(down.trRatio > up.trRatio); // always against the R wave, never the S wave
   assert.equal(down.qrs, up.qrs);
@@ -80,7 +80,7 @@ test('a lead whose main wave points down: J where the trace meets the baseline, 
   assert.ok(jMs < 50, `J at ${jMs} ms`);
   assert.ok(m.qrs != null && m.qrs < 100, `QRS ${m.qrs}`);
   assert.ok(Math.abs(m.rAmp - 340) < 60, `R ${m.rAmp}`);
-  assert.ok(Math.abs(m.sAmp + 560) < 60, `S ${m.sAmp}`);
+  assert.ok(Math.abs(m.sAmp - 560) < 60, `S ${m.sAmp}`);
 });
 
 test('a real S wave is still stepped over', () => {
@@ -88,7 +88,7 @@ test('a real S wave is still stepped over', () => {
   const m = delineate(x, r, FS, 0.8, 0.8, 1);
   assert.ok(m);
   assert.ok(((m.offset - r) / FS) * 1000 >= 40, `J ${m.offset - r}`);
-  assert.ok(Math.abs(m.sAmp + 300) < 80, `S ${m.sAmp}`);
+  assert.ok(Math.abs(m.sAmp - 300) < 80, `S ${m.sAmp}`);
 });
 
 test('QRS, QT and QTc are the median beat’s, so the report matches its chart', () => {
