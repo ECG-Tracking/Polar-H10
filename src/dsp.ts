@@ -218,7 +218,6 @@ export interface BeatMeasure {
   tAmp: number | null; // µV
   jAmp: number;
   st60: number;
-  qrsAmp: number; // the QRS's main wave, up or down: negative in a lead whose main wave points down
   rAmp: number; // the tallest upward wave of the QRS, 0 if there is none
   sAmp: number; // the deepest downward wave of the QRS, 0 if there is none
   iso: number;
@@ -256,7 +255,6 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
   const qrsMs = ((off - on) / fs) * 1000;
   const jAmp = at(x, off) - iso;
   const st60 = at(x, Math.min(n - 1, off + s(0.06))) - iso;
-  const qrsAmp = at(x, r) - iso;
   let rAmp = 0, sAmp = 0;
   for (let i = on; i <= off; i++) { rAmp = Math.max(rAmp, at(x, i) - iso); sAmp = Math.min(sAmp, at(x, i) - iso); }
 
@@ -294,7 +292,6 @@ export function delineate(x: Samples, r: number, fs: number, rrPrevS: number | n
     tAmp: tp > 0 ? tv : null,
     jAmp,
     st60,
-    qrsAmp,
     rAmp,
     sAmp,
     iso,
@@ -621,7 +618,7 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   qt: number;
   tPositive: number;
   tAmp: number; // µV, median T-wave peak vs the PR baseline (negative = T points down)
-  trRatio: number; // median of |T| / |main QRS wave| per beat
+  trRatio: number; // median of |T| / R wave per beat
   jPoint: number;
   st60: number;
   rAmp: number; // µV, the tallest upward wave of the QRS
@@ -650,7 +647,7 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     qt: tm?.qt ?? median(pick((m) => m.qt)),
     tPositive: tVals.length ? (100 * tVals.filter((v) => v > 0).length) / tVals.length : NaN,
     tAmp: median(tVals),
-    trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.qrsAmp ? [Math.abs(m.tAmp) / Math.abs(m.qrsAmp)] : []))),
+    trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.rAmp > 0 ? [Math.abs(m.tAmp) / m.rAmp] : []))),
     jPoint: median(pick((m) => m.jAmp)),
     st60: median(pick((m) => m.st60)),
     rAmp: median(pick((m) => m.rAmp)),

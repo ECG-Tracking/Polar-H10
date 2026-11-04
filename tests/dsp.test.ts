@@ -59,7 +59,7 @@ test('an upside-down signal swaps the R and S waves but keeps the timing', () =>
   const down = sessionMetrics(analyze(raw.map((v) => -v), { fs: FS }), 120, PROFILE);
   assert.ok(up.rAmp > 0 && down.rAmp >= 0 && down.sAmp < 0);
   assert.ok(up.tAmp > 0 && down.tAmp < 0);
-  assert.equal(down.trRatio, up.trRatio); // sizes, so direction doesn't matter
+  assert.ok(down.trRatio > up.trRatio); // always against the R wave, never the S wave
   assert.equal(down.qrs, up.qrs);
   assert.equal(down.qtc, up.qtc);
 });
@@ -81,7 +81,6 @@ test('a lead whose main wave points down: J where the trace meets the baseline, 
   assert.ok(m.qrs != null && m.qrs < 100, `QRS ${m.qrs}`);
   assert.ok(Math.abs(m.rAmp - 340) < 60, `R ${m.rAmp}`);
   assert.ok(Math.abs(m.sAmp + 560) < 60, `S ${m.sAmp}`);
-  assert.ok(m.qrsAmp < 0);
 });
 
 test('a real S wave is still stepped over', () => {

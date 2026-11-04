@@ -721,7 +721,7 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
     metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median beat`, ref('qtc', m.qtc)),
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
     metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
-    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ main QRS wave size, median', ref('trRatio', m.trRatio)),
+    metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R wave size, median', ref('trRatio', m.trRatio)),
     metric('J point', fmt(m.jPoint), 'µV', 'vs PR baseline', ref('jPoint', m.jPoint)),
     metric('ST at J+60 ms', fmt(m.st60), 'µV', '', ref('st60', m.st60)),
     metric('R amplitude', fmt(m.rAmp), 'µV', 'tallest upward wave; no reference range'),

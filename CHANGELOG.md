@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.18.1 – T/R ratio uses the R wave only *(GitHub)*
+Why: the ratio should compare the T wave with the R wave, never the S wave.
+- The T/R ratio now always divides by the R amplitude. A beat with no upward R wave has no ratio.
+
 ## 4 Nov 2026 – v1.18.0 – Corrected QRS and QT, true R and S waves, clearer printed charts *(GitHub)*
 Why: on a recording whose main wave points down, QRS was overestimated, "R amplitude" was really the S wave, and printed charts could not be read.
 - QRS: in such a lead the app stepped past a wave that isn't there and put the J point too late. J is now where the trace returns to the baseline, so QRS is shorter and J point and ST move with it.
