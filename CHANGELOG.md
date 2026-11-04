@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.6 – Every sleep recording saves its ECG *(GitHub)*
+Why: Sleep monitor shows the ECG live, but "Start sleep recording" threw it away, so the ECG of those sessions was lost.
+- Sleep monitor now has one button, Start sleep & ECG recording. Each recording of 10 minutes or more saves its ECG in ECG history, linked both ways to its sleep report ("Open sleep report" and "Open full ECG report").
+- If the ECG stream isn't running on the connection, sleep is still recorded, without ECG.
+
 ## 4 Nov 2026 – v1.15.5 – Same labels across tables and histories; naps are not scored *(GitHub)*
 Why: the same thing should have the same name everywhere, with ECG history as the reference.
 - Naps have no score at all: none in Sleep history, no score card in the report and none in the JSON export. This replaces the nap score of v1.15.4.

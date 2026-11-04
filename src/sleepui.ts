@@ -39,7 +39,7 @@ export function initSleep(deps: SleepDeps): {
   let attached: PolarH10 | null = null; // the strap this page listens to
   let recorder: SleepRecorder | null = null;
   let recUser: UserNumber = deps.user();
-  // "Start sleep & ECG recording": the night's ECG, collected alongside the sleep data
+  // every sleep recording keeps its ECG, which goes into ECG history when it stops
   let ecg: { chunks: Int16Array[]; n: number } | null = null;
   let tick: ReturnType<typeof setInterval> | null = null;
   let wakeLock: WakeLockSentinel | null = null;
@@ -84,12 +84,9 @@ export function initSleep(deps: SleepDeps): {
     $('sleepPairHint').hidden = connected || $button('btnSleepConnect').disabled;
     const start = $button('btnSleepStart');
     start.disabled = !recorder && !(connected && polar?.accOk);
-    start.textContent = recorder ? (ecg ? 'Stop sleep & ECG – I’m awake' : 'Stop – I’m awake') : 'Start sleep recording';
+    start.textContent = recorder ? 'Stop – I’m awake' : 'Start sleep & ECG recording';
+    start.title = connected && !polar?.ecgOk ? 'The ECG stream isn’t running on this connection: sleep is recorded without ECG' : '';
     start.classList.toggle('recording', recorder !== null);
-    const both = $button('btnSleepEcgStart');
-    both.hidden = recorder !== null;
-    both.disabled = !(connected && polar?.accOk && polar.ecgOk);
-    both.title = connected && !polar?.ecgOk ? 'The ECG stream isn’t running on this connection' : '';
     $button('btnSleepDim').disabled = recorder === null;
   }
 
@@ -180,8 +177,8 @@ export function initSleep(deps: SleepDeps): {
     try { wakeLock = 'wakeLock' in navigator ? await navigator.wakeLock.request('screen') : null; } catch { /* not supported */ }
   }
 
-  async function startRecording(withEcg = false): Promise<void> {
-    ecg = withEcg ? { chunks: [], n: 0 } : null;
+  async function startRecording(): Promise<void> {
+    ecg = { chunks: [], n: 0 };
     recorder = new SleepRecorder(ACC_FS);
     recUser = deps.user();
     gaps = 0;
@@ -458,7 +455,6 @@ export function initSleep(deps: SleepDeps): {
   $button('btnSleepDisconnect').addEventListener('click', () => void disconnect());
   $button('btnSleepDemo').addEventListener('click', () => void demoNight());
   $button('btnSleepStart').addEventListener('click', () => void (recorder ? stopRecording() : startRecording()));
-  $button('btnSleepEcgStart').addEventListener('click', () => void (recorder ? stopRecording() : startRecording(true)));
   $button('btnSleepDim').addEventListener('click', () => { $('sleepDim').hidden = false; });
   $('sleepDim').addEventListener('click', () => { $('sleepDim').hidden = true; });
   document.addEventListener('visibilitychange', () => {

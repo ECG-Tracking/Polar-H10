@@ -70,7 +70,7 @@ export interface Session {
   summary: SessionSummary | null;
   synced?: boolean; // its summary is in the account's cloud copy
   cloudOnly?: boolean; // a summary copy from another device: no signal on this device
-  sleepId?: string; // recorded together with this sleep night ("Start sleep & ECG recording")
+  sleepId?: string; // recorded together with this sleep night
   syncTracking?: boolean; // recorded during a synchronised tracking (Polar H10 with the Watch D2)
 }
 
@@ -201,7 +201,7 @@ export interface SleepSession {
   synced?: boolean; // its report is in the account's cloud copy
   cloudOnly?: boolean; // a report copy from another device: no raw data on this device
   report?: unknown; // the synced report (SleepReport) for copies from another device
-  ecgId?: string; // the ECG recorded during this night ("Start sleep & ECG recording")
+  ecgId?: string; // the ECG recorded during this night
 }
 
 interface SleepSignalRecord {
