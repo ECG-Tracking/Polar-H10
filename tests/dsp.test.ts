@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EcgSimulator, type Scenario } from '../src/sim';
 import { analyze, delineate, sessionMetrics } from '../src/dsp';
-import { ECG_SCALE_NOTE, PX_PER_MV, PX_PER_S } from '../src/charts';
+import { CAL_MARGIN, ECG_SCALE_NOTE, PX_PER_MV, PX_PER_S } from '../src/charts';
 
 const FS = 130;
 const PROFILE = { hrRest: 60, hrMax: 180, sex: 'male' as const };
@@ -106,4 +106,6 @@ test('the live ECG scale is the clinical one: one small square is 0.04 s across 
   assert.equal(PX_PER_S * 0.04, PX_PER_MV * 0.1);
   assert.equal(PX_PER_S / PX_PER_MV, 2.5); // 25 mm/s against 10 mm/mV
   assert.ok(ECG_SCALE_NOTE.includes('25 mm/s') && ECG_SCALE_NOTE.includes('10 mm/mV'));
+  assert.ok(ECG_SCALE_NOTE.includes('1 mV tall and 0.2 s wide'));
+  assert.equal((CAL_MARGIN - 4) % (0.2 * PX_PER_S), 0); // the mark sits on the large squares
 });

@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.19.1 – Calibration mark on the ECG tracings *(GitHub)*
+Why: a standard ECG shows its scale on the tracing itself, so a resized printout can be recognised.
+- The live traces and the printed event tracings start with the standard calibration mark, 1 mV tall and 0.2 s wide. It is drawn by the app, not a signal from the strap.
+
 ## 4 Nov 2026 – v1.19.0 – Live ECG at the standard clinical scale; event tracings in printed reports *(GitHub)*
 Why: the live trace kept changing size because the app rescaled it to the signal, and a printed report only showed the list of events.
 - ECG live, Sleep monitor and Synchronised Tracking now always draw the ECG at the scale used in hospitals and clinics, 25 mm/s and 10 mm/mV, stated below the trace. The trace no longer changes size, and a wider screen shows more seconds. The trace is taller so that the fixed scale fits.

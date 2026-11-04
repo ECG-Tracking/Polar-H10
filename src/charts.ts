@@ -237,7 +237,22 @@ export class Plot {
 const PX_PER_MM = 4;
 export const PX_PER_S = 25 * PX_PER_MM;
 export const PX_PER_MV = 10 * PX_PER_MM;
-export const ECG_SCALE_NOTE = 'Standard ECG scale: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV.';
+export const ECG_SCALE_NOTE = 'Standard ECG scale: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The box at the left is the calibration mark: 1 mV tall and 0.2 s wide.';
+// the calibration mark takes one large square, one large square in from the left; the trace starts after it
+const CAL_LEFT = 0.2 * PX_PER_S, CAL_WIDTH = 0.2 * PX_PER_S;
+export const CAL_MARGIN = CAL_LEFT + CAL_WIDTH + 4;
+
+/** The standard calibration mark, on the trace's baseline. It is drawn, not a signal from the strap. */
+function drawCalibration(ctx: CanvasRenderingContext2D, base: number): void {
+  ctx.beginPath();
+  ctx.moveTo(CAL_LEFT - 8, base);
+  ctx.lineTo(CAL_LEFT, base);
+  ctx.lineTo(CAL_LEFT, base - PX_PER_MV);
+  ctx.lineTo(CAL_LEFT + CAL_WIDTH, base - PX_PER_MV);
+  ctx.lineTo(CAL_LEFT + CAL_WIDTH, base);
+  ctx.lineTo(CAL_MARGIN, base);
+  ctx.stroke();
+}
 
 /** Sweep-style live ECG trace (like a bedside monitor), always at the standard scale: a wider screen shows more seconds. */
 export class LiveTrace {
@@ -276,15 +291,16 @@ export class LiveTrace {
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
-    this.fit(w);
+    this.fit(w - CAL_MARGIN);
     drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
     ctx.strokeStyle = css('--trace'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    drawCalibration(ctx, h / 2);
     ctx.beginPath();
     let pen = false;
     for (let i = 0; i < this.len; i++) {
       const v = this.buf[i] ?? NaN;
       if (!Number.isFinite(v)) { pen = false; continue; }
-      const x = (i / this.fs) * PX_PER_S, y = h / 2 - (v / 1000) * PX_PER_MV;
+      const x = CAL_MARGIN + (i / this.fs) * PX_PER_S, y = h / 2 - (v / 1000) * PX_PER_MV;
       if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
     }
     ctx.stroke();
@@ -309,26 +325,27 @@ function drawEcgGrid(ctx: CanvasRenderingContext2D, w: number, h: number, pxPerS
 
 const STRIP_S = 6, STRIP_MV = 4, STRIP_SHARPNESS = 3;
 
-/** A strip for the printed report, `t` seconds into `x`, 150 × 40 mm on paper at the standard scale (see .event-strip). */
+/** A strip for the printed report, `t` seconds into `x`, 161 × 40 mm on paper at the standard scale (see .event-strip). */
 export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number, t: number): void {
   painters.set(canvas, () => drawEventStrip(canvas, x, fs, t));
-  const w = STRIP_S * PX_PER_S, h = STRIP_MV * PX_PER_MV;
+  const w = CAL_MARGIN + STRIP_S * PX_PER_S, h = STRIP_MV * PX_PER_MV;
   canvas.width = w * STRIP_SHARPNESS;
   canvas.height = h * STRIP_SHARPNESS;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.setTransform(STRIP_SHARPNESS, 0, 0, STRIP_SHARPNESS, 0, 0);
   const t0 = Math.max(0, Math.min(x.length / fs - STRIP_S, t - STRIP_S / 2));
-  drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV, t0);
+  drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
   ctx.strokeStyle = css('--trace'); ctx.lineWidth = 1; ctx.lineJoin = 'round';
+  drawCalibration(ctx, h / 2);
   ctx.beginPath();
   const i0 = Math.ceil(t0 * fs), i1 = Math.min(x.length - 1, Math.floor((t0 + STRIP_S) * fs));
   for (let i = i0; i <= i1; i++) {
-    const px = (i / fs - t0) * PX_PER_S, py = h / 2 - ((x[i] ?? 0) / 1000) * PX_PER_MV;
+    const px = CAL_MARGIN + (i / fs - t0) * PX_PER_S, py = h / 2 - ((x[i] ?? 0) / 1000) * PX_PER_MV;
     if (i === i0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   }
   ctx.stroke();
-  const mark = (t - t0) * PX_PER_S;
+  const mark = CAL_MARGIN + (t - t0) * PX_PER_S;
   ctx.fillStyle = css('--critical');
   ctx.beginPath(); ctx.moveTo(mark - 5, 2); ctx.lineTo(mark + 5, 2); ctx.lineTo(mark, 11); ctx.fill();
 }
