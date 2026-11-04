@@ -6,6 +6,12 @@
 import { Biquad, median } from './dsp';
 
 export const EPOCH_S = 30;
+/** Raised when the stages are worked out differently, so reports made before can be generated again. */
+export const SLEEP_METHOD = 2;
+const LOCAL_REACH = 90; // epochs either side: 45 min
+const MIN_BOUT_EPOCHS = 10; // 5 min
+const NIGHT_PULL = 0.5; // how far the time of night moves the deep and REM scores, at its strongest
+const MIN_PATTERN_S = 3 * 3600;
 /** Accelerometer value marking a missing sample (strap disconnected). */
 export const ACC_MISSING = -32768;
 
@@ -92,6 +98,28 @@ function breathingBand(x: Float64Array, fs: number): Float64Array {
   return y;
 }
 
+/** Variation between breaths in one stretch of a breathing-band signal: 0 = perfectly regular. Also gives the rate. */
+function breathsIn(band: Float64Array, a: number, b: number, fs: number): { rate: number; cv: number } | null {
+  let s2 = 0;
+  for (let i = a; i < b; i++) s2 += at(band, i) ** 2;
+  const sd = Math.sqrt(s2 / (b - a));
+  // upward crossings with hysteresis, so noise around zero isn't counted as breaths
+  const hi = 0.3 * sd, lo = -0.3 * sd;
+  const crossings: number[] = [];
+  let armed = false;
+  for (let i = a; i < b; i++) {
+    const v = at(band, i);
+    if (v < lo) armed = true;
+    else if (armed && v > hi) { crossings.push(i / fs); armed = false; }
+  }
+  const intervals: number[] = [];
+  for (let k = 1; k < crossings.length; k++) intervals.push(at(crossings, k) - at(crossings, k - 1));
+  const m = mean(intervals);
+  const rate = 60 / m;
+  if (intervals.length < 4 || !(rate >= 5 && rate <= 35)) return null;
+  return { rate, cv: std(intervals) / m };
+}
+
 function accFeatures(data: SleepData, nE: number): AccFeatures {
   const fs = data.accFs;
   const n = Math.floor(data.acc.length / 3);
@@ -144,23 +172,9 @@ function accFeatures(data: SleepData, nE: number): AccFeatures {
       for (let i = a; i < b; i++) s2 += at(band, i) ** 2;
       if (s2 > bestVar) { bestVar = s2; best = band; }
     }
-    const sd = Math.sqrt(bestVar / (b - a));
-    // upward crossings with hysteresis, so noise around zero isn't counted as breaths
-    const hi = 0.3 * sd, lo = -0.3 * sd;
-    const crossings: number[] = [];
-    let armed = false;
-    for (let i = a; i < b; i++) {
-      const v = at(best, i);
-      if (v < lo) armed = true;
-      else if (armed && v > hi) { crossings.push(i / fs); armed = false; }
-    }
-    const intervals: number[] = [];
-    for (let k = 1; k < crossings.length; k++) intervals.push(at(crossings, k) - at(crossings, k - 1));
-    const m = mean(intervals);
-    const rate = 60 / m;
-    if (intervals.length < 4 || !(rate >= 5 && rate <= 35)) { breathing.push(null); breathCv.push(null); continue; }
-    breathing.push(rate);
-    breathCv.push(std(intervals) / m);
+    const b1 = breathsIn(best, a, b, fs);
+    breathing.push(b1?.rate ?? null);
+    breathCv.push(b1?.cv ?? null);
   }
   return { activity, posture, breathing, breathCv };
 }
@@ -171,6 +185,34 @@ interface HeartFeatures {
   hr: (number | null)[];
   rmssd: (number | null)[]; // 5 min window centred on each epoch
   hrVar: (number | null)[]; // spread of epoch heart rates over 5 epochs
+  rrBreathCv: (number | null)[]; // breathing regularity seen in the heartbeats (they speed up and slow down with each breath)
+}
+
+/** Each breath moves the beat intervals: the intervals, evenly resampled, carry the breathing, independent of how the strap lies. */
+function heartBreathing(data: SleepData, nE: number): (number | null)[] {
+  const fs = 4, n = Math.floor(nE * EPOCH_S * fs);
+  const x = new Float64Array(n), have = new Uint8Array(n);
+  let j = 1;
+  for (let i = 0; i < n; i++) {
+    const t = i / fs;
+    while (j < data.rrT.length - 1 && at(data.rrT, j) < t) j++;
+    const t0 = at(data.rrT, j - 1), t1 = at(data.rrT, j), a = at(data.rr, j - 1), b = at(data.rr, j);
+    if (t < t0 || t > t1 || t1 - t0 > 3 || !(a >= 300 && a <= 2000 && b >= 300 && b <= 2000) || Math.abs(a - b) > 0.2 * a) continue;
+    x[i] = a + ((t - t0) / (t1 - t0)) * (b - a);
+    have[i] = 1;
+  }
+  const m = mean(Array.from(x).filter((_, i) => have[i]));
+  for (let i = 0; i < n; i++) x[i] = have[i] ? at(x, i) - m : 0;
+  const band = breathingBand(x, fs);
+  const out: (number | null)[] = [];
+  for (let e = 0; e < nE; e++) {
+    const mid = (e + 0.5) * EPOCH_S * fs;
+    const a = Math.max(0, Math.round(mid - 30 * fs)), b = Math.min(n, Math.round(mid + 30 * fs));
+    let ok = 0;
+    for (let i = a; i < b; i++) ok += at(have, i);
+    out.push(b - a < 40 * fs || ok < 0.9 * (b - a) ? null : breathsIn(band, a, b, fs)?.cv ?? null);
+  }
+  return out;
 }
 
 function heartFeatures(data: SleepData, nE: number): HeartFeatures {
@@ -209,7 +251,7 @@ function heartFeatures(data: SleepData, nE: number): HeartFeatures {
     for (let k = Math.max(0, e - 2); k <= Math.min(nE - 1, e + 2); k++) { const v = hr[k]; if (finite(v)) w.push(v); }
     hrVar.push(w.length >= 3 ? std(w) : null);
   }
-  return { hr, rmssd, hrVar };
+  return { hr, rmssd, hrVar, rrBreathCv: heartBreathing(data, nE) };
 }
 
 // ---------- Scoring ----------
@@ -218,6 +260,48 @@ function zScores(values: readonly (number | null)[], mask: readonly boolean[]): 
   const pool = values.filter((v, i): v is number => finite(v) && (mask[i] ?? false));
   const m = mean(pool), s = std(pool) || 1;
   return values.map((v) => (finite(v) ? (v - m) / s : null));
+}
+
+/**
+ * How far each value is from its surroundings: the sleep epochs within 45 min either side, so 90 min in all. Heart rate
+ * drifts through the night, and a comparison with the whole night would only find its lowest hours.
+ */
+export function localZ(values: readonly (number | null)[], mask: readonly boolean[], reach = LOCAL_REACH): (number | null)[] {
+  const n = values.length;
+  const sum = new Float64Array(n + 1), cnt = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    const use = finite(v) && (mask[i] ?? false);
+    sum[i + 1] = at(sum, i) + (use ? v : 0);
+    cnt[i + 1] = at(cnt, i) + (use ? 1 : 0);
+  }
+  const residual = values.map((v, i) => {
+    if (!finite(v)) return null;
+    const a = Math.max(0, i - reach), b = Math.min(n, i + reach + 1);
+    const c = at(cnt, b) - at(cnt, a);
+    return c ? v - (at(sum, b) - at(sum, a)) / c : null;
+  });
+  const s = std(residual.filter((v, i): v is number => finite(v) && (mask[i] ?? false))) || 1;
+  return residual.map((v) => (finite(v) ? v / s : null));
+}
+
+/**
+ * Stages last minutes, so shorter runs are put right: a short gap between two runs of one stage takes that stage, any
+ * other short deep or REM run becomes light. Awake and missing epochs stay as they are.
+ */
+export function minBouts(stages: readonly Stage[], min = MIN_BOUT_EPOCHS): Stage[] {
+  const out = [...stages];
+  const fix = (shortRun: (s: Stage) => boolean): void => {
+    for (const r of runs(out)) {
+      if (r.to - r.from >= min || !shortRun(r.value)) continue;
+      const before = out[r.from - 1], after = out[r.to];
+      const next: Stage = before === after && (before === 'deep' || before === 'rem' || before === 'light') ? before : 'light';
+      for (let e = r.from; e < r.to; e++) out[e] = next;
+    }
+  };
+  fix((s) => s === 'light'); // joins two parts of a deep or REM run first
+  fix((s) => s === 'deep' || s === 'rem');
+  return out;
 }
 
 /** Replaces each value with the most common one in a window, removing single-epoch flicker. */
@@ -313,17 +397,22 @@ export function analyzeSleep(data: SleepData): SleepAnalysis {
   const inPeriod = (e: number): boolean => onset >= 0 && e >= onset && e < wakeIdx;
   const sleepMask = Array.from({ length: nE }, (_, e) => inPeriod(e) && asleep(e));
 
-  // ---- stages: estimated from heart rate, HRV and breathing, relative to the rest of the night ----
-  const zHR = zScores(heart.hr, sleepMask);
-  const zVar = zScores(heart.hrVar, sleepMask);
-  const zRm = zScores(heart.rmssd, sleepMask);
-  const zCv = zScores(acc.breathCv, sleepMask);
+  // ---- stages: estimated from heart rate, HRV and breathing, relative to the surrounding 90 minutes ----
+  const zHR = localZ(heart.hr, sleepMask);
+  const zVar = localZ(heart.hrVar, sleepMask);
+  const zRm = localZ(heart.rmssd, sleepMask);
+  const zChest = zScores(acc.breathCv, sleepMask), zHeart = zScores(heart.rrBreathCv, sleepMask);
+  const zCv = zChest.map((c, e) => { const h = zHeart[e] ?? null; return c != null && h != null ? (c + h) / 2 : c ?? h; });
   const v = (a: (number | null)[], e: number): number => a[e] ?? 0;
+  const periodE = Math.max(1, wakeIdx - onset);
+  // over a whole night, deep sleep is likelier early and REM late; short sleep has no such pattern
+  const nightLong = periodE * EPOCH_S >= MIN_PATTERN_S;
   let stages: Stage[] = Array.from({ length: nE }, (_, e): Stage => {
     if (!hasData[e]) return 'nodata';
     if (!inPeriod(e) || !asleep(e)) return 'awake';
-    const deep = -v(zHR, e) - v(zCv, e) + 0.5 * v(zRm, e) - 0.5 * v(zVar, e);
-    const rem = v(zHR, e) + v(zVar, e) + v(zCv, e) - 0.3 * v(zRm, e);
+    const through = nightLong ? clamp((e - onset) / periodE, 0, 1) : 0.5; // 0 = start of the night, 1 = end
+    const deep = -v(zHR, e) - v(zCv, e) + 0.5 * v(zRm, e) - 0.5 * v(zVar, e) + NIGHT_PULL * (1 - 2 * through);
+    const rem = v(zHR, e) + v(zVar, e) + v(zCv, e) - 0.3 * v(zRm, e) + NIGHT_PULL * (2 * through - 1);
     const minutesAsleep = ((e - onset) * EPOCH_S) / 60;
     if (deep > 1.2) return 'deep';
     if (rem > 1.2 && minutesAsleep > 50) return 'rem';
@@ -331,7 +420,7 @@ export function analyzeSleep(data: SleepData): SleepAnalysis {
   });
   // smooth sleep stages without moving awake/no-data epochs
   const smoothed = modeFilter(stages, 3);
-  stages = stages.map((s, e) => (s === 'awake' || s === 'nodata' ? s : (smoothed[e] === 'awake' || smoothed[e] === 'nodata' ? s : smoothed[e] ?? s)));
+  stages = minBouts(stages.map((s, e) => (s === 'awake' || s === 'nodata' ? s : (smoothed[e] === 'awake' || smoothed[e] === 'nodata' ? s : smoothed[e] ?? s))));
 
   // ---- metrics ----
   const count = (s: Stage, inside = true): number => stages.filter((x, e) => x === s && (!inside || inPeriod(e))).length;

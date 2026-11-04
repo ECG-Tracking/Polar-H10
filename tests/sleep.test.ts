@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSleep, isNap, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S } from '../src/sleep';
+import { analyzeSleep, isNap, localZ, minBouts, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S, type Stage } from '../src/sleep';
 import { simulateNight } from '../src/sleepsim';
 import { personalRange, checkRange, sleepRanges } from '../src/ranges';
 
@@ -82,4 +82,23 @@ test('sleep in the day counts as a nap, sleep overnight as a night', () => {
   assert.equal(isNap(at(23, 38), 7.5 * 3600), false); // 23:38–07:08
   assert.equal(isNap(at(2), 9 * 3600), false); // a late night: 02:00–11:00
   assert.equal(isNap(at(21), 3600), false);
+});
+
+test('a slow drift in heart rate doesn’t decide the stage: each value is judged against its surroundings', () => {
+  const drift = Array.from({ length: 600 }, (_, i) => 60 - i * 0.02 + (i % 2 ? 1 : -1));
+  const mask = drift.map(() => true);
+  const z = localZ(drift, mask);
+  const side = (a: readonly (number | null)[]) => (a[100] ?? 0) - (a[500] ?? 0);
+  assert.ok(Math.abs(side(z)) < 1, `difference ${side(z)}`);
+  assert.equal(localZ([null, 1, 2], [true, true, true])[0], null);
+});
+
+test('stages last at least 5 minutes', () => {
+  const rep = (s: Stage, n: number): Stage[] => Array.from({ length: n }, () => s);
+  assert.deepEqual(minBouts([...rep('light', 20), ...rep('rem', 4), ...rep('light', 20)]), rep('light', 44), 'a short REM run becomes light');
+  assert.deepEqual(minBouts([...rep('rem', 12), ...rep('light', 4), ...rep('rem', 12)]), rep('rem', 28), 'a short gap joins two runs');
+  const kept = [...rep('light', 20), ...rep('awake', 2), ...rep('light', 20)];
+  assert.deepEqual(minBouts(kept), kept, 'awake isn’t touched');
+  const long = [...rep('deep', 10), ...rep('light', 10)];
+  assert.deepEqual(minBouts(long), long, 'runs of 5 minutes stay');
 });

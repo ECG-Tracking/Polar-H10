@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReports, combine, compareMinutes, figuresOf, lineUp, pairUp, suggestions, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
+import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, suggestions, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
 import type { Stage } from '../src/sleep';
 
@@ -145,4 +145,29 @@ test('sleep reports in the cloud: versions from two devices are kept, and the wa
   assert.deepEqual(sent.watchCopy, { watch: 'My watch', stages: [1] });
   assert.equal(parseSleepReportsRow({ id: 5 }), null);
   assert.equal(parseSleepReportsRow(v(1))?.id, 'x');
+});
+
+test('times woke up when combined is between the two devices', () => {
+  assert.equal(midWakes(1, 5), 3);
+  assert.equal(midWakes(2, 5), 4);
+  assert.equal(midWakes(2, null), 2);
+  assert.equal(figuresOf(['light', 'light'], 0, false, 3).awakenings, 3);
+});
+
+test('agreement in 5-minute blocks forgives a stage starting a minute apart', () => {
+  const p: Minute[] = ['deep', 'deep', 'deep', 'deep', 'deep', 'rem', 'rem', 'rem', 'rem', 'rem'];
+  const w: Minute[] = ['light', 'deep', 'deep', 'deep', 'deep', 'deep', 'rem', 'rem', 'rem', 'rem'];
+  const a = compareMinutes(p, w);
+  assert.equal(a.stagePct, 80);
+  assert.equal(a.fiveMinPct, 100);
+  assert.equal(compareMinutes([null, null, null, null, null], [null, null, null, null, null]).fiveMinPct, null);
+});
+
+test('reports made with the earlier stage rules are generated again, but only where the raw recording is', () => {
+  const polar = { id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null } as SleepSession;
+  const watch = {} as WatchSleep;
+  const p: SleepPair = { id: 'x', polar, watch, start: 0, nap: false };
+  const saved = { method: 1, polarStamp: 'a', watchStamp: 'b' } as unknown as Parameters<typeof whatChanged>[0];
+  assert.equal(whatChanged(saved, p), 'method');
+  assert.notEqual(whatChanged(saved, { ...p, polar: { ...polar, cloudOnly: true } }), 'method');
 });

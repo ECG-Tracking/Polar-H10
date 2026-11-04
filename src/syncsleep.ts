@@ -1,7 +1,7 @@
 // Synchronised sleep tracking: one sleep measured by the Polar H10 and by the Watch D2. Matches the two recordings,
 // lines them up minute by minute, combines them and works out where they differ. Numbers only; the pages are in syncsleepui.ts.
 
-import { isNap, sleepScore, type Stage } from './sleep';
+import { SLEEP_METHOD, isNap, sleepScore, type Stage } from './sleep';
 import type { SleepSession } from './store';
 import type { SleepReport } from './summary';
 
@@ -137,7 +137,7 @@ export interface CombinedFigures {
 }
 
 /** Awake spells of 2 minutes or more between sleep count as waking up, as in the strap's own analysis. */
-export function figuresOf(stages: readonly (Known | null)[], startMs: number, nap: boolean): CombinedFigures {
+export function figuresOf(stages: readonly (Known | null)[], startMs: number, nap: boolean, wakes?: number): CombinedFigures {
   const count = (s: Known): number => stages.filter((x) => x === s).length;
   const asleep = (x: Known | null | undefined): boolean => x === 'deep' || x === 'light' || x === 'rem';
   const first = stages.findIndex(asleep);
@@ -152,13 +152,19 @@ export function figuresOf(stages: readonly (Known | null)[], startMs: number, na
   const timeInBedMin = stages.filter((x) => x != null).length;
   const pct = (v: number): number => (sleepMin ? (100 * v) / sleepMin : 0);
   const efficiency = timeInBedMin ? (100 * sleepMin) / timeInBedMin : 0;
-  const parts = { sleepMin, efficiency, deepPct: pct(deepMin), remPct: pct(remMin), awakenings };
+  const parts = { sleepMin, efficiency, deepPct: pct(deepMin), remPct: pct(remMin), awakenings: wakes ?? awakenings };
   return {
     ...parts, deepMin, lightMin, remMin, awakeMin, timeInBedMin, lightPct: pct(lightMin),
     onsetMs: first >= 0 ? startMs + first * 60000 : null, wakeMs: last >= 0 ? startMs + (last + 1) * 60000 : null,
     score: nap || !sleepMin ? null : sleepScore(parts),
   };
 }
+
+/**
+ * Times woke up in the combined sleep: halfway between the two devices. Each counts brief waking differently, and short
+ * disagreements are read as sleep when combining, so counting the combined stages would find fewer than either.
+ */
+export const midWakes = (polar: number, watch: number | null): number => (watch == null ? polar : Math.round((polar + watch) / 2));
 
 // ---------- comparing ----------
 
@@ -171,6 +177,8 @@ export interface Agreement {
   kappa: number | null;
   /** % of shared minutes on which they agree whether you were asleep. */
   sleepWakePct: number | null;
+  /** % of 5-minute blocks in which both have the same main stage: less strict than minute by minute. */
+  fiveMinPct?: number | null;
   /** Minutes by [strap stage][watch stage]. */
   matrix: Record<Known, Record<Known, number>>;
 }
@@ -200,7 +208,30 @@ export function compareMinutes(polar: readonly Minute[], watch: readonly Minute[
     stagePct: seen == null ? null : 100 * seen,
     kappa: seen == null || chance >= 1 ? null : (seen - chance) / (1 - chance),
     sleepWakePct: shared ? (100 * sameSide) / shared : null,
+    fiveMinPct: blockAgreement(polar, watch),
   };
+}
+
+/** The most common stage in a block; null if too little of it is known. */
+function mainStage(block: readonly Minute[]): Known | null {
+  const counts = new Map<Known, number>();
+  for (const x of block) if (x && x !== 'asleep') counts.set(x, (counts.get(x) ?? 0) + 1);
+  let best: Known | null = null, most = 0, known = 0;
+  for (const [k, c] of counts) { known += c; if (c > most) { best = k; most = c; } }
+  return known >= 3 ? best : null;
+}
+
+const BLOCK_MIN = 5;
+
+function blockAgreement(polar: readonly Minute[], watch: readonly Minute[]): number | null {
+  let same = 0, blocks = 0;
+  for (let i = 0; i + BLOCK_MIN <= polar.length; i += BLOCK_MIN) {
+    const p = mainStage(polar.slice(i, i + BLOCK_MIN)), w = mainStage(watch.slice(i, i + BLOCK_MIN));
+    if (!p || !w) continue;
+    blocks++;
+    if (p === w) same++;
+  }
+  return blocks ? (100 * same) / blocks : null;
 }
 
 export interface SuggestionFacts {
@@ -246,7 +277,9 @@ export interface SavedSleepReports {
   id: string; user: number; polarId: string; watchId: string;
   polarStamp: string; watchStamp: string;
   /** When first made, when last made, and which recording changed then ('new' the first time). */
-  firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both';
+  firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both' | 'method';
+  /** How the strap's stages were worked out (see SLEEP_METHOD); missing = before v1.29.0. */
+  method?: number;
   start: number; end: number; nap: boolean; demo: boolean; ecgId: string | null;
   timelineStart: number; polarMinutes: Minute[]; watchMinutes: Minute[]; combined: (Known | null)[];
   figures: CombinedFigures; agreement: Agreement; tips: string[]; polar: PolarFigures; watch: Omit<WatchSleep, 'stages'>;
@@ -280,6 +313,7 @@ export function watchStamp(w: WatchSleep): string {
 /** Null when the saved reports are up to date, otherwise what has to be said about the new ones. */
 export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair): SavedSleepReports['changed'] | null {
   if (!saved) return 'new';
+  if (!p.polar.cloudOnly && (saved.method ?? 1) < SLEEP_METHOD) return 'method'; // only the device with the raw recording can redo it
   // the device with the raw recording decides whether it changed: another device's copy of it reads differently
   const polar = !p.polar.cloudOnly && saved.polarStamp !== polarStamp(p.polar) && saved.polarStamp !== polarStamp({ ...p.polar, cloudOnly: true });
   const watch = saved.watchStamp !== watchStamp(p.watch);
@@ -326,7 +360,7 @@ export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly
     firstAt: before?.firstAt ?? now, generatedAt: now, changed: whatChanged(before, p) ?? 'new',
     start: p.start, end: Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs), nap: p.nap, demo: p.polar.source === 'demo' || p.watch.demo, ecgId: p.polar.ecgId ?? null,
     timelineStart: t.startMs, polarMinutes: t.polar, watchMinutes: t.watch, combined,
-    figures: figuresOf(combined, t.startMs, p.nap), agreement, polar, watch,
+    method: SLEEP_METHOD, figures: figuresOf(combined, t.startMs, p.nap, midWakes(polar.awakenings, watch.wakeups)), agreement, polar, watch,
     tips: suggestions({
       agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: polar.coverage,
       sleepDiffMin: watch.sleepMin - polar.sleepMin, onsetDiffMin: minutes(polar.onsetMs, watch.bedMs), wakeDiffMin: minutes(polar.wakeMs, watch.wokeMs),

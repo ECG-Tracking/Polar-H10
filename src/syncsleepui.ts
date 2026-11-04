@@ -29,6 +29,7 @@ export interface SyncSleepDeps {
   show: (view: 'd2' | 'sleep' | 'syncSleepHistory' | 'syncSleepReport') => void;
 }
 
+const clockSeconds = (ms: number | null): string => (ms == null ? '--' : new Date(ms).toLocaleTimeString('en-GB'));
 const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 const dayName = (ms: number): string => new Date(ms).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 const shortDay = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'numeric' });
@@ -191,7 +192,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     }
     if (!a) return null;
     const m = a.metrics;
-    if (!p.polar.summary) {
+    if (!p.polar.summary || !session.cloudOnly) { // kept up to date with how the stages are worked out
       p.polar.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
       await store.updateSleep({ ...session, summary: p.polar.summary }).catch(() => undefined);
     }
@@ -273,6 +274,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'method' ? `Generated again ${dateTime(r.generatedAt)}, because the Polar H10 sleep stages are now worked out better`
     : `Generated again ${dateTime(r.generatedAt)}, because ${r.changed === 'polar' ? 'the Polar H10 recording' : r.changed === 'watch' ? 'the watch’s sleep' : 'both recordings'} changed`);
 
   async function renderList(): Promise<void> {
@@ -427,7 +429,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
     const tiles = make('div', 'd2-tiles');
     tiles.append(
-      tile('Times woke up', String(f.awakenings), 'times', '', { range: R.awakenings, value: f.awakenings, text: '0–1 times' }),
+      tile('Times woke up', String(f.awakenings), 'times', 'halfway between the two devices', { range: R.awakenings, value: f.awakenings, text: '0–1 times' }),
       tile('Light sleep', fmt(f.lightPct), '%', fmtHM(f.lightMin), { range: R.lightPct, value: f.lightPct, text: '<55 %' }),
       tile('Avg heart rate', fmt(m.avgHR), 'bpm', `Polar H10 · Watch D2 ${fmt(w.avgHR)} bpm`),
       ...(nap ? [tile('Nap sleep', fmtHM(f.sleepMin), '', '')] : [tile('Night sleep', fmtHM(f.sleepMin), '', '', { range: R.sleepHours, value: f.sleepMin / 60, text: '6–10 h' })]),
@@ -470,6 +472,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     score.append(pts, make('div', 'muted', 'of minutes in the same stage'));
     const facts = make('div');
     facts.append(
+      moreRow('Same main stage in 5-minute blocks', agreement.fiveMinPct == null ? '--' : `${fmt(agreement.fiveMinPct)} %`),
       moreRow('Agree on asleep or awake', agreement.sleepWakePct == null ? '--' : `${fmt(agreement.sleepWakePct)} %`),
       moreRow('Agreement beyond chance (kappa)', agreement.kappa == null ? '--' : `${agreement.kappa.toFixed(2)} ${agreement.kappa >= 0.6 ? '(good)' : agreement.kappa >= 0.4 ? '(moderate)' : '(weak)'}`),
       moreRow('Minutes both recorded', String(agreement.sharedMin)),
@@ -488,7 +491,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       ['Light sleep', fmtHM(m.lightMin), fmtHM(w.lightMin), signed(w.lightMin - m.lightMin, ' min')],
       ['REM sleep', fmtHM(m.remMin), fmtHM(w.remMin), signed(w.remMin - m.remMin, ' min')],
       ['Awake after falling asleep', fmtHM(m.awakeMin), fmtHM(w.awakeMin), signed(w.awakeMin - m.awakeMin, ' min')],
-      ['Fell asleep', clockOf(m.onsetMs), clockOf(w.bedMs), signed(minutes(m.onsetMs, w.bedMs), ' min')],
+      ['Fell asleep', clockSeconds(m.onsetMs), clockSeconds(w.bedMs), signed(m.onsetMs == null ? null : (w.bedMs - m.onsetMs) / 1000, ' s')],
       ['Woke up', clockOf(m.wakeMs), clockOf(w.wokeMs), signed(minutes(m.wakeMs, w.wokeMs), ' min')],
       ['Times woke up', String(m.awakenings), w.wakeups == null ? '--' : String(w.wakeups), signed(diff(m.awakenings, w.wakeups), '')],
       ['Avg heart rate', `${fmt(m.avgHR)} bpm`, w.avgHR == null ? '--' : `${w.avgHR} bpm`, signed(diff(m.avgHR, w.avgHR), ' bpm')],

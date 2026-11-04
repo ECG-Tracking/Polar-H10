@@ -4,6 +4,20 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 5 Nov 2026 – v1.29.0 – Better sleep stages from the Polar H10 *(GitHub)*
+Why: comparing with the whole night only found the lowest heart rate hours, and stages flickered.
+- Each 30 seconds is now compared with the surrounding 90 minutes, not the whole night, so the night's drift in heart rate no longer decides the stage.
+- Deep and REM runs last at least 5 minutes.
+- Over a night of 3 hours or more, deep sleep is favoured early and REM late.
+- Breathing regularity now also comes from the heartbeats, combined with the chest movement.
+- Synchronised Sleep Tracking reports are generated again with these rules, and the earlier versions stay. Reports on Sleep history use them when opened.
+- The Comparison report adds Same main stage in 5-minute blocks.
+- Times woke up in the Combined report is now halfway between the two devices. Before, it could show fewer than either.
+
+## 5 Nov 2026 – v1.28.2 – Fell asleep compared in seconds *(GitHub)*
+Why: a difference in whole minutes can disagree with the times beside it.
+- In the sleep Comparison report, Fell asleep now shows both times with seconds, and the difference in seconds.
+
 ## 4 Nov 2026 – v1.28.1 – Failed connections aren't recorded *(GitHub)*
 Why: the download history should list downloads, not failed attempts.
 - A download that got nothing, such as a failed connection or refused login, no longer goes in the history. The reason still shows on the page and in the connection log. A download that stopped part way, after getting something, is still recorded.
