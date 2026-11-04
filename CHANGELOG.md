@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.19.0 – Live ECG at the standard clinical scale; event tracings in printed reports *(GitHub)*
+Why: the live trace kept changing size because the app rescaled it to the signal, and a printed report only showed the list of events.
+- ECG live, Sleep monitor and Synchronised Tracking now always draw the ECG at the scale used in hospitals and clinics, 25 mm/s and 10 mm/mV, stated below the trace. The trace no longer changes size, and a wider screen shows more seconds. The trace is taller so that the fixed scale fits.
+- Printed and PDF ECG reports now include the tracings of the first 5 events, 6 s each at 25 mm/s and 10 mm/mV.
+- A summary copy from another device prints the event strips it holds.
+
 ## 4 Nov 2026 – v1.18.2 – S amplitude shown as a positive number *(GitHub)*
 Why: medical literature usually gives the S wave as a depth, a positive size.
 - S amplitude is now its depth below the baseline, as a positive number, in the report and the CSV.

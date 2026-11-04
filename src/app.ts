@@ -2,7 +2,7 @@ import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetai
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
-import { Plot, LiveTrace, EcgViewer, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
+import { Plot, LiveTrace, EcgViewer, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
@@ -907,6 +907,31 @@ function renderEvents(events: readonly ReportEvent[]): void {
     list.appendChild(li);
   }
   if (events.length > 500) list.appendChild(make('li', 'muted', `…and ${events.length - 500} more (see the exports)`));
+  renderEventPrints(events);
+}
+
+const PRINTED_EVENTS = 5;
+
+/** The tracings of the first events, in the printed report only. */
+function renderEventPrints(events: readonly ReportEvent[]): void {
+  const box = $('eventPrint'), chosen = events.slice(0, PRINTED_EVENTS);
+  box.replaceChildren();
+  if (!current || !chosen.length) return;
+  const { analysis, copy } = current;
+  box.append(
+    make('h3', '', events.length > PRINTED_EVENTS ? `First ${PRINTED_EVENTS} of ${events.length} event tracings` : 'Event tracings'),
+    make('p', 'note', ECG_SCALE_NOTE),
+  );
+  for (const e of chosen) {
+    const strip = copy?.eventStrips.find((s) => Math.abs(s.t - e.t) < 0.01);
+    if (copy && !strip) continue;
+    const signal = strip && copy ? analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula }) : analysis;
+    const item = make('div', 'event-strip'), canvas = make('canvas');
+    canvas.setAttribute('aria-label', `ECG at ${fmtTime(e.t)}`);
+    item.append(make('p', '', `${fmtTime(e.t)} · ${e.label}`), canvas);
+    box.appendChild(item);
+    drawEventStrip(canvas, signal.x, signal.fs, e.t - (strip?.start ?? 0));
+  }
 }
 
 $button('btnBack').addEventListener('click', () => show('history'));

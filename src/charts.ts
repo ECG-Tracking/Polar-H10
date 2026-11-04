@@ -1,6 +1,6 @@
 // Canvas charts: line/scatter plots with hover, live ECG sweep, and a zoomable ECG viewer.
 
-import type { Analysis, EventType } from './dsp';
+import type { Analysis, EventType, Samples } from './dsp';
 
 export function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -233,17 +233,35 @@ export class Plot {
   }
 }
 
-/** Sweep-style live ECG trace (like a bedside monitor). */
+// The standard clinical ECG: 25 mm/s and 10 mm/mV. On screen one small square stands for 1 mm.
+const PX_PER_MM = 4;
+export const PX_PER_S = 25 * PX_PER_MM;
+export const PX_PER_MV = 10 * PX_PER_MM;
+export const ECG_SCALE_NOTE = 'Standard ECG scale: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV.';
+
+/** Sweep-style live ECG trace (like a bedside monitor), always at the standard scale: a wider screen shows more seconds. */
 export class LiveTrace {
-  private readonly len: number;
-  private readonly buf: Float32Array;
+  private len: number;
+  private buf: Float32Array;
   private pos = 0;
-  private scale = 1500; // µV half-range
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly fs: number, seconds = 6) {
     this.len = Math.round(fs * seconds);
     this.buf = new Float32Array(this.len).fill(NaN);
     watch(canvas, () => this.draw());
+    const note = document.createElement('p');
+    note.className = 'note';
+    note.textContent = ECG_SCALE_NOTE;
+    canvas.after(note);
+  }
+
+  /** The sweep is as many seconds as the canvas shows at the standard speed. */
+  private fit(w: number): void {
+    const len = Math.round((w / PX_PER_S) * this.fs);
+    if (len === this.len) return;
+    this.len = len;
+    this.buf = new Float32Array(len).fill(NaN);
+    this.pos = 0;
   }
 
   push(values: ArrayLike<number>): void {
@@ -258,17 +276,15 @@ export class LiveTrace {
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
-    drawEcgGrid(ctx, w, h, w / (this.len / this.fs), h / ((2 * this.scale) / 1000));
-    let peak = 0;
-    for (const v of this.buf) if (Number.isFinite(v)) peak = Math.max(peak, Math.abs(v));
-    this.scale = 0.9 * this.scale + 0.1 * Math.max(800, peak * 1.25);
+    this.fit(w);
+    drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
     ctx.strokeStyle = css('--trace'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.beginPath();
     let pen = false;
     for (let i = 0; i < this.len; i++) {
       const v = this.buf[i] ?? NaN;
       if (!Number.isFinite(v)) { pen = false; continue; }
-      const x = (i / (this.len - 1)) * w, y = h / 2 - (v / this.scale) * (h / 2);
+      const x = (i / this.fs) * PX_PER_S, y = h / 2 - (v / 1000) * PX_PER_MV;
       if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; }
     }
     ctx.stroke();
@@ -289,6 +305,32 @@ function drawEcgGrid(ctx: CanvasRenderingContext2D, w: number, h: number, pxPerS
   };
   drawSet(0.04, 0.1, minor);
   drawSet(0.2, 0.5, major);
+}
+
+const STRIP_S = 6, STRIP_MV = 4, STRIP_SHARPNESS = 3;
+
+/** A strip for the printed report, `t` seconds into `x`, 150 × 40 mm on paper at the standard scale (see .event-strip). */
+export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number, t: number): void {
+  painters.set(canvas, () => drawEventStrip(canvas, x, fs, t));
+  const w = STRIP_S * PX_PER_S, h = STRIP_MV * PX_PER_MV;
+  canvas.width = w * STRIP_SHARPNESS;
+  canvas.height = h * STRIP_SHARPNESS;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  ctx.setTransform(STRIP_SHARPNESS, 0, 0, STRIP_SHARPNESS, 0, 0);
+  const t0 = Math.max(0, Math.min(x.length / fs - STRIP_S, t - STRIP_S / 2));
+  drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV, t0);
+  ctx.strokeStyle = css('--trace'); ctx.lineWidth = 1; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  const i0 = Math.ceil(t0 * fs), i1 = Math.min(x.length - 1, Math.floor((t0 + STRIP_S) * fs));
+  for (let i = i0; i <= i1; i++) {
+    const px = (i / fs - t0) * PX_PER_S, py = h / 2 - ((x[i] ?? 0) / 1000) * PX_PER_MV;
+    if (i === i0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  const mark = (t - t0) * PX_PER_S;
+  ctx.fillStyle = css('--critical');
+  ctx.beginPath(); ctx.moveTo(mark - 5, 2); ctx.lineTo(mark + 5, 2); ctx.lineTo(mark, 11); ctx.fill();
 }
 
 export interface ReportEvent { t: number; type: EventType; label: string }

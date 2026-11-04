@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EcgSimulator, type Scenario } from '../src/sim';
 import { analyze, delineate, sessionMetrics } from '../src/dsp';
+import { ECG_SCALE_NOTE, PX_PER_MV, PX_PER_S } from '../src/charts';
 
 const FS = 130;
 const PROFILE = { hrRest: 60, hrMax: 180, sex: 'male' as const };
@@ -99,4 +100,10 @@ test('QRS, QT and QTc are the median beat’s, so the report matches its chart',
   assert.equal(m.qrs, a.templateMeasure.qrs);
   assert.equal(m.qt, a.templateMeasure.qt);
   assert.equal(m.qtc, a.templateMeasure.qtc);
+});
+
+test('the live ECG scale is the clinical one: one small square is 0.04 s across and 0.1 mV high', () => {
+  assert.equal(PX_PER_S * 0.04, PX_PER_MV * 0.1);
+  assert.equal(PX_PER_S / PX_PER_MV, 2.5); // 25 mm/s against 10 mm/mV
+  assert.ok(ECG_SCALE_NOTE.includes('25 mm/s') && ECG_SCALE_NOTE.includes('10 mm/mV'));
 });
