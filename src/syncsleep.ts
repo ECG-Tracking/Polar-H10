@@ -254,6 +254,8 @@ export interface SavedSleepReports {
   polarCopy?: SleepCopy; watchCopy?: unknown;
   /** Every earlier version, oldest first. */
   past?: PastSleepReports[];
+  savedAt?: number; // last change, ms: the newest copy wins in the cloud
+  synced?: boolean; // in the account's cloud copy
 }
 
 export type PastSleepReports = Omit<SavedSleepReports, 'past'>;
@@ -278,8 +280,34 @@ export function watchStamp(w: WatchSleep): string {
 /** Null when the saved reports are up to date, otherwise what has to be said about the new ones. */
 export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair): SavedSleepReports['changed'] | null {
   if (!saved) return 'new';
-  const polar = saved.polarStamp !== polarStamp(p.polar), watch = saved.watchStamp !== watchStamp(p.watch);
+  // the device with the raw recording decides whether it changed: another device's copy of it reads differently
+  const polar = !p.polar.cloudOnly && saved.polarStamp !== polarStamp(p.polar) && saved.polarStamp !== polarStamp({ ...p.polar, cloudOnly: true });
+  const watch = saved.watchStamp !== watchStamp(p.watch);
   return polar && watch ? 'both' : polar ? 'polar' : watch ? 'watch' : null;
+}
+
+/** Two devices can each add a version: both are kept, in time order, and the newest is the latest. */
+export function mergeSleepReports(a: SavedSleepReports, b: SavedSleepReports): SavedSleepReports {
+  const by = new Map<number, PastSleepReports>();
+  for (const r of [a, b]) {
+    const { past = [], ...last } = r;
+    for (const v of [...past, last]) by.set(v.generatedAt, v);
+  }
+  const all = [...by.values()].sort((x, y) => x.generatedAt - y.generatedAt);
+  const latest = all[all.length - 1]!;
+  return { ...latest, ...(all.length > 1 ? { past: all.slice(0, -1) } : {}) };
+}
+
+/** A copy for the cloud: numbers only, so the watch's name stays on this device. */
+export function forCloud(r: SavedSleepReports): SavedSleepReports {
+  const clean = <T extends PastSleepReports>(v: T): T => ({ ...v, watch: { ...v.watch, watch: '' }, watchCopy: typeof v.watchCopy === 'object' && v.watchCopy !== null ? { ...v.watchCopy, watch: '' } : v.watchCopy });
+  const { synced: _s, past, ...last } = r;
+  return { ...clean(last), ...(past ? { past: past.map(clean) } : {}) };
+}
+
+export function parseSleepReportsRow(v: unknown): SavedSleepReports | null {
+  const r = v as Partial<SavedSleepReports> | null;
+  return typeof r === 'object' && r !== null && typeof r.id === 'string' && typeof r.generatedAt === 'number' && typeof r.user === 'number' ? (r as SavedSleepReports) : null;
 }
 
 export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly Stage[], epochS: number, now: number, before?: SavedSleepReports, copies?: { polar: SleepCopy; watch: unknown }): SavedSleepReports {

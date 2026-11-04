@@ -241,11 +241,11 @@ export function makeVersion(t: SyncTrace, bps: readonly SyncBp[], stored: Tracki
 
 // ---------- the cloud copy ----------
 
-export interface TrackingCloudPlan { upload: string[]; download: string[]; removeHere: string[]; markSynced: string[] }
+export interface CloudPlan { upload: string[]; download: string[]; removeHere: string[]; markSynced: string[] }
 
-/** Each tracking is one cloud row: the most recently saved copy wins; one that left the cloud was deleted on another device. */
-export function planTracking(local: readonly SyncTrackingEntry[], cloud: ReadonlyMap<string, number>, deleting: ReadonlySet<string>): TrackingCloudPlan {
-  const plan: TrackingCloudPlan = { upload: [], download: [], removeHere: [], markSynced: [] };
+/** One cloud row per item: the most recently saved copy wins; one that left the cloud was deleted on another device. */
+export function planCloudCopies(local: readonly { id: string; savedAt?: number; synced?: boolean }[], cloud: ReadonlyMap<string, number>, deleting: ReadonlySet<string>): CloudPlan {
+  const plan: CloudPlan = { upload: [], download: [], removeHere: [], markSynced: [] };
   const here = new Set(local.map((e) => e.id));
   for (const e of local) {
     const at = cloud.get(e.id);

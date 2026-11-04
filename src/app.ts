@@ -17,6 +17,7 @@ import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stay
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
 import { updateTrackingReports } from './syncreports';
+import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
 import { overlapMs } from './syncsleep';
 import { initBackups } from './backups';
@@ -547,6 +548,22 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- History ----------
 
+/** Gives a recording from before the trend figures were kept its figures. */
+async function fillTrend(s: Session): Promise<Session | null> {
+  let metrics: SessionMetrics | null = null;
+  if (s.cloudOnly) metrics = parseEcgSummary(await store.loadSummaryCopy(s.id))?.metrics ?? null;
+  else {
+    const { samples } = await store.loadSession(s.id);
+    if (samples) metrics = sessionMetrics(analyze(samples, { fs: s.fs, notch: settings.notch, qtcFormula: settings.qtcFormula }), s.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
+  }
+  if (!metrics) return null;
+  const filled: Session = { ...s, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: metrics.eventCount, trend: trendValues(metrics) } };
+  await store.updateSession(filled);
+  return filled;
+}
+
+const trends = initTrends($('ecgTrends'), { fill: fillTrend });
+
 async function renderHistory(): Promise<void> {
   const list = $('sessionList');
   let sessions: Session[] = [];
@@ -554,6 +571,7 @@ async function renderHistory(): Promise<void> {
   $('historyUser').textContent = `· ${userLabel(currentUser)}`;
   list.replaceChildren();
   $('emptyHistory').hidden = sessions.length > 0;
+  trends.show(sessions);
   for (const s of sessions) {
     const sum = s.summary;
     const stats = sum
@@ -642,7 +660,7 @@ async function summarise(id: string): Promise<void> {
   if (!session || !samples || session.summary || session.cloudOnly) return;
   const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
-  await store.updateSession({ ...session, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length } });
+  await store.updateSession({ ...session, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) } });
   if ($('view-history').classList.contains('active')) void renderHistory();
 }
 
@@ -663,7 +681,7 @@ async function openReport(id: string): Promise<void> {
   ].sort((a, b) => a.t - b.t);
   current = { session, samples, analysis, metrics, events, copy: null };
 
-  session.summary = { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length };
+  session.summary = { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) };
   store.updateSession(session).catch(() => {});
 
   renderReport(current);
@@ -1113,6 +1131,7 @@ account.cloud?.addEventListener('changed', () => {
   syncSleepUI?.schedule();
   scheduleReports();
   if ($('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory();
+  if ($('view-syncSleepHistory').classList.contains('active')) void openSyncSleep().refreshHistory();
   if ($('view-history').classList.contains('active')) void renderHistory();
 });
 

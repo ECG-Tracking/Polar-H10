@@ -28,7 +28,7 @@ export function matches(query: string, text: string): boolean {
 }
 
 const KEYWORDS: Readonly<Record<string, string>> = {
-  live: 'record polar h10 strap heart rate hrv', history: 'recordings report edf export', sleep: 'night record overnight',
+  live: 'record polar h10 strap heart rate hrv', history: 'recordings report edf export trend trending graphs', sleep: 'night record overnight',
   sleepHistory: 'nights report', d2: 'watch pair download blood pressure bridge', d2History: 'watch nights week month graphs all data',
   sync: 'synchronised synchronized tracking polar watch blood pressure', syncHistory: 'synchronised synchronized tracking results',
   syncSleep: 'synchronised synchronized sleep tracking polar watch night', syncSleepHistory: 'synchronised synchronized sleep reports combined comparison nights naps',

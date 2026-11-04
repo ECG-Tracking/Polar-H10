@@ -29,7 +29,10 @@ export function useAccount(accountId: string): void {
 
 export interface UserEvent { t: number; label: string }
 
-export interface SessionSummary { meanHR: number; hrvScore: number; eventCount: number }
+export interface SessionSummary {
+  meanHR: number; hrvScore: number; eventCount: number;
+  trend?: Record<string, number>; // the report's figures, for the trend graphs
+}
 
 // ---------- Users ----------
 
@@ -170,9 +173,9 @@ export async function loadSignal(id: string): Promise<Int16Array | undefined> {
 }
 
 // Recordings deleted here that the cloud still has; removed there on the next sync.
-const tombstoneKey = (kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): string => `${keyPrefix}ecg-analysis-${kind === 'ecg' ? 'deleted' : `deleted-${kind}`}`;
+const tombstoneKey = (kind: 'ecg' | 'sleep' | 'tracking' | 'sleep-reports' = 'ecg'): string => `${keyPrefix}ecg-analysis-${kind === 'ecg' ? 'deleted' : `deleted-${kind}`}`;
 
-export function pendingCloudDeletes(kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): string[] {
+export function pendingCloudDeletes(kind: 'ecg' | 'sleep' | 'tracking' | 'sleep-reports' = 'ecg'): string[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(tombstoneKey(kind)) ?? '[]');
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -181,7 +184,7 @@ export function pendingCloudDeletes(kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'):
   }
 }
 
-export function setPendingCloudDeletes(ids: readonly string[], kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): void {
+export function setPendingCloudDeletes(ids: readonly string[], kind: 'ecg' | 'sleep' | 'tracking' | 'sleep-reports' = 'ecg'): void {
   try { localStorage.setItem(tombstoneKey(kind), JSON.stringify(ids)); } catch { /* private mode */ }
 }
 
@@ -255,9 +258,10 @@ export async function updateSleep(session: SleepSession): Promise<void> {
   await tx(['sleeps'], 'readwrite', (t) => { t.objectStore('sleeps').put(session); });
 }
 
-/** The combined and comparison reports of one sleep. They are worked out again from the recordings, so backups and the cloud don't hold them. */
-export async function saveSleepReports(r: SavedSleepReports): Promise<void> {
-  await tx(['sleepReports'], 'readwrite', (t) => { t.objectStore('sleepReports').put(r); });
+/** The reports of one sleep, with every version. `fromCloud`: they came from the cloud, so they keep their time and need no upload. */
+export async function saveSleepReports(r: SavedSleepReports, { fromCloud = false }: { fromCloud?: boolean } = {}): Promise<void> {
+  const saved = fromCloud ? { ...r, synced: true } : { ...r, savedAt: Date.now(), synced: false };
+  await tx(['sleepReports'], 'readwrite', (t) => { t.objectStore('sleepReports').put(saved); });
 }
 
 export async function loadSleepReports(id: string): Promise<SavedSleepReports | undefined> {
@@ -268,7 +272,12 @@ export async function listSleepReports(user: number): Promise<SavedSleepReports[
   return ((await tx<SavedSleepReports[]>(['sleepReports'], 'readonly', (t) => t.objectStore('sleepReports').getAll())) ?? []).filter((r) => r.user === user);
 }
 
-export async function deleteSleepReports(id: string): Promise<void> {
+export async function listAllSleepReports(): Promise<SavedSleepReports[]> {
+  return (await tx<SavedSleepReports[]>(['sleepReports'], 'readonly', (t) => t.objectStore('sleepReports').getAll())) ?? [];
+}
+
+export async function deleteSleepReports(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
+  if (fromCloud && (await loadSleepReports(id))?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes('sleep-reports'), id])], 'sleep-reports');
   await tx(['sleepReports'], 'readwrite', (t) => { t.objectStore('sleepReports').delete(id); });
 }
 

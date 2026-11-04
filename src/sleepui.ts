@@ -568,7 +568,7 @@ export function initSleep(deps: SleepDeps): {
   /** Deletes a night (after the caller asked); its ECG is deleted too only if the user says so. */
   async function deleteNight(night: SleepSession): Promise<void> {
     const ecgId = night.ecgId;
-    if (ecgId && window.confirm(`Also delete the ECG recorded during this ${isNap(night.start, night.durationS) ? 'nap' : 'night'}? (Cancel keeps it in ECG history.)`)) await store.deleteSession(ecgId);
+    if (ecgId && window.confirm(`Also delete the ECG recorded during this ${isNap(night.start, night.durationS) ? 'nap' : 'night'}? (Cancel keeps it in ECG history and trending.)`)) await store.deleteSession(ecgId);
     else if (ecgId) {
       // keep the ECG, but stop it pointing at a night that no longer exists
       // (a cloud copy may keep the link; the ECG report hides "Open sleep report" when the night is gone)

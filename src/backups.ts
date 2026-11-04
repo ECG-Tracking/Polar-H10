@@ -10,6 +10,7 @@ import { errorMessage } from './util';
 import { versionText } from './version';
 import { withReadings } from './synctrack';
 import type { SyncTrace } from './synccompare';
+import type { SavedSleepReports } from './syncsleep';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
 const TABLES = ['ecg_sessions', 'sleep_nights', 'd2_nights', 'user_data'] as const;
@@ -60,6 +61,7 @@ export interface AccountBackup {
   settings: Record<string, { settings: unknown; savedAt: number }>;
   syncTracking: store.SyncTrackingEntry[];
   syncTraces?: SyncTrace[];
+  sleepReports?: SavedSleepReports[];
   d2: unknown;
   /** The Recovery centre; missing from backups made before v1.15 and from comparison files. */
   bin?: BinEntry[];
@@ -90,7 +92,7 @@ async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<Acc
   for (const u of store.USERS) if (store.hasSavedSettings(u)) settings[String(u)] = { settings: store.loadSettings(u), savedAt: store.settingsSavedAt(u) };
   return {
     exportedAt: new Date().toISOString(), appVersion: versionText(), account: { id: a.id, email: a.email },
-    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), syncTraces: await store.listSyncTraces(), d2: d2 ? await d2.backup.exportD2(a.id, withSignals) : null,
+    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), syncTraces: await store.listSyncTraces(), sleepReports: await store.listAllSleepReports(), d2: d2 ? await d2.backup.exportD2(a.id, withSignals) : null,
     ...(withSignals ? { bin: (await store.exportBin()).map(binToText) } : {}),
   };
 }
@@ -140,6 +142,7 @@ export async function restoreBackup(b: AccountBackup, d2: D2Api | null): Promise
   }
   for (const e of Array.isArray(b.syncTracking) ? b.syncTracking : []) if (typeof e?.id === 'string') store.saveSyncEntry(e);
   for (const x of Array.isArray(b.syncTraces) ? b.syncTraces : []) if (typeof x?.id === 'string') await store.saveSyncTrace(x);
+  for (const x of Array.isArray(b.sleepReports) ? b.sleepReports : []) if (typeof x?.id === 'string') await store.saveSleepReports(x);
   const d2n = d2 && b.d2 ? await d2.backup.importD2(current.account?.id ?? 'local', b.d2) : 0;
   const bin = Array.isArray(b.bin) ? b.bin.filter((e) => typeof e?.item?.id === 'string') : [];
   for (const e of bin) { const { item, data } = binFromText(e); await store.importBin(item, data); }
@@ -224,7 +227,8 @@ export async function overwriteCloud(password: string, d2: D2Api | null): Promis
   await gone('ecg_sessions', (r) => ecgIds.has(String(r['id'])));
   await gone('sleep_nights', (r) => sleepIds.has(String(r['id'])));
   const trackings = new Set(store.loadSyncHistory().map((e) => e.id));
-  await gone('user_data', (r) => r['kind'] !== 'tracking' || trackings.has(String(r['id'])));
+  const sleepReports = new Set((await store.listAllSleepReports()).map((r) => r.id));
+  await gone('user_data', (r) => (r['kind'] === 'tracking' ? trackings.has(String(r['id'])) : r['kind'] !== 'sleep-reports' || sleepReports.has(String(r['id']))));
   if (d2) {
     await gone('d2_nights', (r) => d2Nights.has(String(r['id'])));
     await gone('user_data', (r) => r['kind'] === 'settings' || !String(r['kind']).startsWith('d2-') || d2Records.has(String(r['id'])));

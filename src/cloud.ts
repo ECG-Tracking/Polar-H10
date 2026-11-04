@@ -5,13 +5,15 @@
 //   • Everything else: table user_data, one row per (kind, id) with the data as JSON, so new kinds need no new SQL.
 //     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
 //     Kind 'tracking': each synchronised tracking with its beats and report versions, id = its id; the same rule, numbers only.
+//     Kind 'sleep-reports': each synchronised sleep's four reports with every version, id = its id; the same rule.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport } from './summary';
-import { mergeVersions, parseTrackingRow, planTracking } from './synccompare';
+import { mergeVersions, parseTrackingRow, planCloudCopies } from './synccompare';
+import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
 import { errorMessage } from './util';
 
 const ECG_TABLE = 'ecg_sessions';
@@ -129,6 +131,7 @@ export class CloudSync extends EventTarget {
       await this.syncSleep(result);
       await this.syncSettings();
       await this.syncTracking(result);
+      await this.syncSleepReports(result);
     } catch (err) {
       result.ok = false;
       result.reason = describe(err);
@@ -185,7 +188,7 @@ export class CloudSync extends EventTarget {
       if (typeof r['id'] === 'string' && at !== null) inCloud.set(r['id'], at);
     }
     const local = new Map(store.loadSyncHistory().map((e) => [e.id, e]));
-    const plan = planTracking([...local.values()], inCloud, new Set(stillPending));
+    const plan = planCloudCopies([...local.values()], inCloud, new Set(stillPending));
 
     for (const id of plan.removeHere) { await store.removeSyncEntry(id, { fromCloud: false }); result.deleted++; }
     for (const id of plan.markSynced) { const e = local.get(id); if (e) store.saveSyncEntry(e, { fromCloud: true }); }
@@ -216,6 +219,55 @@ export class CloudSync extends EventTarget {
       const ins = await this.client.from(DATA_TABLE).upsert({ kind: 'tracking', id, data: { entry: { ...sent, savedAt }, trace }, saved_at: savedAt });
       if (ins.error) throw new Error(ins.error.message);
       store.saveSyncEntry({ ...entry, savedAt }, { fromCloud: true });
+      result.uploaded++;
+    }
+  }
+
+  // ---------- synchronised sleep reports (table user_data, kind 'sleep-reports') ----------
+
+  private async syncSleepReports(result: SyncResult): Promise<void> {
+    const kind = 'sleep-reports';
+    const stillPending: string[] = [];
+    for (const id of store.pendingCloudDeletes(kind)) {
+      const { error } = await this.client.from(DATA_TABLE).delete().eq('kind', kind).eq('id', id);
+      if (error) stillPending.push(id);
+    }
+    store.setPendingCloudDeletes(stillPending, kind);
+
+    const { data, error } = await this.client.from(DATA_TABLE).select('id, saved_at').eq('kind', kind);
+    if (error) throw new Error(error.message);
+    const inCloud = new Map<string, number>();
+    for (const row of (data as unknown[] | null) ?? []) {
+      const r = row as Obj, at = finiteNum(r, 'saved_at');
+      if (typeof r['id'] === 'string' && at !== null) inCloud.set(r['id'], at);
+    }
+    const local = new Map((await store.listAllSleepReports()).map((r) => [r.id, r]));
+    const plan = planCloudCopies([...local.values()], inCloud, new Set(stillPending));
+
+    for (const id of plan.removeHere) { await store.deleteSleepReports(id, { fromCloud: false }); result.deleted++; }
+    for (const id of plan.markSynced) { const r = local.get(id); if (r) await store.saveSleepReports(r, { fromCloud: true }); }
+
+    const cloudCopy = async (id: string): Promise<ReturnType<typeof parseSleepReportsRow>> => {
+      const row = await this.client.from(DATA_TABLE).select('data').eq('kind', kind).eq('id', id).maybeSingle();
+      if (row.error) throw new Error(row.error.message);
+      return parseSleepReportsRow((row.data as Obj | null)?.['data']);
+    };
+    for (const id of plan.download) {
+      const copy = await cloudCopy(id);
+      if (!copy) continue;
+      const here = local.get(id);
+      await store.saveSleepReports({ ...(here ? mergeSleepReports(copy, here) : copy), savedAt: inCloud.get(id) ?? Date.now() }, { fromCloud: true });
+      result.downloaded++;
+    }
+    for (const id of plan.upload) {
+      const here = local.get(id);
+      if (!here) continue;
+      const there = inCloud.has(id) ? await cloudCopy(id) : null; // another device may have added versions
+      const savedAt = here.savedAt ?? Date.now();
+      const merged = { ...(there ? mergeSleepReports(there, here) : here), savedAt };
+      const ins = await this.client.from(DATA_TABLE).upsert({ kind, id, data: forCloud(merged), saved_at: savedAt });
+      if (ins.error) throw new Error(ins.error.message);
+      await store.saveSleepReports(merged, { fromCloud: true });
       result.uploaded++;
     }
   }

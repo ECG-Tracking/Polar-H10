@@ -251,6 +251,10 @@ legend { font-size: 0.85rem; color: var(--ink-2); padding: 0 4px; }
   .card, .chart, .metric { break-inside: avoid; box-shadow: none !important; }
 }
 
+.trend-period { align-items: center; gap: 10px; margin-bottom: 10px; }
+.trend-all { display: block; font-weight: 600; margin-bottom: 6px; }
+.trend-ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; font-size: 0.9rem; }
+
 /* ---------- Sleep ---------- */
 .tiles.four { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 760px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } .tiles.four .tile.hero { grid-column: span 2; } }

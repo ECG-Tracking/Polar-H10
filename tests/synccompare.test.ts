@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beatFigures, combineBeats, combineHr, compareRows, hrAgreement, hrvBands, makeVersion, mergeVersions, parseTrackingRow, planTracking, trackingSuggestions, whatChanged, type HrPoint, type SyncTrace, type TimedBeat } from '../src/synccompare';
+import { beatFigures, combineBeats, combineHr, compareRows, hrAgreement, hrvBands, makeVersion, mergeVersions, parseTrackingRow, planCloudCopies, trackingSuggestions, whatChanged, type HrPoint, type SyncTrace, type TimedBeat } from '../src/synccompare';
 import type { SyncBp, SyncTrackingEntry } from '../src/store';
 
 /** Beats of `rr(i)` ms, timed from the start. */
@@ -104,7 +104,7 @@ test('versions: a new one only when blood pressure or the watch’s data changes
 
 test('cloud: the newest copy wins, and a tracking gone from the cloud was deleted elsewhere', () => {
   const cloud = new Map([['same', 10], ['older-here', 20], ['newer-here', 10], ['only-cloud', 10], ['deleting', 10]]);
-  const plan = planTracking([entry('same', 10, false), entry('older-here', 10, true), entry('newer-here', 20, true), entry('new', 5, false), entry('gone', 5, true)], cloud, new Set(['deleting']));
+  const plan = planCloudCopies([entry('same', 10, false), entry('older-here', 10, true), entry('newer-here', 20, true), entry('new', 5, false), entry('gone', 5, true)], cloud, new Set(['deleting']));
   assert.deepEqual(plan.markSynced, ['same']);
   assert.deepEqual(plan.upload.sort(), ['new', 'newer-here']);
   assert.deepEqual(plan.download.sort(), ['older-here', 'only-cloud']);

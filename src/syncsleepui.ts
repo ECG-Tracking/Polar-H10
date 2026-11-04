@@ -165,7 +165,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     const id = await deps.sleep.stop();
     refresh();
     done.append(make('p', '', id
-      ? 'Saved. The ECG is in ECG history. Now download the watch’s sleep in D2 Link to get the four reports.'
+      ? 'Saved. The ECG is in ECG history and trending. Now download the watch’s sleep in D2 Link to get the four reports.'
       : 'Not saved: recordings under 10 minutes aren’t kept.'));
   }
 

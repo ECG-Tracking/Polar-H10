@@ -416,11 +416,11 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       historyChanged();
       ecgChunks = []; ecgN = 0;
       const row = make('div', 'row wrap');
-      const open = make('button', '', 'Open in ECG history');
+      const open = make('button', '', 'Open in ECG history and trending');
       open.addEventListener('click', () => deps.openEcg(session.id));
-      row.append(make('span', 'note', `ECG saved to ECG history (${mmss(session.durationS)}); results saved to Synchronised Tracking History.`), open);
+      row.append(make('span', 'note', `ECG saved to ECG history and trending (${mmss(session.durationS)}); results saved to Synchronised Tracking History.`), open);
       summary.appendChild(row);
-      log(`ECG saved to ECG history (${mmss(session.durationS)}).`);
+      log(`ECG saved to ECG history and trending (${mmss(session.durationS)}).`);
       return session.id;
     } catch (e) {
       summary.appendChild(make('p', 'note', `The ECG couldn’t be saved: ${errorMessage(e)}`));

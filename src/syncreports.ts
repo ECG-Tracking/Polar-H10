@@ -319,7 +319,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       const when = `${dateTime(e.start)} · ${mmss(e.durationS)}`, tag = ecgId ? 'with ECG' : 'no ECG';
       const remove = deleteButton('this tracking', () => {
         void (async () => {
-          if (ecgId && window.confirm('Also delete its ECG from ECG history? (Cancel keeps the ECG.)')) { await store.deleteSession(ecgId); historyChanged(); }
+          if (ecgId && window.confirm('Also delete its ECG from ECG history and trending? (Cancel keeps the ECG.)')) { await store.deleteSession(ecgId); historyChanged(); }
           await store.removeSyncEntry(e.id);
           historyChanged();
           void render();

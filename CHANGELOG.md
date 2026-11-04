@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.24.0 – ECG history and trending; sleep report versions in the cloud *(GitHub)*
+Why: to follow each figure over time, and to keep every report version safe in the cloud.
+- ECG history is now ECG history and trending. At the top, choose a period from 1 day to 3 years, All or Custom, tick the figures you want, or Select all. Each ticked figure gets its own graph, one point per recording. The choices are kept on that device.
+- Every figure of the ECG report can be trended. Demo recordings are left out. Earlier recordings get their figures the first time the page opens.
+- Synchronised Sleep Tracking reports and all their versions now sync to the cloud and go into backups, like trackings. The watch's name stays on the device.
+
 ## 4 Nov 2026 – v1.23.0 – Saved versions and cloud copies of tracking reports *(GitHub)*
 Why: earlier results should stay readable, and a tracking's numbers should be safe in the cloud like everything else.
 - When a tracking's blood pressure or the watch's data changes, new reports are generated and the earlier ones stay. Each version has its own row with its own four reports, newest first, and an older row opens the reports as they were.
