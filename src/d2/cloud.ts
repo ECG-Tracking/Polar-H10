@@ -257,6 +257,7 @@ export function parseCloudDownload(row: unknown): DownloadLogEntry | null {
 }
 
 async function syncDownloads(client: CloudClient, rows: readonly unknown[], result: D2SyncResult): Promise<void> {
+  await store.dropFailedDownloads();
   const stillPending: string[] = [];
   for (const id of store.pendingLogDeletes()) {
     const { error } = await client.from(DATA_TABLE).delete().eq('id', id);

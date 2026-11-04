@@ -11,6 +11,7 @@ import { activityRecords, mergeMinutes, readingRecords, workoutRecords } from '.
 import { parseCloudDownload, parseCloudRecord, planDownloads } from '../src/d2/cloud';
 import { nightContent, nilText, onlyChanged, recordContent } from '../src/d2/records';
 import { emptySummary } from '../src/d2/sleepfile';
+import { nothingCameBack } from '../src/d2/store';
 import { Tlv } from '../src/d2/tlv';
 import { FakeWatch } from './d2fake';
 
@@ -316,4 +317,11 @@ test('D2 downloads: an identical record is left alone and counted as nil change'
   assert.equal(nilText(2, 2), ' (nil change)');
   assert.equal(nilText(3, 1), ' (1 nil change)');
   assert.equal(nilText(3, 0), '');
+});
+
+test('D2 downloads: a failed connection isn’t recorded, but a download that stopped part way is', () => {
+  assert.equal(nothingCameBack({ ok: false, items: [] }), true);
+  assert.equal(nothingCameBack({ ok: false, items: [{ what: 'sleep records', count: 0 }] }), true);
+  assert.equal(nothingCameBack({ ok: false, items: [{ what: 'sleep records', count: 2 }] }), false);
+  assert.equal(nothingCameBack({ ok: true, items: [{ what: 'sleep records', count: 0 }] }), false);
 });

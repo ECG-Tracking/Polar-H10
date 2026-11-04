@@ -311,6 +311,16 @@ export async function removeDownloadLog(at: number, { fromCloud = true }: { from
   try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }
 
+/** A failed connection or a download that stopped before getting anything: not worth a line in the history. */
+export const nothingCameBack = (e: Pick<DownloadLogEntry, 'ok' | 'items'>): boolean => !e.ok && !e.items.some((i) => (i.count ?? 0) > 0);
+
+/** Lines recorded before such failures were left out go to the Recovery centre, here and on other devices. */
+export async function dropFailedDownloads(): Promise<number> {
+  const failed = loadDownloadLog().filter(nothingCameBack);
+  for (const e of failed) await removeDownloadLog(e.at);
+  return failed.length;
+}
+
 /** Adds a download, newest first. */
 export function addDownloadLog(e: DownloadLogEntry): void {
   saveLog([e, ...loadDownloadLog()].slice(0, downloadLimit()));

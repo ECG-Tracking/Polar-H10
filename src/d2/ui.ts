@@ -557,7 +557,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     } finally {
       // the connection stays open for the next download and for Synchronised Tracking
       syncButtons(false);
-      store.addDownloadLog(entry);
+      if (!store.nothingCameBack(entry)) store.addDownloadLog(entry);
       renderHistory();
     }
   })();
@@ -671,7 +671,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   renderHistory();
   void renderList().then(sync);
   return {
-    refresh: () => { report.hidden = true; histHome.hidden = false; renderHistory(); void renderList().then(sync); },
+    refresh: () => { report.hidden = true; histHome.hidden = false; void store.dropFailedDownloads().then(renderHistory); void renderList().then(sync); },
     openNight: async (id, back, copy) => { await renderList(); openReport(id, back, copy as D2Night | undefined); },
   };
 }

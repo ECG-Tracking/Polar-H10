@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.28.1 – Failed connections aren't recorded *(GitHub)*
+Why: the download history should list downloads, not failed attempts.
+- A download that got nothing, such as a failed connection or refused login, no longer goes in the history. The reason still shows on the page and in the connection log. A download that stopped part way, after getting something, is still recorded.
+- Earlier lines of this kind move to the Recovery centre, on all your devices.
+
 ## 4 Nov 2026 – v1.28.0 – Identical downloads are left alone *(GitHub)*
 Why: downloading the same data again shouldn't replace it, sync it again or make new report versions.
 - A sleep record or other watch record identical to the stored one is no longer replaced. The download history says "nil change", for example "2 sleep records (nil change)" or "3 sleep records (1 nil change)".
