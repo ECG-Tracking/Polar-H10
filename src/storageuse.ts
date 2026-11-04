@@ -47,6 +47,7 @@ export function usageRows(m: Measured): UseRow[] {
     { name: 'ECG recordings', count: s.sessions.count, bytes: s.sessions.bytes + s.signals.bytes + s.ecgSummaries.bytes },
     { name: 'Sleep', count: s.sleeps.count, bytes: s.sleeps.bytes + s.sleepSignals.bytes },
     { name: 'Synchronised sleep reports', count: s.sleepReports.count, bytes: s.sleepReports.bytes },
+    { name: 'Synchronised tracking beats', count: s.syncTraces.count, bytes: s.syncTraces.bytes },
     { name: 'Recovery centre', count: s.bin.count + (d2?.bin ?? none).count, bytes: s.bin.bytes + s.binSignals.bytes + (d2?.bin ?? none).bytes },
     { name: 'App settings', count: null, bytes: m.settings.bytes },
     { name: 'The app itself (offline copy)', count: m.app.count, bytes: m.app.bytes },

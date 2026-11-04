@@ -33,19 +33,19 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'settings' | 'backups' | 'recovery' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'settings', 'backups', 'recovery', 'about'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'syncReport' | 'settings' | 'backups' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'syncReport', 'settings', 'backups', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 printInLightColours();
 
 function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
-  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view;
+  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view === 'syncReport' ? 'syncHistory' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
   // the page's name in the top bar (a report is named for what it reports on)
   const tabLabel = document.querySelector<HTMLButtonElement>(`.tabs button[data-view="${tab}"]`)?.textContent?.trim() ?? '';
-  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : tabLabel;
+  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : view === 'syncReport' ? 'Tracking report' : tabLabel;
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
@@ -97,10 +97,11 @@ const biodataProfile = (): { heightCm: number; weightKg: number; age: number; se
 let syncUI: ReturnType<typeof initSyncTracking> | null = null;
 let backupsReady = false;
 function openSync(): void {
-  syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), {
+  syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), $('syncReportRoot'), {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
     openEcg: (id) => void openReport(id),
     summarise,
+    show,
   });
 }
 

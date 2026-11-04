@@ -3,7 +3,9 @@
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { syncNights, syncRecords, type CloudClient } from './cloud';
+import type { ActivityMinute } from './extra';
 import { figures, isNap } from './night';
+import { minutesOf } from './records';
 import * as store from './store';
 import type { D2BinItem, D2Night, D2Record, DownloadLogEntry } from './store';
 
@@ -23,6 +25,31 @@ export interface PairingSleep {
 export async function exportD2(account: string, withBin = false): Promise<D2Backup> {
   store.useAccount(account);
   return { v: 1, nights: await store.listAllNights(), records: await store.listAllRecords(), downloads: store.loadDownloadLog(), ...(withBin ? { bin: await store.listBin() } : {}) };
+}
+
+export interface TrackingWatchData {
+  minutes: ActivityMinute[];
+  hrv: { at: number; rmssd: number | null }[];
+  emotion: { at: number; status: number | null; valence: number | null; arousal: number | null }[];
+  stress: { at: number; end: number; score: number | null; level: number | null }[];
+  workouts: { at: number; end: number }[];
+}
+
+/** What the watch's downloads hold for a tracking: its minutes, what was measured within `nearMs`, and workouts overlapping it. */
+export async function trackingData(account: string, user: number, from: number, to: number, nearMs: number): Promise<TrackingWatchData> {
+  store.useAccount(account);
+  const records = (await store.listAllRecords()).filter((r) => r.user === user).sort((a, b) => a.start - b.start);
+  const near = (at: number): boolean => at >= from - nearMs && at <= to + nearMs;
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const values = (r: D2Record): Record<string, number> => (r.data['values'] ?? {}) as Record<string, number>;
+  const readings = (cls: number): D2Record[] => records.filter((r) => r.kind === 'reading' && r.data['cls'] === cls && near(r.start));
+  return {
+    minutes: records.filter((r) => r.kind === 'activity').flatMap(minutesOf).filter((m) => m.t * 1000 >= from - 60000 && m.t * 1000 <= to).sort((a, b) => a.t - b.t),
+    hrv: readings(500044).map((r) => ({ at: r.start, rmssd: num(values(r)['500044831']) })),
+    emotion: readings(500031).map((r) => ({ at: r.start, status: num(values(r)['500031195']), valence: num(values(r)['500031347']), arousal: num(values(r)['500031842']) })),
+    stress: records.filter((r) => r.kind === 'stress' && near(r.start)).map((r) => ({ at: r.start, end: num(r.data['end']) ?? r.start, score: num(r.data['score']), level: num(r.data['level']) })),
+    workouts: records.filter((r) => r.kind === 'workout' && r.start <= to && (num(r.data['end']) ?? r.start) >= from).map((r) => ({ at: r.start, end: num(r.data['end']) ?? r.start })),
+  };
 }
 
 export interface D2Use { count: number; bytes: number }

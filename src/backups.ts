@@ -9,6 +9,7 @@ import { download, make } from './ui';
 import { errorMessage } from './util';
 import { versionText } from './version';
 import { withReadings } from './synctrack';
+import type { SyncTrace } from './synccompare';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
 const TABLES = ['ecg_sessions', 'sleep_nights', 'd2_nights', 'user_data'] as const;
@@ -58,6 +59,7 @@ export interface AccountBackup {
   ecg: EcgItem[]; sleep: SleepItem[];
   settings: Record<string, { settings: unknown; savedAt: number }>;
   syncTracking: store.SyncTrackingEntry[];
+  syncTraces?: SyncTrace[];
   d2: unknown;
   /** The Recovery centre; missing from backups made before v1.15 and from comparison files. */
   bin?: BinEntry[];
@@ -88,7 +90,7 @@ async function collect(withSignals: boolean, d2: D2Api | null): Promise<Omit<Acc
   for (const u of store.USERS) if (store.hasSavedSettings(u)) settings[String(u)] = { settings: store.loadSettings(u), savedAt: store.settingsSavedAt(u) };
   return {
     exportedAt: new Date().toISOString(), appVersion: versionText(), account: { id: a.id, email: a.email },
-    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), d2: d2 ? await d2.backup.exportD2(a.id, withSignals) : null,
+    ecg, sleep, settings, syncTracking: store.loadSyncHistory(), syncTraces: await store.listSyncTraces(), d2: d2 ? await d2.backup.exportD2(a.id, withSignals) : null,
     ...(withSignals ? { bin: (await store.exportBin()).map(binToText) } : {}),
   };
 }
@@ -137,6 +139,7 @@ export async function restoreBackup(b: AccountBackup, d2: D2Api | null): Promise
     users++;
   }
   for (const e of Array.isArray(b.syncTracking) ? b.syncTracking : []) if (typeof e?.id === 'string') store.saveSyncEntry(e);
+  for (const x of Array.isArray(b.syncTraces) ? b.syncTraces : []) if (typeof x?.id === 'string') await store.saveSyncTrace(x);
   const d2n = d2 && b.d2 ? await d2.backup.importD2(current.account?.id ?? 'local', b.d2) : 0;
   const bin = Array.isArray(b.bin) ? b.bin.filter((e) => typeof e?.item?.id === 'string') : [];
   for (const e of bin) { const { item, data } = binFromText(e); await store.importBin(item, data); }

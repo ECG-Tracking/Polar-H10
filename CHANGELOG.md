@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.22.0 – Four reports for every synchronised tracking *(GitHub)*
+Why: one tracking from two devices should be read the same way as one sleep from two devices.
+- Synchronised Tracking History now lists each tracking with four reports: Polar H10, D2, Combined and Comparison, plus its ECG.
+- Figures from the beats: heart rate (average, lowest, highest, range), beat intervals, RMSSD, average, lowest and highest HRV per minute, HRV score, SDNN, CVNN, pNN50, pNN20, SD1, SD2, SD1/SD2, LF, HF, LF/HF, and how many beats were used.
+- The Polar H10 report adds the ECG waves from the saved ECG. The D2 report adds blood pressure and what the watch's downloads hold for that time: minute heart rate, SpO₂, steps, HRV readings, stress, emotion and workouts.
+- Combined: the strap's beats stand, and the watch fills gaps of over 2.5 s.
+- Comparison: every figure side by side with the difference, how closely the heart rates agree, stored watch readings against the strap, and how to improve accuracy.
+- Each tracking's beats are now kept for its reports. Earlier trackings show their saved summary, with the strap's figures from their ECG. Beats stay on the device and go into backups, not the cloud. This needs a small storage update: close any other open tabs of the app after updating.
+
 ## 4 Nov 2026 – v1.21.0 – Double and triple size for the live ECG; white patches in PDFs fixed *(GitHub)*
 Why: at actual size the trace is small on a laptop.
 - Below each live trace you can choose Actual size, Double size or Triple size. The trace gets taller to fit, the squares and calibration mark grow with it, and fewer seconds fit across the screen. The choice is kept on that device.

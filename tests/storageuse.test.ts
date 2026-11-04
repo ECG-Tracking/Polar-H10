@@ -5,7 +5,7 @@ import type { StoreName, StoreUse } from '../src/store';
 
 const use = (bytes = 0, count = 0, seconds = 0): StoreUse => ({ count, bytes, seconds });
 function measured(stores: Partial<Record<StoreName, StoreUse>> = {}, d2: Measured['d2'] = null): Measured {
-  const empty = { sessions: use(), signals: use(), sleeps: use(), sleepSignals: use(), ecgSummaries: use(), bin: use(), binSignals: use(), sleepReports: use() };
+  const empty = { sessions: use(), signals: use(), sleeps: use(), sleepSignals: use(), ecgSummaries: use(), bin: use(), binSignals: use(), sleepReports: use(), syncTraces: use() };
   return { stores: { ...empty, ...stores }, d2, settings: { count: 2, bytes: 100 }, app: { count: 5, bytes: 2000 } };
 }
 

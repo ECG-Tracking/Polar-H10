@@ -1,6 +1,7 @@
 // Local persistence: sessions in IndexedDB, settings in localStorage. Cloud copies are made by cloud.ts.
 
 import type { SavedSleepReports } from './syncsleep';
+import type { SyncTrace } from './synccompare';
 
 // ---------- Accounts ----------
 // Each signed-in account keeps its own database and settings on the device. The first account to sign in
@@ -79,15 +80,16 @@ export interface Session {
 interface SignalRecord { id: string; samples: Int16Array } // µV
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports', 'syncTraces'];
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre,
-    // version 5 the synchronised sleep reports; existing data is kept
-    const req = indexedDB.open(dbName, 5);
+    // version 5 the synchronised sleep reports, version 6 the beats of each synchronised tracking; existing data is kept
+    const req = indexedDB.open(dbName, 6);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports']) {
+      for (const name of STORE_NAMES) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       }
     };
@@ -97,7 +99,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports';
+export type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports' | 'syncTraces';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -109,8 +111,6 @@ function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransac
     t.onabort = () => reject(t.error ?? new Error('storage error')); // e.g. the device's storage is full
   }));
 }
-
-const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports'];
 
 /** `seconds` is the length of the recordings whose raw data is on this device. */
 export interface StoreUse { count: number; bytes: number; seconds: number }
@@ -388,9 +388,10 @@ export async function importBin(item: BinItem, data?: BinSignalRecord): Promise<
 
 /** Removes an item from the Recovery centre for good. */
 export async function purgeBin(id: string): Promise<void> {
-  await tx(['bin', 'binSignals'], 'readwrite', (t) => {
+  await tx(['bin', 'binSignals', 'syncTraces'], 'readwrite', (t) => {
     t.objectStore('bin').delete(id);
     t.objectStore('binSignals').delete(id);
+    if (id.startsWith('tracking:')) t.objectStore('syncTraces').delete(id.slice('tracking:'.length)); // its beats go with it
   });
 }
 
@@ -590,6 +591,19 @@ export async function removeSyncEntry(id: string): Promise<void> {
 export function saveSyncEntry(e: SyncTrackingEntry): void {
   const rest = loadSyncHistory().filter((x) => x.id !== e.id);
   try { localStorage.setItem(syncKey(), JSON.stringify([e, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
+}
+
+/** The beats of one tracking. Stay when it is deleted, so restoring it brings its reports back. */
+export async function saveSyncTrace(trace: SyncTrace): Promise<void> {
+  await tx(['syncTraces'], 'readwrite', (t) => { t.objectStore('syncTraces').put(trace); });
+}
+
+export async function loadSyncTrace(id: string): Promise<SyncTrace | undefined> {
+  return tx<SyncTrace | undefined>(['syncTraces'], 'readonly', (t) => t.objectStore('syncTraces').get(id));
+}
+
+export async function listSyncTraces(): Promise<SyncTrace[]> {
+  return (await tx<SyncTrace[]>(['syncTraces'], 'readonly', (t) => t.objectStore('syncTraces').getAll() as IDBRequest<SyncTrace[]>)) ?? [];
 }
 
 // ---------- reset (Account menu → "Reset my account data") ----------
