@@ -19,6 +19,8 @@ export interface SleepDeps {
   renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
   /** An ECG saved during this time, for a recording that didn't save its own. */
   ecgDuring: (from: number, to: number) => Promise<{ id: string } | null>;
+  /** A recording was saved or deleted. */
+  sleepChanged: () => void;
   user: () => UserNumber;
   /** The mains-hum filter chosen in Biodata, for the live trace. */
   notch: () => number;
@@ -245,6 +247,7 @@ export function initSleep(deps: SleepDeps): {
     }
     await store.saveSleep(session, data);
     historyChanged();
+    deps.sleepChanged();
     if (show) await openReport(session.id);
     return session.id;
   }
@@ -259,6 +262,7 @@ export function initSleep(deps: SleepDeps): {
     const session: SleepSession = { id: `n${bed.getTime()}-${seed}`, user: deps.user(), start: bed.getTime(), durationS: data.durationS, source: 'demo', summary: null };
     await store.saveSleep(session, data);
     historyChanged();
+    deps.sleepChanged();
     await openReport(session.id);
   }
 
@@ -560,6 +564,7 @@ export function initSleep(deps: SleepDeps): {
     }
     await store.deleteSleep(night.id);
     historyChanged();
+    deps.sleepChanged();
   }
   $button('btnSleepDelete').addEventListener('click', () => {
     void (async () => {

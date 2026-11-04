@@ -1,5 +1,7 @@
 // Local persistence: sessions in IndexedDB, settings in localStorage. Cloud copies are made by cloud.ts.
 
+import type { SavedSleepReports } from './syncsleep';
+
 // ---------- Accounts ----------
 // Each signed-in account keeps its own database and settings on the device. The first account to sign in
 // on a device takes over what was stored before accounts existed (the un-prefixed names); later accounts
@@ -80,11 +82,12 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
-    // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre; existing data is kept
-    const req = indexedDB.open(dbName, 4);
+    // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre,
+    // version 5 the synchronised sleep reports; existing data is kept
+    const req = indexedDB.open(dbName, 5);
     req.onupgradeneeded = () => {
       const db = req.result;
-      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals']) {
+      for (const name of ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports']) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       }
     };
@@ -94,7 +97,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals';
+type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -223,6 +226,23 @@ export async function saveSleep(session: SleepSession, signals: SleepSignals): P
 
 export async function updateSleep(session: SleepSession): Promise<void> {
   await tx(['sleeps'], 'readwrite', (t) => { t.objectStore('sleeps').put(session); });
+}
+
+/** The combined and comparison reports of one sleep. They are worked out again from the recordings, so backups and the cloud don't hold them. */
+export async function saveSleepReports(r: SavedSleepReports): Promise<void> {
+  await tx(['sleepReports'], 'readwrite', (t) => { t.objectStore('sleepReports').put(r); });
+}
+
+export async function loadSleepReports(id: string): Promise<SavedSleepReports | undefined> {
+  return tx<SavedSleepReports | undefined>(['sleepReports'], 'readonly', (t) => t.objectStore('sleepReports').get(id));
+}
+
+export async function listSleepReports(user: number): Promise<SavedSleepReports[]> {
+  return ((await tx<SavedSleepReports[]>(['sleepReports'], 'readonly', (t) => t.objectStore('sleepReports').getAll())) ?? []).filter((r) => r.user === user);
+}
+
+export async function deleteSleepReports(id: string): Promise<void> {
+  await tx(['sleepReports'], 'readwrite', (t) => { t.objectStore('sleepReports').delete(id); });
 }
 
 export async function listAllSleeps(): Promise<SleepSession[]> {

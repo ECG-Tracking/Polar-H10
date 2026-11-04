@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.16.1 – Combined and comparison reports are generated automatically *(GitHub)*
+Why: the reports should be ready as soon as both recordings are there, and stay right when either changes.
+- The combined and comparison reports are generated and saved as soon as a Polar H10 recording and the watch's sleep match: after a recording stops, after a watch download, after a sync from another device, and when the app opens.
+- If either recording changes they are generated again, and the report says when and which recording changed. If either is deleted, the saved reports go too; restoring it generates them again.
+- Nothing is generated while a sleep recording is running, so the recording isn't held up; that happens when it stops.
+- The saved reports stay on each device and aren't in backups, because each device can make them from the synced recordings. This needs a small storage update: close any other open tabs of the app after updating.
+- The D2 Link download choice "Last night" is now "Last 1 day".
+
 ## 4 Nov 2026 – v1.16.0 – Synchronised Sleep Tracking and four sleep reports *(GitHub)*
 Why: one sleep measured by two devices can show where they differ, and what to do about it.
 - New pages Synchronised Sleep Tracking and Synchronised Sleep Tracking History, at the end of Polar H10 + Watch D2.

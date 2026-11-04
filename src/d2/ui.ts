@@ -37,6 +37,8 @@ export interface D2Deps {
   showHistory?: () => void;
   /** An ECG saved during this time, if there is one, and how to open it. */
   ecgDuring?: (from: number, to: number) => Promise<{ id: string; label: string } | null>;
+  /** The list of nights was read again: something may have been downloaded, synced or deleted. */
+  sleepChanged?: () => void;
   openEcg?: (id: string) => void;
 }
 
@@ -199,7 +201,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const btnDisconnect = button('Disconnect watch');
   btnDisconnect.hidden = true;
   const days = el('select');
-  for (const [v, t] of [[1, 'Last night'], [3, 'Last 3 days'], [7, 'Last 7 days'], [14, 'Last 14 days'], [30, 'Last 30 days']] as const) {
+  for (const [v, t] of [[1, 'Last 1 day'], [3, 'Last 3 days'], [7, 'Last 7 days'], [14, 'Last 14 days'], [30, 'Last 30 days']] as const) {
     const o = el('option', '', t); o.value = String(v); if (v === 7) o.selected = true; days.appendChild(o);
   }
   { const o = el('option', '', 'Choose dates…'); o.value = 'custom'; days.appendChild(o); }
@@ -401,6 +403,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     }
     list.replaceChildren(...rows.sort((a, b) => b.ms - a.ms).map((r) => r.li));
     showView();
+    deps.sleepChanged?.();
   }
 
   // ---------- Nights / Week / Month ----------

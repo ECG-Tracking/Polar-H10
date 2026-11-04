@@ -150,6 +150,7 @@ async function openD2(): Promise<void> {
       profile: biodataProfile,
       historyRoot: $('d2HistoryRoot'),
       ecgDuring,
+      sleepChanged: () => syncSleepUI?.schedule(),
       openEcg: (id) => void openReport(id),
       showHistory: () => { if (!$('view-d2History').classList.contains('active')) { d2KeepPage = true; show('d2History'); } },
     });
@@ -1046,6 +1047,7 @@ for (const sel of userSelects) {
     else if ($('view-sleepHistory').classList.contains('active')) void sleepUI?.renderHistory();
     else if ($('view-recovery').classList.contains('active')) show('recovery');
     sleepUI?.refreshUser();
+    syncSleepUI?.schedule();
   });
 }
 renderUserOptions();
@@ -1059,12 +1061,14 @@ account.cloud?.addEventListener('settings', () => {
 
 // recordings arrived from (or were deleted on) another device
 account.cloud?.addEventListener('changed', () => {
+  syncSleepUI?.schedule();
   if ($('view-history').classList.contains('active')) void renderHistory();
 });
 
 sleepUI = initSleep({
   renderNightEcg,
   ecgDuring,
+  sleepChanged: () => syncSleepUI?.schedule(),
   user: () => currentUser,
   notch: () => settings.notch,
   userLabel,
@@ -1072,6 +1076,7 @@ sleepUI = initSleep({
   recordingChanged: syncUserSelect,
 });
 onStrap(useStrap);
+openSyncSleep().schedule(); // sleep that arrived or changed while the app was closed
 
 // ---------- Reference sources ----------
 

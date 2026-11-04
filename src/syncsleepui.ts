@@ -4,9 +4,9 @@
 import { connectStrap, onStrap } from './devices';
 import { Hypnogram, drawDonut, fmtClock, STAGE_COLOR_VAR, STAGE_LABEL, type SleepStageKey } from './charts';
 import { checkRange, fmtRange, sleepRanges, type Range } from './ranges';
-import { analyzeSleep, EPOCH_S, type SleepAnalysis, type SleepData } from './sleep';
+import { analyzeSleep, EPOCH_S, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import * as store from './store';
-import { combine, compareMinutes, figuresOf, lineUp, pairUp, suggestions, type Known, type SleepPair, type Timeline, type WatchSleep } from './syncsleep';
+import { buildReports, pairUp, whatChanged, type Known, type PolarFigures, type SavedSleepReports, type SleepPair, type WatchSleep } from './syncsleep';
 import { parseSleepReport, toAnalysis } from './summary';
 import { fmt, fmtHM, make } from './ui';
 import { errorMessage, errorName } from './util';
@@ -93,7 +93,7 @@ function tile(name: string, value: string, unit: string, note: string, check?: {
 }
 
 export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncSleepDeps): {
-  refresh: () => void; refreshHistory: () => Promise<void>;
+  refresh: () => void; refreshHistory: () => Promise<void>; schedule: () => void;
 } {
   // ---------- the recording page ----------
 
@@ -114,7 +114,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     'Put on the Polar H10 and the Watch D2, and connect the strap here.',
     'Start the recording when you go to bed. The strap records your sleep and ECG; the watch records your sleep by itself, so it needn’t stay connected.',
     'Stop the recording when you wake up.',
-    'Download the watch’s sleep in D2 Link. The sleep then appears in Synchronised Sleep Tracking History with its four reports.',
+    'Download the watch’s sleep in D2 Link. The combined and comparison reports are then generated automatically, and the sleep appears in Synchronised Sleep Tracking History with its four reports.',
   ]) steps.appendChild(make('li', '', line));
   const row = make('div', 'row wrap');
   row.append(btnConnect, btnStart);
@@ -168,26 +168,97 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       : 'Not saved: recordings under 10 minutes aren’t kept.'));
   }
 
-  // ---------- history ----------
+  // ---------- keeping the reports up to date ----------
 
   async function loadPairs(): Promise<SleepPair[]> {
+    const polar = await store.listSleeps(deps.user() as store.UserNumber);
+    if (!polar.length) return []; // no need to load D2 Link
     const api = await deps.loadD2();
-    const [polar, watch] = await Promise.all([store.listSleeps(deps.user() as store.UserNumber), api.pairingSleep(deps.account(), deps.user())]);
-    return pairUp(polar, watch);
+    return pairUp(polar, await api.pairingSleep(deps.account(), deps.user()));
   }
 
-  const ecgOf = async (p: SleepPair): Promise<FoundEcg | null> => {
-    if (p.polar.ecgId) {
-      const { session } = await store.loadSession(p.polar.ecgId);
+  /** The Polar H10 recording's analysis and, the first time, the summary its history row and reports use. */
+  async function polarOf(p: SleepPair): Promise<{ stages: readonly Stage[]; figures: PolarFigures } | null> {
+    const { session, signals } = await store.loadSleep(p.polar.id);
+    if (!session) return null;
+    let a: SleepAnalysis | null = null;
+    if (session.cloudOnly) {
+      const report = parseSleepReport(session.report);
+      if (report) a = toAnalysis(report);
+    } else if (signals) {
+      a = analyzeSleep({ durationS: session.durationS, ...signals } satisfies SleepData);
+    }
+    if (!a) return null;
+    const m = a.metrics;
+    if (!p.polar.summary) {
+      p.polar.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
+      await store.updateSleep({ ...session, summary: p.polar.summary }).catch(() => undefined);
+    }
+    return {
+      stages: a.stages,
+      figures: {
+        sleepMin: m.sleepMin, deepMin: m.deepMin, lightMin: m.lightMin, remMin: m.remMin, awakeMin: m.awakeMin, deepPct: m.deepPct, remPct: m.remPct,
+        awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate, score: m.score, coverage: m.coverage,
+        onsetMs: Number.isFinite(m.onsetS) ? p.polar.start + m.onsetS * 1000 : null, wakeMs: Number.isFinite(m.wakeS) ? p.polar.start + m.wakeS * 1000 : null,
+      },
+    };
+  }
+
+  let running: Promise<boolean> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  /** Makes the reports of new sleeps and of sleeps whose recordings changed, and drops those of sleeps that are gone. Says if anything changed. */
+  async function updateAll(): Promise<boolean> {
+    if (deps.sleep.isRecording()) return false; // an analysis would hold up the recording
+    const pairs = await loadPairs();
+    const saved = new Map((await store.listSleepReports(deps.user())).map((r) => [r.id, r]));
+    let changed = false;
+    for (const p of pairs) {
+      await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+      const before = saved.get(p.id);
+      saved.delete(p.id);
+      if (!p.polar.summary || whatChanged(before, p)) {
+        const polar = await polarOf(p);
+        if (!polar || !whatChanged(before, p)) continue;
+        await store.saveSleepReports(buildReports(p, polar.figures, polar.stages, EPOCH_S, Date.now(), before));
+        changed = true;
+      }
+    }
+    for (const id of saved.keys()) { await store.deleteSleepReports(id); changed = true; }
+    return changed;
+  }
+
+  function generate(): Promise<boolean> {
+    running ??= updateAll().catch(() => false).finally(() => { running = null; });
+    return running;
+  }
+
+  /** Something changed: a recording stopped, the watch's sleep arrived, or another device synced. */
+  function schedule(): void {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      void generate().then((changed) => { if (changed && historyRoot.offsetParent) void renderList(); });
+    }, 2000);
+  }
+
+  // ---------- history ----------
+
+  const ecgOf = async (r: { ecgId: string | null; start: number; end: number }): Promise<FoundEcg | null> => {
+    if (r.ecgId) {
+      const { session } = await store.loadSession(r.ecgId);
       if (session) return { id: session.id, label: dateTime(session.start) };
     }
-    return deps.ecgDuring(p.start, Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs));
+    return deps.ecgDuring(r.start, r.end);
   };
 
   const backToHistory = (): void => deps.show('syncSleepHistory');
 
-  async function refreshHistory(): Promise<void> {
-    const head = make('h2', '', `Synchronised Sleep Tracking History `);
+  const madeText = (r: SavedSleepReports): string => (r.changed === 'new'
+    ? `Generated ${dateTime(r.generatedAt)}`
+    : `Generated again ${dateTime(r.generatedAt)}, because ${r.changed === 'polar' ? 'the Polar H10 recording' : r.changed === 'watch' ? 'the watch’s sleep' : 'both recordings'} changed`);
+
+  async function renderList(): Promise<void> {
+    const head = make('h2', '', 'Synchronised Sleep Tracking History ');
     head.appendChild(make('span', 'muted', `· ${deps.userLabel()}`));
     let pairs: SleepPair[];
     try {
@@ -200,101 +271,92 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       historyRoot.replaceChildren(head, make('p', 'muted', 'No sleep recorded by both devices yet. Record on Synchronised Sleep Tracking, or on Sleep monitor, then download the watch’s sleep in D2 Link.'));
       return;
     }
+    const saved = new Map((await store.listSleepReports(deps.user())).map((r) => [r.id, r]));
     const list = make('ul', 'sessions');
     for (const p of pairs) {
-      const ecg = await ecgOf(p);
+      const r = saved.get(p.id);
+      const ecg = await ecgOf({ ecgId: p.polar.ecgId ?? null, start: p.start, end: Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs) });
       const li = make('li', 'sync-sleep-row');
       const polarMin = p.polar.summary?.sleepMin ?? null;
       li.append(
         make('span', 'when', `${dateTime(p.start)} · ${p.nap ? 'Nap' : 'Night'}`),
         make('span', 'dur', [p.polar.source === 'demo' || p.watch.demo ? 'demo' : '', ecg ? 'with ECG' : 'no ECG'].filter(Boolean).join(' · ')),
-        make('span', 'stats', `Polar H10 ${polarMin == null ? 'open to analyse' : fmtHM(polarMin)} · Watch D2 ${fmtHM(p.watch.sleepMin)}`),
+        make('span', 'stats', `Polar H10 ${polarMin == null ? '--' : fmtHM(polarMin)} · Watch D2 ${fmtHM(p.watch.sleepMin)}${r?.agreement.stagePct == null ? '' : ` · ${fmt(r.agreement.stagePct)} % same stage`}`),
+        make('span', 'muted sync-sleep-made', r && !whatChanged(r, p) ? madeText(r) : deps.sleep.isRecording() ? 'Reports are generated when the recording stops' : 'Generating the combined and comparison reports…'),
       );
       const actions = make('div', 'row wrap sync-sleep-actions');
       actions.append(
         button('Polar H10 report', 'small', () => deps.openPolar(p.polar.id, backToHistory)),
         button('D2 report', 'small', () => deps.openWatch(p.watch.id, backToHistory)),
-        button('Combined report', 'small', () => void openReport(p, 'combined')),
-        button('Comparison report', 'small', () => void openReport(p, 'comparison')),
+        button('Combined report', 'small', () => void openReport(p.id, 'combined')),
+        button('Comparison report', 'small', () => void openReport(p.id, 'comparison')),
       );
       if (ecg) actions.appendChild(button('ECG', 'small', () => deps.openEcg(ecg.id)));
       li.appendChild(actions);
       list.appendChild(li);
     }
-    historyRoot.replaceChildren(head, make('p', 'muted', 'Each sleep has four reports, and every report links to the ECG saved with it.'), list);
+    historyRoot.replaceChildren(head, make('p', 'muted', 'Each sleep has four reports, and every report links to the ECG saved with it. The combined and comparison reports are generated automatically, and again if either recording changes.'), list);
+  }
+
+  async function refreshHistory(): Promise<void> {
+    await renderList();
+    if (await generate()) await renderList();
   }
 
   // ---------- combined and comparison reports ----------
 
-  const analyses = new Map<string, SleepAnalysis>();
-  async function analysisOf(id: string): Promise<SleepAnalysis | null> {
-    const known = analyses.get(id);
-    if (known) return known;
-    const { session, signals } = await store.loadSleep(id);
-    if (!session) return null;
-    let a: SleepAnalysis | null = null;
-    if (session.cloudOnly) {
-      const report = parseSleepReport(session.report);
-      if (report) a = toAnalysis(report);
-    } else if (signals) {
-      a = analyzeSleep({ durationS: session.durationS, ...signals } satisfies SleepData);
-    }
-    if (a) analyses.set(id, a);
-    return a;
-  }
-
-  async function ecgCard(p: SleepPair): Promise<HTMLElement> {
+  async function ecgCard(r: SavedSleepReports): Promise<HTMLElement> {
     const box = make('div', 'card d2-more');
-    box.appendChild(make('h3', '', `ECG during this ${p.nap ? 'nap' : 'night'}`));
-    const ecg = await ecgOf(p);
+    box.appendChild(make('h3', '', `ECG during this ${r.nap ? 'nap' : 'night'}`));
+    const ecg = await ecgOf(r);
     if (!ecg) { box.appendChild(make('p', 'muted', 'No ECG was saved during this sleep. Recordings made with the Start sleep & ECG recording button save one.')); return box; }
-    const r = moreRow('Saved ECG', ecg.label);
-    box.append(r, button('Open ECG report', '', () => deps.openEcg(ecg.id)));
+    box.append(moreRow('Saved ECG', ecg.label), button('Open ECG report', '', () => deps.openEcg(ecg.id)));
     return box;
   }
 
-  function reportBar(p: SleepPair, kind: 'combined' | 'comparison'): HTMLElement {
+  function reportBar(r: SavedSleepReports, kind: 'combined' | 'comparison'): HTMLElement {
     const bar = make('div', 'row between wrap no-print');
     bar.appendChild(button('← Synchronised Sleep Tracking History', '', backToHistory));
     const right = make('div', 'row wrap');
     right.append(
-      button('Polar H10 report', '', () => deps.openPolar(p.polar.id, () => void openReport(p, kind))),
-      button('D2 report', '', () => deps.openWatch(p.watch.id, () => void openReport(p, kind))),
-      button('Combined report', kind === 'combined' ? 'primary' : '', () => void openReport(p, 'combined')),
-      button('Comparison report', kind === 'comparison' ? 'primary' : '', () => void openReport(p, 'comparison')),
+      button('Polar H10 report', '', () => deps.openPolar(r.polarId, () => void openReport(r.id, kind))),
+      button('D2 report', '', () => deps.openWatch(r.watchId, () => void openReport(r.id, kind))),
+      button('Combined report', kind === 'combined' ? 'primary' : '', () => void openReport(r.id, 'combined')),
+      button('Comparison report', kind === 'comparison' ? 'primary' : '', () => void openReport(r.id, 'comparison')),
       button('Print / PDF', '', () => window.print()),
     );
     bar.appendChild(right);
     return bar;
   }
 
-  async function openReport(p: SleepPair, kind: 'combined' | 'comparison'): Promise<void> {
+  async function openReport(id: string, kind: 'combined' | 'comparison'): Promise<void> {
     deps.show('syncSleepReport');
-    reportRoot.replaceChildren(make('div', 'busy', 'Analysing the recording…'));
+    reportRoot.replaceChildren(make('div', 'busy', 'Opening the report…'));
     await new Promise((r) => setTimeout(r, 30));
-    const a = await analysisOf(p.polar.id);
-    if (!a) { reportRoot.replaceChildren(reportBar(p, kind), make('p', 'muted', 'The Polar H10 recording could not be read on this device.')); return; }
-    const t = lineUp(a.stages, p.polar.start, EPOCH_S, p.watch);
-    const ecg = await ecgCard(p);
-    if (kind === 'combined') renderCombined(p, a, t, ecg); else renderComparison(p, a, t, ecg);
+    await generate();
+    const r = await store.loadSleepReports(id);
+    if (!r) {
+      reportRoot.replaceChildren(button('← Synchronised Sleep Tracking History', '', backToHistory), make('p', 'muted', deps.sleep.isRecording() ? 'This report is generated when the recording stops.' : 'One of the recordings is no longer on this device, so this report could not be generated.'));
+      return;
+    }
+    const ecg = await ecgCard(r);
+    if (kind === 'combined') renderCombined(r, ecg); else renderComparison(r, ecg);
     window.scrollTo(0, 0);
   }
 
-  function renderCombined(p: SleepPair, a: SleepAnalysis, t: Timeline, ecg: HTMLElement): void {
-    const stages = combine(t.polar, t.watch);
-    const f = figuresOf(stages, t.startMs, p.nap);
-    const m = a.metrics, w = p.watch, R = sleepRanges();
+  function renderCombined(r: SavedSleepReports, ecg: HTMLElement): void {
+    const stages = r.combined, f = r.figures, m = r.polar, w = r.watch, R = sleepRanges(), nap = r.nap;
 
     const top = make('div', 'card d2-night');
     const big = make('div', 'd2-big');
-    big.append(make('div', 'muted', `Combined ${p.nap ? 'nap' : 'night'} sleep`), make('div', 'd2-big-value', fmtHM(f.sleepMin)));
-    const chart = stageChart('', stages, t.startMs);
+    big.append(make('div', 'muted', `Combined ${nap ? 'nap' : 'night'} sleep`), make('div', 'd2-big-value', fmtHM(f.sleepMin)));
+    const chart = stageChart('', stages, r.timelineStart);
     const times = make('div', 'row between d2-times');
     const bed = make('div'), woke = make('div', 'd2-right');
     bed.append(make('div', 'muted', f.onsetMs ? shortDay(f.onsetMs) : ''), make('div', '', `Fell asleep ${clockOf(f.onsetMs)}`));
     woke.append(make('div', 'muted', f.wakeMs ? shortDay(f.wakeMs) : ''), make('div', '', `Woke up ${clockOf(f.wakeMs)}`));
     times.append(bed, woke);
-    top.append(make('div', 'd2-datenav', dayName(f.wakeMs ?? p.start)), big, chart.figure, times, legend());
+    top.append(make('div', 'd2-datenav', dayName(f.wakeMs ?? r.start)), big, chart.figure, times, legend());
 
     const score = make('div', 'card d2-score');
     if (f.score != null) {
@@ -322,7 +384,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       tile('Times woke up', String(f.awakenings), 'times', '', { range: R.awakenings, value: f.awakenings, text: '0–1 times' }),
       tile('Light sleep', fmt(f.lightPct), '%', fmtHM(f.lightMin), { range: R.lightPct, value: f.lightPct, text: '<55 %' }),
       tile('Avg heart rate', fmt(m.avgHR), 'bpm', `Polar H10 · Watch D2 ${fmt(w.avgHR)} bpm`),
-      ...(p.nap ? [tile('Nap sleep', fmtHM(f.sleepMin), '', '')] : [tile('Night sleep', fmtHM(f.sleepMin), '', '', { range: R.sleepHours, value: f.sleepMin / 60, text: '6–10 h' })]),
+      ...(nap ? [tile('Nap sleep', fmtHM(f.sleepMin), '', '')] : [tile('Night sleep', fmtHM(f.sleepMin), '', '', { range: R.sleepHours, value: f.sleepMin / 60, text: '6–10 h' })]),
       tile('Deep sleep', fmt(f.deepPct), '%', fmtHM(f.deepMin), { range: R.deepPct, value: f.deepPct }),
       tile('REM sleep', fmt(f.remPct), '%', fmtHM(f.remMin), { range: R.remPct, value: f.remPct }),
       tile('Avg HRV', fmt(m.avgHrv), 'ms', `Polar H10 · Watch D2 ${fmt(w.avgHrv)} ms`),
@@ -344,19 +406,15 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     ]) ul.appendChild(make('li', '', line));
     about.appendChild(ul);
 
-    reportRoot.replaceChildren(reportBar(p, 'combined'), top, score, tiles, ecg, about);
+    reportRoot.replaceChildren(reportBar(r, 'combined'), make('p', 'muted', madeText(r)), top, score, tiles, ecg, about);
     chart.draw();
     drawDonut(donut, parts);
   }
 
-  function renderComparison(p: SleepPair, a: SleepAnalysis, t: Timeline, ecg: HTMLElement): void {
-    const m = a.metrics, w = p.watch;
-    const agreement = compareMinutes(t.polar, t.watch);
-    const onsetMs = Number.isFinite(m.onsetS) ? p.polar.start + m.onsetS * 1000 : null;
-    const wakeMs = Number.isFinite(m.wakeS) ? p.polar.start + m.wakeS * 1000 : null;
+  function renderComparison(r: SavedSleepReports, ecg: HTMLElement): void {
+    const m = r.polar, w = r.watch, agreement = r.agreement, nap = r.nap;
     const diff = (x: number | null, y: number | null): number | null => (x == null || y == null ? null : y - x);
     const minutes = (x: number | null, y: number | null): number | null => (x == null || y == null ? null : (y - x) / 60000);
-    const watchPct = (v: number): number => (w.sleepMin ? (100 * v) / w.sleepMin : 0);
 
     const head = make('div', 'card d2-score');
     const main = make('div', 'd2-score-top');
@@ -371,11 +429,11 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       moreRow('Minutes both recorded', String(agreement.sharedMin)),
     );
     main.append(score, facts);
-    head.append(make('div', 'd2-datenav', `${dayName(p.start)} · ${p.nap ? 'Nap' : 'Night'}`), main);
+    head.append(make('div', 'd2-datenav', `${dayName(r.start)} · ${nap ? 'Nap' : 'Night'}`), main);
 
     const charts = make('div', 'card d2-night');
-    const polarChart = stageChart('Polar H10', t.polar.map((x) => (x === 'asleep' ? null : x)), t.startMs);
-    const watchChart = stageChart('Watch D2', t.watch.map((x) => (x === 'asleep' ? 'light' : x)), t.startMs);
+    const polarChart = stageChart('Polar H10', r.polarMinutes.map((x) => (x === 'asleep' ? null : x)), r.timelineStart);
+    const watchChart = stageChart('Watch D2', r.watchMinutes.map((x) => (x === 'asleep' ? 'light' : x)), r.timelineStart);
     charts.append(polarChart.figure, watchChart.figure, legend());
 
     const rows: [string, string, string, string][] = [
@@ -384,13 +442,13 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       ['Light sleep', fmtHM(m.lightMin), fmtHM(w.lightMin), signed(w.lightMin - m.lightMin, ' min')],
       ['REM sleep', fmtHM(m.remMin), fmtHM(w.remMin), signed(w.remMin - m.remMin, ' min')],
       ['Awake after falling asleep', fmtHM(m.awakeMin), fmtHM(w.awakeMin), signed(w.awakeMin - m.awakeMin, ' min')],
-      ['Fell asleep', clockOf(onsetMs), clockOf(w.bedMs), signed(minutes(onsetMs, w.bedMs), ' min')],
-      ['Woke up', clockOf(wakeMs), clockOf(w.wokeMs), signed(minutes(wakeMs, w.wokeMs), ' min')],
+      ['Fell asleep', clockOf(m.onsetMs), clockOf(w.bedMs), signed(minutes(m.onsetMs, w.bedMs), ' min')],
+      ['Woke up', clockOf(m.wakeMs), clockOf(w.wokeMs), signed(minutes(m.wakeMs, w.wokeMs), ' min')],
       ['Times woke up', String(m.awakenings), w.wakeups == null ? '--' : String(w.wakeups), signed(diff(m.awakenings, w.wakeups), '')],
       ['Avg heart rate', `${fmt(m.avgHR)} bpm`, w.avgHR == null ? '--' : `${w.avgHR} bpm`, signed(diff(m.avgHR, w.avgHR), ' bpm')],
       ['Avg HRV', `${fmt(m.avgHrv)} ms`, w.avgHrv == null ? '--' : `${w.avgHrv} ms`, signed(diff(m.avgHrv, w.avgHrv), ' ms')],
       ['Avg respiratory rate', `${fmt(m.breathingRate, 1)} brpm`, w.avgBreath == null ? '--' : `${w.avgBreath} brpm`, signed(diff(m.breathingRate, w.avgBreath), ' brpm', 1)],
-      ...(p.nap ? [] : [['Sleep score', String(m.score), w.score == null ? '--' : String(w.score), signed(diff(m.score, w.score), '')] as [string, string, string, string]]),
+      ...(nap ? [] : [['Sleep score', String(m.score), w.score == null ? '--' : String(w.score), signed(diff(m.score, w.score), '')] as [string, string, string, string]]),
     ];
     const tableCard = make('div', 'card');
     tableCard.appendChild(make('h3', '', 'Polar H10 and Watch D2 side by side'));
@@ -399,20 +457,15 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     const names: readonly Known[] = ['deep', 'light', 'rem', 'awake'];
     const matrix = make('div', 'card');
     matrix.append(make('h3', '', 'Where the stages differ'), make('p', 'note', 'Minutes in each stage on the Polar H10 (rows) and the Watch D2 (columns).'));
-    matrix.appendChild(table(['Polar ↓ · Watch →', ...names.map((n) => STAGE_LABEL[n])], names.map((r) => [STAGE_LABEL[r], ...names.map((c) => String(agreement.matrix[r][c]))])));
+    matrix.appendChild(table(['Polar ↓ · Watch →', ...names.map((n) => STAGE_LABEL[n])], names.map((s) => [STAGE_LABEL[s], ...names.map((c) => String(agreement.matrix[s][c]))])));
 
     const tips = make('div', 'card');
     tips.appendChild(make('h3', '', 'How to improve accuracy'));
     const ul = make('ul', 'tips');
-    for (const line of suggestions({
-      agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: m.coverage,
-      sleepDiffMin: w.sleepMin - m.sleepMin, onsetDiffMin: minutes(onsetMs, w.bedMs), wakeDiffMin: minutes(wakeMs, w.wokeMs),
-      deepDiffPct: watchPct(w.deepMin) - m.deepPct, remDiffPct: watchPct(w.remMin) - m.remPct,
-      hrDiff: diff(m.avgHR, w.avgHR), hrvDiff: diff(m.avgHrv, w.avgHrv), nap: p.nap,
-    })) ul.appendChild(make('li', '', line));
+    for (const line of r.tips) ul.appendChild(make('li', '', line));
     tips.appendChild(ul);
 
-    reportRoot.replaceChildren(reportBar(p, 'comparison'), head, charts, tableCard, matrix, tips, ecg);
+    reportRoot.replaceChildren(reportBar(r, 'comparison'), make('p', 'muted', madeText(r)), head, charts, tableCard, matrix, tips, ecg);
     polarChart.draw();
     watchChart.draw();
   }
@@ -428,7 +481,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     return wrap;
   }
 
-  return { refresh, refreshHistory };
+  return { refresh, refreshHistory, schedule };
 }
 
 export type { WatchSleep };

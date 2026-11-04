@@ -347,7 +347,8 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
 }
 .d2-more { margin-top: 14px; }
 .sessions li.sync-sleep-row { cursor: default; grid-template-columns: 1fr auto; }
-.sync-sleep-row .stats { grid-column: 1 / -1; }
+.sync-sleep-row .stats, .sync-sleep-made { grid-column: 1 / -1; }
+.sync-sleep-made { font-size: 0.85rem; }
 .sync-sleep-actions { grid-column: 1 / -1; gap: 6px; margin-top: 6px; }
 .d2-steps { margin: 0 0 10px; padding-left: 20px; }
 .d2-steps li { margin-bottom: 6px; }

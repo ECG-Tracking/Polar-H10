@@ -232,3 +232,68 @@ export function suggestions(f: SuggestionFacts): string[] {
   out.push('Both devices estimate sleep stages from the body’s signals. Only a sleep study measuring brain activity can show which is right.');
   return out;
 }
+
+// ---------- the saved combined and comparison reports ----------
+
+export interface PolarFigures {
+  sleepMin: number; deepMin: number; lightMin: number; remMin: number; awakeMin: number; deepPct: number; remPct: number; awakenings: number;
+  avgHR: number; avgHrv: number; breathingRate: number; score: number; coverage: number; onsetMs: number | null; wakeMs: number | null;
+}
+
+/** What the combined and comparison reports show, worked out once and kept until one of the two recordings changes. */
+export interface SavedSleepReports {
+  id: string; user: number; polarId: string; watchId: string;
+  polarStamp: string; watchStamp: string;
+  /** When first made, when last made, and which recording changed then ('new' the first time). */
+  firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both';
+  start: number; end: number; nap: boolean; demo: boolean; ecgId: string | null;
+  timelineStart: number; polarMinutes: Minute[]; watchMinutes: Minute[]; combined: (Known | null)[];
+  figures: CombinedFigures; agreement: Agreement; tips: string[]; polar: PolarFigures; watch: Omit<WatchSleep, 'stages'>;
+}
+
+function hash(text: string): string {
+  let h = 5381;
+  for (let i = 0; i < text.length; i++) h = (Math.imul(h, 33) + text.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/** Changes when the Polar H10 recording's results do. */
+export function polarStamp(s: SleepSession): string {
+  return hash(JSON.stringify([s.start, s.durationS, s.cloudOnly ?? false, s.summary]));
+}
+
+/** Changes when anything from the watch does, for example after a new download. */
+export function watchStamp(w: WatchSleep): string {
+  return hash(JSON.stringify(w));
+}
+
+/** Null when the saved reports are up to date, otherwise what has to be said about the new ones. */
+export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair): SavedSleepReports['changed'] | null {
+  if (!saved) return 'new';
+  const polar = saved.polarStamp !== polarStamp(p.polar), watch = saved.watchStamp !== watchStamp(p.watch);
+  return polar && watch ? 'both' : polar ? 'polar' : watch ? 'watch' : null;
+}
+
+export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly Stage[], epochS: number, now: number, before?: SavedSleepReports): SavedSleepReports {
+  const t = lineUp(stages, p.polar.start, epochS, p.watch);
+  const combined = combine(t.polar, t.watch);
+  const agreement = compareMinutes(t.polar, t.watch);
+  const { stages: _stages, ...watch } = p.watch;
+  const minutes = (x: number | null, y: number | null): number | null => (x == null || y == null ? null : (y - x) / 60000);
+  const diff = (x: number, y: number | null): number | null => (y == null ? null : y - x);
+  const watchPct = (v: number): number => (watch.sleepMin ? (100 * v) / watch.sleepMin : 0);
+  return {
+    id: p.id, user: p.polar.user, polarId: p.polar.id, watchId: p.watch.id,
+    polarStamp: polarStamp(p.polar), watchStamp: watchStamp(p.watch),
+    firstAt: before?.firstAt ?? now, generatedAt: now, changed: whatChanged(before, p) ?? 'new',
+    start: p.start, end: Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs), nap: p.nap, demo: p.polar.source === 'demo' || p.watch.demo, ecgId: p.polar.ecgId ?? null,
+    timelineStart: t.startMs, polarMinutes: t.polar, watchMinutes: t.watch, combined,
+    figures: figuresOf(combined, t.startMs, p.nap), agreement, polar, watch,
+    tips: suggestions({
+      agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: polar.coverage,
+      sleepDiffMin: watch.sleepMin - polar.sleepMin, onsetDiffMin: minutes(polar.onsetMs, watch.bedMs), wakeDiffMin: minutes(polar.wakeMs, watch.wokeMs),
+      deepDiffPct: watchPct(watch.deepMin) - polar.deepPct, remDiffPct: watchPct(watch.remMin) - polar.remPct,
+      hrDiff: diff(polar.avgHR, watch.avgHR), hrvDiff: diff(polar.avgHrv, watch.avgHrv), nap: p.nap,
+    }),
+  };
+}

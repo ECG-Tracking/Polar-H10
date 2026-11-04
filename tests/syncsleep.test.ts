@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { combine, compareMinutes, figuresOf, lineUp, pairUp, suggestions, type Minute, type WatchSleep } from '../src/syncsleep';
+import { buildReports, combine, compareMinutes, figuresOf, lineUp, pairUp, suggestions, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
 import type { Stage } from '../src/sleep';
 
@@ -96,4 +96,32 @@ test('suggestions follow what differs, and never say which device is right', () 
   assert.ok(suggestions({ ...base, hrDiff: 8 }).some((s) => s.includes('8 bpm')));
   assert.ok(suggestions({ ...base, coverage: 80 }).some((s) => s.includes('80 %')));
   assert.ok(suggestions({ ...base, watchMin: 400 }).some((s) => s.includes('share only')));
+});
+
+const pairOf = (polar: SleepSession, watch: WatchSleep): SleepPair => pairUp([polar], [watch])[0]!;
+const polarFigures = { sleepMin: 60, deepMin: 20, lightMin: 30, remMin: 10, awakeMin: 0, deepPct: 33, remPct: 17, awakenings: 0, avgHR: 55, avgHrv: 40, breathingRate: 14, score: 80, coverage: 99, onsetMs: null, wakeMs: null };
+const summary = { sleepMin: 60, score: 80, awakenings: 0, avgHR: 55, avgHrv: 40, breathingRate: 14 };
+
+test('saved reports stay until a recording changes, and say which one did', () => {
+  const s = { ...strap('a', at(23, 0, 3), 1), summary };
+  const w = { ...wrist('x', at(23, 0, 3), 1), stages: Array<number>(60).fill(1) };
+  const stages = Array<Stage>(120).fill('light');
+  const p = pairOf(s, w);
+  assert.equal(whatChanged(undefined, p), 'new');
+  const saved = buildReports(p, polarFigures, stages, 30, 1000);
+  assert.equal(saved.changed, 'new');
+  assert.equal(saved.agreement.stagePct, 100);
+  assert.equal(whatChanged(saved, pairOf(s, { ...w })), null);
+
+  const watchChanged = { ...w, stages: Array<number>(60).fill(3) };
+  assert.equal(whatChanged(saved, pairOf(s, watchChanged)), 'watch');
+  const polarChanged = { ...s, summary: { ...summary, sleepMin: 59 } };
+  assert.equal(whatChanged(saved, pairOf(polarChanged, w)), 'polar');
+  assert.equal(whatChanged(saved, pairOf(polarChanged, watchChanged)), 'both');
+
+  const next = buildReports(pairOf(s, watchChanged), polarFigures, stages, 30, 2000, saved);
+  assert.equal(next.firstAt, 1000);
+  assert.equal(next.generatedAt, 2000);
+  assert.equal(next.changed, 'watch');
+  assert.equal(next.agreement.stagePct, 0);
 });
