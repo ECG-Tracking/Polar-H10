@@ -1,7 +1,7 @@
 // Canvas charts: line/scatter plots with hover, live ECG sweep, and a zoomable ECG viewer.
 
 import type { Analysis, EventType, Samples } from './dsp';
-import { DEFAULT_PX_PER_MM, pxPerMm, scaleNote } from './screenscale';
+import { DEFAULT_PX_PER_MM, ecgSize, pxPerMm, scaleNote } from './screenscale';
 
 export function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -17,7 +17,11 @@ function watch(canvas: HTMLCanvasElement, draw: () => void): void {
 
 function repaint(): void {
   for (const [canvas, draw] of painters) {
-    if (canvas.isConnected) draw(); else painters.delete(canvas);
+    if (!canvas.isConnected) { painters.delete(canvas); continue; }
+    draw();
+    // reading a pixel turns what was just drawn into a finished picture. Printed as a list of drawing steps,
+    // a chart becomes a transparency layer, which erased parts of the page in the Mac's PDF viewers.
+    canvas.getContext('2d')?.getImageData(0, 0, 1, 1);
   }
 }
 
@@ -42,7 +46,8 @@ function setup(canvas: HTMLCanvasElement): { ctx: CanvasRenderingContext2D; w: n
     canvas.height = Math.round(h * dpr);
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = css('--surface');
+  ctx.fillRect(0, 0, w, h);
   return { ctx, w, h };
 }
 
@@ -287,10 +292,11 @@ export class LiveTrace {
 
   draw(): void {
     if (!this.canvas.clientWidth) return;
+    this.canvas.dataset['size'] = String(ecgSize()); // bigger waves need a taller trace (styles.css)
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
-    const mm = pxPerMm(), pxPerS = MM_PER_S * mm, pxPerMv = MM_PER_MV * mm, margin = CAL_MARGIN_MM * mm;
+    const mm = pxPerMm() * ecgSize(), pxPerS = MM_PER_S * mm, pxPerMv = MM_PER_MV * mm, margin = CAL_MARGIN_MM * mm;
     this.fit(w - margin, pxPerS);
     drawEcgGrid(ctx, w, h, pxPerS, pxPerMv);
     ctx.strokeStyle = css('--trace'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
@@ -334,6 +340,8 @@ export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.setTransform(STRIP_SHARPNESS, 0, 0, STRIP_SHARPNESS, 0, 0);
+  ctx.fillStyle = css('--surface');
+  ctx.fillRect(0, 0, w, h);
   const t0 = Math.max(0, Math.min(x.length / fs - STRIP_S, t - STRIP_S / 2));
   drawEcgGrid(ctx, w, h, PX_PER_S, PX_PER_MV);
   ctx.strokeStyle = css('--trace'); ctx.lineWidth = 1; ctx.lineJoin = 'round';

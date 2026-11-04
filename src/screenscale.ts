@@ -3,12 +3,17 @@
 
 import { make } from './ui';
 
-const KEY = 'openbeat-screen-scale';
+const KEY = 'openbeat-screen-scale', SIZE_KEY = 'openbeat-ecg-size';
 /** Used until the screen is calibrated; the printed strips always use it, because paper is measured in real mm. */
 export const DEFAULT_PX_PER_MM = 4;
 /** The short side of a bank card, and short enough to fit on a phone. */
 export const BAR_MM = 54;
 const MIN_PX_PER_MM = 2.5, MAX_PX_PER_MM = 9;
+
+/** How many times bigger than actual size the live ECG is shown. The squares are simply magnified. */
+export const SIZES = [[1, 'Actual size'], [2, 'Double size'], [3, 'Triple size']] as const;
+export type EcgSize = (typeof SIZES)[number][0];
+export const parseSize = (text: string | null): EcgSize => SIZES.find(([v]) => String(v) === text)?.[0] ?? 1;
 
 export interface ScreenScale { pxPerMm: number; dpr: number } // dpr: the browser's zoom when it was measured
 
@@ -38,6 +43,21 @@ export function pxPerMm(): number {
   return s ? atZoom(s, zoom()) : DEFAULT_PX_PER_MM;
 }
 
+let size: EcgSize | undefined;
+
+export function ecgSize(): EcgSize {
+  if (size === undefined) {
+    try { size = parseSize(localStorage.getItem(SIZE_KEY)); } catch { size = 1; }
+  }
+  return size;
+}
+
+function keepSize(next: EcgSize): void {
+  size = next;
+  try { localStorage.setItem(SIZE_KEY, String(next)); } catch { /* kept for this visit only */ }
+  for (const fn of listeners) fn();
+}
+
 function keep(next: ScreenScale | null): void {
   saved = next;
   try {
@@ -50,6 +70,10 @@ function keep(next: ScreenScale | null): void {
 export function scaleNote(text: string): HTMLElement {
   const box = make('div', 'scale-note');
   const note = make('p', 'note');
+  const choose = make('select');
+  choose.setAttribute('aria-label', 'Size of the ECG trace');
+  for (const [value, label] of SIZES) { const o = make('option', '', label); o.value = String(value); choose.appendChild(o); }
+  choose.addEventListener('change', () => keepSize(parseSize(choose.value)));
   const open = make('button', 'small');
   open.type = 'button';
   const panel = make('div', 'scale-panel');
@@ -74,8 +98,10 @@ export function scaleNote(text: string): HTMLElement {
   panel.append(make('p', 'note', `Hold a ruler or the short side of a bank card against the screen, then drag the slider until the bar is exactly ${BAR_MM} mm long. Saved on this device only. Calibrate again if you change the display setting or use another screen.`), bar, slider, actions);
 
   const refresh = (): void => {
-    const done = scale() != null;
-    note.textContent = `${text} ${done ? 'Calibrated for this screen: one small square is 1 mm.' : 'This screen isn’t calibrated, so a small square may not be exactly 1 mm.'}`;
+    const done = scale() != null, times = ecgSize();
+    const square = times === 1 ? '1 mm' : `${times} mm (magnified ${times} times)`;
+    note.textContent = `${text} ${done ? `Calibrated for this screen: one small square is ${square}.` : `This screen isn’t calibrated, so a small square may not be exactly ${square}.`}`;
+    choose.value = String(times);
     open.textContent = done ? 'Calibrate again' : 'Calibrate screen';
     reset.hidden = !done;
   };
@@ -90,6 +116,8 @@ export function scaleNote(text: string): HTMLElement {
 
   listeners.add(refresh);
   refresh();
-  box.append(note, open, panel);
+  const controls = make('div', 'row');
+  controls.append(choose, open);
+  box.append(note, controls, panel);
   return box;
 }

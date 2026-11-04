@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.21.0 – Double and triple size for the live ECG; white patches in PDFs fixed *(GitHub)*
+Why: at actual size the trace is small on a laptop.
+- Below each live trace you can choose Actual size, Double size or Triple size. The trace gets taller to fit, the squares and calibration mark grow with it, and fewer seconds fit across the screen. The choice is kept on that device.
+- It is still 25 mm/s and 10 mm/mV when you count squares. Printed strips stay at actual size.
+- Printing: parts of a printed report could be blanked out by white patches when the PDF was opened on a Mac. Charts are now printed as finished pictures, which stops this. Charts have a solid background.
+
 ## 4 Nov 2026 – v1.20.0 – Screen calibration for the live ECG *(GitHub)*
 Why: a web page can't know a screen's real size, so a small square was not a true 1 mm on screen.
 - Below each live trace, Calibrate screen shows a bar to match against a ruler or the short side of a bank card. After saving, a small square on that device is 1 mm × 1 mm, and the note says so.
