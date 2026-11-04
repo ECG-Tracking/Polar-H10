@@ -4,12 +4,14 @@
 //   • Sleep history: table sleep_nights holds each night's report outputs (numbers and graph data).
 //   • Everything else: table user_data, one row per (kind, id) with the data as JSON, so new kinds need no new SQL.
 //     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
+//     Kind 'tracking': each synchronised tracking with its beats and report versions, id = its id; the same rule, numbers only.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport } from './summary';
+import { mergeVersions, parseTrackingRow, planTracking } from './synccompare';
 import { errorMessage } from './util';
 
 const ECG_TABLE = 'ecg_sessions';
@@ -126,6 +128,7 @@ export class CloudSync extends EventTarget {
       await this.syncEcg(result);
       await this.syncSleep(result);
       await this.syncSettings();
+      await this.syncTracking(result);
     } catch (err) {
       result.ok = false;
       result.reason = describe(err);
@@ -162,6 +165,59 @@ export class CloudSync extends EventTarget {
       if (ins.error) throw new Error(ins.error.message);
     }
     if (replaced) this.dispatchEvent(new Event('settings'));
+  }
+
+  // ---------- synchronised tracking (table user_data, kind 'tracking') ----------
+
+  private async syncTracking(result: SyncResult): Promise<void> {
+    const stillPending: string[] = [];
+    for (const id of store.pendingCloudDeletes('tracking')) {
+      const { error } = await this.client.from(DATA_TABLE).delete().eq('kind', 'tracking').eq('id', id);
+      if (error) stillPending.push(id);
+    }
+    store.setPendingCloudDeletes(stillPending, 'tracking');
+
+    const { data, error } = await this.client.from(DATA_TABLE).select('id, saved_at').eq('kind', 'tracking');
+    if (error) throw new Error(error.message);
+    const inCloud = new Map<string, number>();
+    for (const row of (data as unknown[] | null) ?? []) {
+      const r = row as Obj, at = finiteNum(r, 'saved_at');
+      if (typeof r['id'] === 'string' && at !== null) inCloud.set(r['id'], at);
+    }
+    const local = new Map(store.loadSyncHistory().map((e) => [e.id, e]));
+    const plan = planTracking([...local.values()], inCloud, new Set(stillPending));
+
+    for (const id of plan.removeHere) { await store.removeSyncEntry(id, { fromCloud: false }); result.deleted++; }
+    for (const id of plan.markSynced) { const e = local.get(id); if (e) store.saveSyncEntry(e, { fromCloud: true }); }
+
+    const cloudCopy = async (id: string): Promise<ReturnType<typeof parseTrackingRow>> => {
+      const row = await this.client.from(DATA_TABLE).select('data').eq('kind', 'tracking').eq('id', id).maybeSingle();
+      if (row.error) throw new Error(row.error.message);
+      return parseTrackingRow((row.data as Obj | null)?.['data']);
+    };
+    for (const id of plan.download) {
+      const copy = await cloudCopy(id);
+      if (!copy) continue;
+      const here = await store.loadSyncTrace(id);
+      if (copy.trace) await store.saveSyncTrace({ ...copy.trace, reports: mergeVersions(here?.reports, copy.trace.reports) });
+      store.saveSyncEntry({ ...copy.entry, savedAt: inCloud.get(id) ?? Date.now() }, { fromCloud: true });
+      result.downloaded++;
+    }
+    for (const id of plan.upload) {
+      const entry = local.get(id);
+      if (!entry) continue;
+      let trace = (await store.loadSyncTrace(id)) ?? null;
+      if (inCloud.has(id)) { // another device may have added versions
+        const reports = mergeVersions(trace?.reports, (await cloudCopy(id))?.trace?.reports);
+        if (trace && reports.length) { trace = { ...trace, reports }; await store.saveSyncTrace(trace); }
+      }
+      const savedAt = entry.savedAt ?? Date.now();
+      const { synced: _s, ...sent } = entry;
+      const ins = await this.client.from(DATA_TABLE).upsert({ kind: 'tracking', id, data: { entry: { ...sent, savedAt }, trace }, saved_at: savedAt });
+      if (ins.error) throw new Error(ins.error.message);
+      store.saveSyncEntry({ ...entry, savedAt }, { fromCloud: true });
+      result.uploaded++;
+    }
   }
 
   // ---------- ECG ----------

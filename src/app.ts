@@ -16,6 +16,7 @@ import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
+import { updateTrackingReports } from './syncreports';
 import { initSyncSleep } from './syncsleepui';
 import { overlapMs } from './syncsleep';
 import { initBackups } from './backups';
@@ -102,7 +103,24 @@ function openSync(): void {
     openEcg: (id) => void openReport(id),
     summarise,
     show,
+    updateReports,
   });
+}
+
+let reportsRunning: Promise<boolean> | null = null, reportsTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** New versions of the tracking reports, if a tracking's blood pressure or the watch's data changed. */
+function updateReports(): Promise<boolean> {
+  reportsRunning ??= updateTrackingReports({ loadD2, account: () => account.account?.id ?? 'local' }).catch(() => false).finally(() => { reportsRunning = null; });
+  return reportsRunning;
+}
+
+/** Something changed: the watch's data arrived, or another device synced. */
+function scheduleReports(): void {
+  if (reportsTimer) clearTimeout(reportsTimer);
+  reportsTimer = setTimeout(() => {
+    void updateReports().then((changed) => { if (changed && $('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory(); });
+  }, 2000);
 }
 
 /** The ECG recording that overlaps this time the most, if there is one. */
@@ -155,7 +173,7 @@ async function openD2(): Promise<void> {
       profile: biodataProfile,
       historyRoot: $('d2HistoryRoot'),
       ecgDuring,
-      sleepChanged: () => syncSleepUI?.schedule(),
+      sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },
       openEcg: (id) => void openReport(id),
       showHistory: () => { if (!$('view-d2History').classList.contains('active')) { d2KeepPage = true; show('d2History'); } },
     });
@@ -1093,13 +1111,15 @@ account.cloud?.addEventListener('settings', () => {
 // recordings arrived from (or were deleted on) another device
 account.cloud?.addEventListener('changed', () => {
   syncSleepUI?.schedule();
+  scheduleReports();
+  if ($('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory();
   if ($('view-history').classList.contains('active')) void renderHistory();
 });
 
 sleepUI = initSleep({
   renderNightEcg,
   ecgDuring,
-  sleepChanged: () => syncSleepUI?.schedule(),
+  sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },
   user: () => currentUser,
   notch: () => settings.notch,
   userLabel,
@@ -1108,6 +1128,7 @@ sleepUI = initSleep({
 });
 onStrap(useStrap);
 openSyncSleep().schedule(); // sleep that arrived or changed while the app was closed
+scheduleReports();
 
 // ---------- Reference sources ----------
 

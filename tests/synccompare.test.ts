@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { beatFigures, combineBeats, combineHr, compareRows, hrAgreement, hrvBands, trackingSuggestions, type HrPoint, type TimedBeat } from '../src/synccompare';
+import { beatFigures, combineBeats, combineHr, compareRows, hrAgreement, hrvBands, makeVersion, mergeVersions, parseTrackingRow, planTracking, trackingSuggestions, whatChanged, type HrPoint, type SyncTrace, type TimedBeat } from '../src/synccompare';
+import type { SyncBp, SyncTrackingEntry } from '../src/store';
 
 /** Beats of `rr(i)` ms, timed from the start. */
 function timed(count: number, rr: (i: number) => number, from = 0): TimedBeat[] {
@@ -82,4 +83,39 @@ test('suggestions follow what differs', () => {
   const tips = trackingSuggestions(f, worse, a, 120, 30, false).join(' ');
   for (const w of ['6.0 bpm higher', 'moved apart', 'over 20 %', 'fewer beats', '5 minutes', 'blood pressure']) assert.ok(tips.includes(w), w);
   assert.deepEqual(trackingSuggestions(f, f, { ...a, bias: 0.5, low: -2, high: 2 }, 300, 0, true), ['The two devices agree well in this tracking.']);
+});
+
+const trace: SyncTrace = { id: 't1', polar: timed(200, () => 800), watch: timed(190, () => 805), polarHr: [[1, 75], [6, 75]], watchHr: [[1, 76], [6, 76]], watchPoor: 2 };
+const bp = (systolic: number): SyncBp => ({ at: 1000, systolic, diastolic: 80, pulse: 70 });
+const entry = (id: string, savedAt: number, synced: boolean): SyncTrackingEntry => ({ id, user: 1, start: 1, durationS: 60, polar: null, watch: null, bp: null, ecgId: null, savedAt, synced });
+
+test('versions: a new one only when blood pressure or the watch’s data changes', () => {
+  assert.equal(whatChanged(undefined, [], null), 'new');
+  const v = makeVersion(trace, [bp(120)], null, null, 'new', 5);
+  assert.equal(v.generatedAt, 5);
+  assert.ok(v.p && v.w && v.c);
+  assert.equal(v.agreement?.bias, 1);
+  assert.equal(whatChanged(v, [bp(120)], null), null);
+  assert.equal(whatChanged(v, [bp(125)], null), 'bp');
+  const stored = { minutes: [], hrv: [{ at: 1, rmssd: 30 }], emotion: [], stress: [], workouts: [] };
+  assert.equal(whatChanged(v, [bp(120)], stored), 'watch');
+  assert.equal(whatChanged(v, [bp(125)], stored), 'both');
+});
+
+test('cloud: the newest copy wins, and a tracking gone from the cloud was deleted elsewhere', () => {
+  const cloud = new Map([['same', 10], ['older-here', 20], ['newer-here', 10], ['only-cloud', 10], ['deleting', 10]]);
+  const plan = planTracking([entry('same', 10, false), entry('older-here', 10, true), entry('newer-here', 20, true), entry('new', 5, false), entry('gone', 5, true)], cloud, new Set(['deleting']));
+  assert.deepEqual(plan.markSynced, ['same']);
+  assert.deepEqual(plan.upload.sort(), ['new', 'newer-here']);
+  assert.deepEqual(plan.download.sort(), ['older-here', 'only-cloud']);
+  assert.deepEqual(plan.removeHere, ['gone']);
+});
+
+test('cloud: versions from two devices are both kept, and bad rows are ignored', () => {
+  const v = (at: number) => makeVersion(trace, [], null, null, 'new', at);
+  assert.deepEqual(mergeVersions([v(1), v(3)], [v(2), v(3)]).map((x) => x.generatedAt), [1, 2, 3]);
+  assert.equal(parseTrackingRow(null), null);
+  assert.equal(parseTrackingRow({ entry: { id: 5 } }), null);
+  assert.equal(parseTrackingRow({ entry: entry('t1', 1, false), trace: { id: 'other', polar: [], watch: [] } })?.trace, null);
+  assert.equal(parseTrackingRow({ entry: entry('t1', 1, false), trace })?.trace?.id, 't1');
 });

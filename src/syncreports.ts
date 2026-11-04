@@ -1,13 +1,13 @@
-// Synchronised Tracking History: one row per tracking, each with four reports (Polar H10, D2, Combined, Comparison),
-// worked out from the tracking's saved beats and ECG when opened, so they include what the watch delivered later.
+// Synchronised Tracking History: one row per version of each tracking, each with four reports (Polar H10, D2, Combined,
+// Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
-import { analyze, sessionMetrics, type SessionMetrics } from './dsp';
+import { analyze, sessionMetrics } from './dsp';
 import { historyChanged } from './account';
 import * as store from './store';
-import type { SyncTrackingEntry } from './store';
+import type { SyncBp, SyncTrackingEntry } from './store';
 import {
-  beatFigures, combineBeats, combineHr, compareRows, hrAgreement, trackingSuggestions,
-  type BeatFigures, type CompareRow, type HrAgreement, type HrPoint, type SyncTrace, type TimedBeat,
+  combineHr, compareRows, makeVersion, trackingSuggestions, whatChanged,
+  type CompareRow, type HrPoint, type SyncTrace, type TimedBeat, type TrackVersion,
 } from './synccompare';
 import { deleteButton, fmt, make } from './ui';
 import { errorMessage } from './util';
@@ -16,26 +16,23 @@ import type { TrackingWatchData } from './d2/backup';
 
 type Kind = 'polar' | 'watch' | 'combined' | 'comparison';
 
-export interface SyncReportDeps {
+/** What keeping the reports up to date needs. */
+export interface TrackingReportDeps {
   loadD2: () => Promise<D2Api>;
   account: () => string;
+}
+
+export interface SyncReportDeps extends TrackingReportDeps {
   user: () => number;
+  /** Generates new versions now, if anything changed. */
+  updateReports: () => Promise<boolean>;
   openEcg: (id: string) => void;
   /** Shows the report page, or the history again. */
   show: (view: 'syncReport' | 'syncHistory') => void;
 }
 
-/** Everything one tracking's reports use. */
-interface Gathered {
-  e: SyncTrackingEntry;
-  trace: SyncTrace | null;
-  polar: TimedBeat[]; watch: TimedBeat[];
-  polarHr: HrPoint[]; watchHr: HrPoint[];
-  p: BeatFigures | null; w: BeatFigures | null;
-  agreement: HrAgreement | null;
-  ecg: SessionMetrics | null;
-  stored: TrackingWatchData | null;
-}
+/** One tracking, and the version of its reports being shown. */
+interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; latest: boolean }
 
 /** Stored watch readings this close to a tracking are shown with it, like blood pressure. */
 const NEAR_MS = 3600000;
@@ -44,7 +41,10 @@ const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { dateS
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const n = (v: number | null | undefined, digits = 0): string => (v == null || !Number.isFinite(v) ? '--' : fmt(v, digits));
-const signed = (v: number, digits: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`;
+const madeText = (v: TrackVersion): string => (v.changed === 'new'
+  ? `Generated ${dateTime(v.generatedAt)}`
+  : `Generated again ${dateTime(v.generatedAt)}, because ${v.changed === 'bp' ? 'the blood pressure readings' : v.changed === 'watch' ? 'the watch’s data' : 'the blood pressure readings and the watch’s data'} changed`);
+const signed = (v: number, digits: number): string => { const s = Math.abs(v).toFixed(digits); return `${v < 0 && Number(s) !== 0 ? '-' : '+'}${s}`; };
 
 function button(text: string, cls: string, onClick: () => void): HTMLButtonElement {
   const b = make('button', cls, text);
@@ -104,19 +104,58 @@ function hrChart(lines: readonly { name: string; color: string; points: readonly
   return box;
 }
 
+/** The first time: a tracking from before its beats were kept takes them from its ECG, and the ECG's waves are kept. */
+async function fromEcg(e: SyncTrackingEntry, t: SyncTrace): Promise<TrackVersion['ecg']> {
+  if (!e.ecgId) return null;
+  try {
+    const { session, samples } = await store.loadSession(e.ecgId);
+    if (!session || !samples) return null;
+    const s = store.loadSettings(e.user);
+    const a = analyze(samples, { fs: session.fs, notch: s.notch, qtcFormula: s.qtcFormula });
+    const { hr, ...ecg } = sessionMetrics(a, session.durationS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
+    if (!t.polar.length) t.polar = a.beats.flatMap((b): TimedBeat[] => (b.rr && !b.flags.length ? [[b.t, b.rr]] : []));
+    if (!t.polarHr.length) t.polarHr = hr.flatMap((v, i): HrPoint[] => (v == null ? [] : [[i, v]]));
+    return ecg;
+  } catch { return null; } // the ECG was deleted
+}
+
+/** Adds a version to every tracking whose blood pressure or watch data changed. Says if anything changed. */
+export async function updateTrackingReports(deps: TrackingReportDeps): Promise<boolean> {
+  const entries = store.loadSyncHistory();
+  if (!entries.length) return false;
+  const api = await deps.loadD2().catch(() => null);
+  const data = api ? await api.backup.trackingData(deps.account(), entries.map((e) => ({ user: e.user, from: e.start, to: e.start + e.durationS * 1000 })), NEAR_MS).catch(() => null) : null;
+  let changed = false;
+  for (const [i, e] of entries.entries()) {
+    await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+    const trace: SyncTrace = (await store.loadSyncTrace(e.id)) ?? { id: e.id, polar: [], watch: [], polarHr: [], watchHr: [], watchPoor: 0 };
+    const reports = trace.reports ?? [];
+    const prev = reports[reports.length - 1];
+    if (prev && !data) continue; // without D2 Link nothing can be said about the watch's data
+    const stored = data?.[i] ?? null, bps = store.syncBps(e);
+    const change = whatChanged(prev, bps, stored);
+    if (!change) continue;
+    const ecg = prev?.ecg ?? await fromEcg(e, trace);
+    await store.saveSyncTrace({ ...trace, reports: [...reports, makeVersion(trace, bps, stored, ecg, change, Date.now())] });
+    store.saveSyncEntry(e);
+    changed = true;
+  }
+  if (changed) historyChanged();
+  return changed;
+}
+
 const POLAR_COLOR = 'var(--accent)', WATCH_COLOR = 'var(--series-1)';
 
 const figureRows = (rows: readonly CompareRow[], which: 'polar' | 'watch'): string[][] =>
   rows.flatMap((r) => (r[which] == null ? [] : [[r.name, n(r[which], r.digits)]]));
 
-function bpCard(e: SyncTrackingEntry): HTMLElement {
-  const bps = store.syncBps(e);
+function bpCard(bps: readonly SyncBp[]): HTMLElement {
   return card('Blood pressure (watch)', bps.length
     ? table(['Time', 'Blood pressure (mmHg)', 'Pulse (bpm)'], bps.map((b) => [clock(b.at), `${n(b.systolic)}/${n(b.diastolic)}`, n(b.pulse)]))
     : make('p', 'muted', 'No reading within one hour before or after the start.'));
 }
 
-function ecgRows(m: SessionMetrics): string[][] {
+function ecgRows(m: NonNullable<TrackVersion['ecg']>): string[][] {
   return [
     ['QRS duration (ms)', n(m.qrs)], ['QT (ms)', n(m.qt)], ['QTc (ms)', n(m.qtc)],
     ['T-wave amplitude (µV)', n(m.tAmp)], ['T/R ratio', n(m.trRatio, 2)], ['T wave positive (%)', n(m.tPositive)],
@@ -128,37 +167,14 @@ function ecgRows(m: SessionMetrics): string[][] {
 
 /** `box`: the history page's list; `reportRoot`: the report page. */
 export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void } {
-  async function gather(e: SyncTrackingEntry): Promise<Gathered> {
-    const trace = (await store.loadSyncTrace(e.id).catch(() => undefined)) ?? null;
-    let polar: TimedBeat[] = trace?.polar ?? [], polarHr: HrPoint[] = trace?.polarHr ?? [];
-    let ecg: SessionMetrics | null = null;
-    if (e.ecgId) {
-      try {
-        const { session, samples } = await store.loadSession(e.ecgId);
-        if (session && samples) {
-          const s = store.loadSettings(e.user);
-          const a = analyze(samples, { fs: session.fs, notch: s.notch, qtcFormula: s.qtcFormula });
-          ecg = sessionMetrics(a, session.durationS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
-          // a tracking from before its beats were kept: the strap's beats come from its ECG
-          if (!polar.length) polar = a.beats.flatMap((b): TimedBeat[] => (b.rr && !b.flags.length ? [[b.t, b.rr]] : []));
-          if (!polarHr.length) polarHr = ecg.hr.flatMap((v, i): HrPoint[] => (v == null ? [] : [[i, v]]));
-        }
-      } catch { /* the ECG was deleted */ }
-    }
-    const watch = trace?.watch ?? [], watchHr = trace?.watchHr ?? [];
-    const end = e.start + e.durationS * 1000;
-    const stored = await deps.loadD2().then((api) => api.backup.trackingData(deps.account(), e.user, e.start, end, NEAR_MS)).catch(() => null);
-    return { e, trace, polar, watch, polarHr, watchHr, p: beatFigures(polar), w: beatFigures(watch), agreement: hrAgreement(polarHr, watchHr), ecg, stored };
-  }
-
   const backToHistory = (): void => deps.show('syncHistory');
 
-  function reportBar(e: SyncTrackingEntry, kind: Kind): HTMLElement {
+  function reportBar(e: SyncTrackingEntry, kind: Kind, at: number): HTMLElement {
     const bar = make('div', 'row between wrap no-print');
     bar.appendChild(button('← Synchronised Tracking History', '', backToHistory));
     const right = make('div', 'row wrap');
     for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
-      right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k)));
+      right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
     }
     const ecgId = e.ecgId;
     if (ecgId) right.appendChild(button('ECG', '', () => deps.openEcg(ecgId)));
@@ -167,17 +183,20 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     return bar;
   }
 
-  const heading = (title: string, e: SyncTrackingEntry): HTMLElement[] => [make('h2', '', title), make('p', 'muted', `${dateTime(e.start)} · Duration ${mmss(e.durationS)}`)];
+  const heading = (title: string, g: Gathered): HTMLElement[] => [
+    make('h2', '', title), make('p', 'muted', `${dateTime(g.e.start)} · Duration ${mmss(g.e.durationS)}`),
+    ...(g.latest ? [] : [make('p', 'note', `Saved version of this report: ${madeText(g.v)}.`)]),
+  ];
 
-  const oldNote = (g: Gathered): HTMLElement[] => (g.trace ? [] : [make('p', 'note', 'This tracking was saved before beats were kept, so the watch’s figures are limited to its saved summary. The strap’s figures come from the saved ECG, if there is one.')]);
+  const oldNote = (g: Gathered): HTMLElement[] => (g.trace.watch.length || !g.e.watch ? [] : [make('p', 'note', 'This tracking was saved before beats were kept, so the watch’s figures are limited to its saved summary. The strap’s figures come from the saved ECG, if there is one.')]);
 
   function polarReport(g: Gathered): HTMLElement[] {
-    const rows = figureRows(compareRows(g.p, null, g.e.polar, null), 'polar');
+    const rows = figureRows(compareRows(g.v.p, null, g.e.polar, null), 'polar');
     return [
-      ...heading('Polar H10 report', g.e), ...oldNote(g),
-      card('Heart rate', hrChart([{ name: 'Polar H10', color: POLAR_COLOR, points: g.polarHr }], g.e.durationS)),
+      ...heading('Polar H10 report', g), ...oldNote(g),
+      card('Heart rate', hrChart([{ name: 'Polar H10', color: POLAR_COLOR, points: g.trace.polarHr }], g.e.durationS)),
       card('Beats and HRV', table(['Figure', 'Polar H10'], rows.length ? rows : [['No beats saved', '--']])),
-      ...(g.ecg ? [card('ECG waves', table(['Figure', 'Polar H10'], ecgRows(g.ecg)))] : [card('ECG waves', make('p', 'muted', 'No ECG was saved with this tracking.'))]),
+      ...(g.v.ecg ? [card('ECG waves', table(['Figure', 'Polar H10'], ecgRows(g.v.ecg)))] : [card('ECG waves', make('p', 'muted', 'No ECG was saved with this tracking.'))]),
     ];
   }
 
@@ -197,28 +216,26 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   }
 
   function watchReport(g: Gathered): HTMLElement[] {
-    const rows = figureRows(compareRows(null, g.w, null, g.e.watch), 'watch');
-    if (g.trace) rows.push(['Beats marked unusable by the watch', String(g.trace.watchPoor)]);
+    const rows = figureRows(compareRows(null, g.v.w, null, g.e.watch), 'watch');
+    if (g.trace.watch.length) rows.push(['Beats marked unusable by the watch', String(g.trace.watchPoor)]);
     return [
-      ...heading('D2 report', g.e), ...oldNote(g),
-      card('Heart rate', hrChart([{ name: 'Watch D2', color: WATCH_COLOR, points: g.watchHr }], g.e.durationS)),
+      ...heading('D2 report', g), ...oldNote(g),
+      card('Heart rate', hrChart([{ name: 'Watch D2', color: WATCH_COLOR, points: g.trace.watchHr }], g.e.durationS)),
       card('Beats and HRV', table(['Figure', 'Watch D2'], rows.length ? rows : [['No beats saved', '--']])),
-      bpCard(g.e), ...storedCards(g.stored),
+      bpCard(g.v.bps), ...storedCards(g.v.stored),
     ];
   }
 
   function combinedReport(g: Gathered): HTMLElement[] {
-    const { beats, fromWatch } = combineBeats(g.polar, g.watch);
-    const f = beatFigures(beats);
-    const rows = figureRows(compareRows(f, null, null, null), 'polar');
-    const share = beats.length ? (100 * fromWatch) / beats.length : 0;
+    const rows = figureRows(compareRows(g.v.c, null, null, null), 'polar');
+    const share = g.v.combinedBeats ? (100 * g.v.fromWatch) / g.v.combinedBeats : 0;
     return [
-      ...heading('Combined report', g.e), ...oldNote(g),
+      ...heading('Combined report', g), ...oldNote(g),
       card('How the two are combined', make('p', 'note', `The chest strap’s beats stand, because it measures the heart’s electrical signal. Where it has a gap of over 2.5 s, the watch’s beats fill in. Here ${n(share, 1)} % of the beats came from the watch. The heart rate below is the average of the two each second.`)),
-      card('Heart rate', hrChart([{ name: 'Combined', color: POLAR_COLOR, points: combineHr(g.polarHr, g.watchHr) }], g.e.durationS)),
+      card('Heart rate', hrChart([{ name: 'Combined', color: POLAR_COLOR, points: combineHr(g.trace.polarHr, g.trace.watchHr) }], g.e.durationS)),
       card('Beats and HRV', table(['Figure', 'Combined'], rows.length ? rows : [['No beats saved', '--']])),
-      bpCard(g.e),
-      ...(g.ecg ? [card('ECG waves (Polar H10 only)', table(['Figure', 'Polar H10'], ecgRows(g.ecg)))] : []),
+      bpCard(g.v.bps),
+      ...(g.v.ecg ? [card('ECG waves (Polar H10 only)', table(['Figure', 'Polar H10'], ecgRows(g.v.ecg)))] : []),
     ];
   }
 
@@ -226,34 +243,34 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   function crossChecks(g: Gathered): string[][] {
     const out: string[][] = [];
     const avgAround = (t: number, s: number): number | null => {
-      const inRange = g.polarHr.filter((p) => Math.abs(p[0] - t) <= s).map((p) => p[1]);
+      const inRange = g.trace.polarHr.filter((p) => Math.abs(p[0] - t) <= s).map((p) => p[1]);
       return inRange.length ? inRange.reduce((a, b) => a + b, 0) / inRange.length : null;
     };
     const line = (name: string, w: number | null, p: number | null, digits = 0): void => {
       out.push([name, n(w, digits), n(p, digits), w == null || p == null ? '--' : signed(w - p, 1)]);
     };
-    for (const m of g.stored?.minutes ?? []) {
+    for (const m of g.v.stored?.minutes ?? []) {
       if (m.hr != null) line(`Stored heart rate, ${clock(m.t * 1000)} (bpm)`, m.hr, avgAround(m.t - g.e.start / 1000 + 30, 30));
     }
-    for (const b of store.syncBps(g.e)) {
-      if (b.pulse != null) line(`Blood pressure pulse, ${clock(b.at)} (bpm)`, b.pulse, avgAround((b.at - g.e.start) / 1000, 30) ?? g.p?.meanHr ?? null);
+    for (const b of g.v.bps) {
+      if (b.pulse != null) line(`Blood pressure pulse, ${clock(b.at)} (bpm)`, b.pulse, avgAround((b.at - g.e.start) / 1000, 30) ?? g.v.p?.meanHr ?? null);
     }
-    for (const h of g.stored?.hrv ?? []) line(`Stored HRV reading, ${clock(h.at)} (ms)`, h.rmssd, g.p?.rmssd ?? null, 1);
+    for (const h of g.v.stored?.hrv ?? []) line(`Stored HRV reading, ${clock(h.at)} (ms)`, h.rmssd, g.v.p?.rmssd ?? null, 1);
     return out;
   }
 
   function comparisonReport(g: Gathered): HTMLElement[] {
-    const a = g.agreement;
-    const rows = compareRows(g.p, g.w, g.e.polar, g.e.watch).filter((r) => r.polar != null || r.watch != null).map((r) => {
+    const a = g.v.agreement;
+    const rows = compareRows(g.v.p, g.v.w, g.e.polar, g.e.watch).filter((r) => r.polar != null || r.watch != null).map((r) => {
       const d = r.polar != null && r.watch != null ? r.watch - r.polar : null;
       return [r.name, n(r.polar, r.digits), n(r.watch, r.digits), d == null ? '--' : signed(d, Math.max(1, r.digits)), d == null || !r.polar ? '--' : `${signed((100 * d) / r.polar, 1)} %`];
     });
     const checks = crossChecks(g);
     const tips = make('ul', 'tips');
-    for (const s of trackingSuggestions(g.p, g.w, a, g.e.durationS, g.trace?.watchPoor ?? 0, store.syncBps(g.e).length > 0)) tips.appendChild(make('li', '', s));
+    for (const s of trackingSuggestions(g.v.p, g.v.w, a, g.e.durationS, g.trace.watchPoor, g.v.bps.length > 0)) tips.appendChild(make('li', '', s));
     return [
-      ...heading('Comparison report', g.e), ...oldNote(g),
-      card('Heart rate', hrChart([{ name: 'Polar H10', color: POLAR_COLOR, points: g.polarHr }, { name: 'Watch D2', color: WATCH_COLOR, points: g.watchHr }], g.e.durationS)),
+      ...heading('Comparison report', g), ...oldNote(g),
+      card('Heart rate', hrChart([{ name: 'Polar H10', color: POLAR_COLOR, points: g.trace.polarHr }, { name: 'Watch D2', color: WATCH_COLOR, points: g.trace.watchHr }], g.e.durationS)),
       card('Heart rate agreement', a
         ? table(['Measure', 'Value'], [
           ['Average difference, watch minus Polar (bpm)', signed(a.bias, 1)],
@@ -270,55 +287,83 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     ];
   }
 
-  async function openReport(id: string, kind: Kind): Promise<void> {
+  /** `at` picks an earlier version by when it was generated; without it, the latest. */
+  async function openReport(id: string, kind: Kind, at?: number): Promise<void> {
     deps.show('syncReport');
     reportRoot.replaceChildren(make('div', 'busy', 'Opening the report…'));
     await new Promise((r) => setTimeout(r, 30));
-    const e = store.loadSyncHistory().find((x) => x.id === id);
-    if (!e) { reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
     try {
-      const g = await gather(e);
+      await deps.updateReports();
+      const e = store.loadSyncHistory().find((x) => x.id === id);
+      const trace = e && await store.loadSyncTrace(id);
+      const versions = trace?.reports ?? [];
+      const latest = versions[versions.length - 1];
+      const v = versions.find((x) => x.generatedAt === at) ?? latest;
+      if (!e || !trace || !v) { reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
+      const g: Gathered = { e, trace, v, latest: v === latest };
       const body = kind === 'polar' ? polarReport(g) : kind === 'watch' ? watchReport(g) : kind === 'combined' ? combinedReport(g) : comparisonReport(g);
-      reportRoot.replaceChildren(reportBar(e, kind), ...body);
+      reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...body);
     } catch (err) {
       reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', `This report could not be made: ${errorMessage(err)}`));
     }
     window.scrollTo(0, 0);
   }
 
-  function render(): void {
+  async function render(): Promise<void> {
     const entries = store.loadSyncHistory().filter((e) => e.user === deps.user());
     if (!entries.length) { box.replaceChildren(make('p', 'muted', 'No synchronised tracking yet on this device.')); return; }
     const list = make('ul', 'sessions');
     for (const e of entries) {
-      const diff = e.polar?.hr != null && e.watch?.hr != null ? e.watch.hr - e.polar.hr : null;
-      const side = (name: string, s: SyncTrackingEntry['polar']): string => (s ? `${name} ${n(s.hr)} bpm, RMSSD ${n(s.rmssd)} ms` : `${name} not connected`);
-      const bps = store.syncBps(e);
-      const li = make('li', 'sync-sleep-row');
-      li.append(
-        make('span', 'when', `${dateTime(e.start)} · ${mmss(e.durationS)}`),
-        make('span', 'dur', e.ecgId ? 'with ECG' : 'no ECG'),
-        make('span', 'stats', `${side('Polar H10', e.polar)} · ${side('Watch D2', e.watch)}${diff == null ? '' : ` · ${signed(diff, 1)} bpm`}`),
-        make('span', 'muted sync-sleep-made', bps.length ? `Blood pressure ${bps.map((b) => `${n(b.systolic)}/${n(b.diastolic)} at ${clock(b.at)}`).join(', ')}` : 'No blood pressure reading'),
-      );
-      const actions = make('div', 'row wrap sync-sleep-actions');
-      for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
-        actions.appendChild(button(label, 'small', () => void openReport(e.id, k)));
-      }
+      const versions = (await store.loadSyncTrace(e.id).catch(() => undefined))?.reports ?? [];
       const ecgId = e.ecgId;
-      if (ecgId) actions.appendChild(button('ECG', 'small', () => deps.openEcg(ecgId)));
-      actions.appendChild(deleteButton('this tracking', () => {
+      const when = `${dateTime(e.start)} · ${mmss(e.durationS)}`, tag = ecgId ? 'with ECG' : 'no ECG';
+      const remove = deleteButton('this tracking', () => {
         void (async () => {
           if (ecgId && window.confirm('Also delete its ECG from ECG history? (Cancel keeps the ECG.)')) { await store.deleteSession(ecgId); historyChanged(); }
           await store.removeSyncEntry(e.id);
-          render();
+          historyChanged();
+          void render();
         })();
-      }, 'Delete this tracking from the history?'));
-      li.appendChild(actions);
-      list.appendChild(li);
+      }, 'Delete this tracking from the history?');
+      if (!versions.length) {
+        const li = make('li', 'sync-sleep-row');
+        const actions = make('div', 'row wrap sync-sleep-actions');
+        actions.appendChild(remove);
+        li.append(make('span', 'when', when), make('span', 'dur', tag), make('span', 'muted sync-sleep-made', 'Generating the reports…'), actions);
+        list.appendChild(li);
+        continue;
+      }
+      // one row per version, newest first, each with its four reports
+      for (let i = versions.length; i >= 1; i--) {
+        const v = versions[i - 1]!;
+        const hr = (f: TrackVersion['p'], s: SyncTrackingEntry['polar']): number | null => f?.meanHr ?? s?.hr ?? null;
+        const rm = (f: TrackVersion['p'], s: SyncTrackingEntry['polar']): number | null => f?.rmssd ?? s?.rmssd ?? null;
+        const ph = hr(v.p, e.polar), wh = hr(v.w, e.watch);
+        const side = (name: string, s: SyncTrackingEntry['polar'], f: TrackVersion['p']): string => (s || f ? `${name} ${n(hr(f, s))} bpm, RMSSD ${n(rm(f, s))} ms` : `${name} not connected`);
+        const li = make('li', 'sync-sleep-row');
+        li.append(
+          make('span', 'when', `${when}${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
+          make('span', 'dur', tag),
+          make('span', 'stats', `${side('Polar H10', e.polar, v.p)} · ${side('Watch D2', e.watch, v.w)}${ph == null || wh == null ? '' : ` · ${signed(wh - ph, 1)} bpm`}`),
+          make('span', 'muted sync-sleep-made', `${v.bps.length ? `Blood pressure ${v.bps.map((b) => `${n(b.systolic)}/${n(b.diastolic)} at ${clock(b.at)}`).join(', ')}` : 'No blood pressure reading'} · ${madeText(v)}`),
+        );
+        const actions = make('div', 'row wrap sync-sleep-actions');
+        for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
+          actions.appendChild(button(label, 'small', () => void openReport(e.id, k, v.generatedAt)));
+        }
+        if (ecgId) actions.appendChild(button('ECG', 'small', () => deps.openEcg(ecgId)));
+        if (i === versions.length) actions.appendChild(remove); // the tracking goes, with all its versions
+        li.appendChild(actions);
+        list.appendChild(li);
+      }
     }
-    box.replaceChildren(make('p', 'note', 'Kept on this device. Each tracking has four reports, worked out when opened. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
+    box.replaceChildren(make('p', 'note', 'Each tracking has four reports. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
   }
 
-  return { render };
+  /** Shows the list now, then again if new versions were generated. */
+  const refresh = (): void => {
+    void render().then(() => deps.updateReports()).then((changed) => { if (changed) void render(); }).catch(() => undefined);
+  };
+
+  return { render: refresh };
 }

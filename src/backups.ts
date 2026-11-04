@@ -223,6 +223,8 @@ export async function overwriteCloud(password: string, d2: D2Api | null): Promis
   };
   await gone('ecg_sessions', (r) => ecgIds.has(String(r['id'])));
   await gone('sleep_nights', (r) => sleepIds.has(String(r['id'])));
+  const trackings = new Set(store.loadSyncHistory().map((e) => e.id));
+  await gone('user_data', (r) => r['kind'] !== 'tracking' || trackings.has(String(r['id'])));
   if (d2) {
     await gone('d2_nights', (r) => d2Nights.has(String(r['id'])));
     await gone('user_data', (r) => r['kind'] === 'settings' || !String(r['kind']).startsWith('d2-') || d2Records.has(String(r['id'])));

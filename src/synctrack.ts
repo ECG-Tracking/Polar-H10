@@ -32,6 +32,8 @@ export interface SyncDeps {
   summarise: (id: string) => Promise<void>;
   /** Shows the tracking report page, or the history again. */
   show: (view: 'syncReport' | 'syncHistory') => void;
+  /** Generates new versions of the tracking reports, if anything changed. */
+  updateReports: () => Promise<boolean>;
 }
 
 /** Recordings shorter than this aren't saved (as on ECG live). */
@@ -373,9 +375,9 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     timer.textContent = 'Done'; // the watch's heartbeat test keeps running for the live values
     const entry = showSummary();
     entry.ecgId = await saveEcg();
-    store.saveSyncEntry(entry);
     await store.saveSyncTrace({ id: entry.id, polar: polarBeats, watch: watchBeats, polarHr: [...polarSeries], watchHr: [...watchSeries], watchPoor })
       .catch((e: unknown) => log(`The beats couldn’t be saved: ${errorMessage(e)}`));
+    store.saveSyncEntry(entry);
     renderHistory();
   void fillBpFromStored();
   onStrap(useStrap); // the strap, if another page already paired it

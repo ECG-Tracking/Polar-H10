@@ -35,16 +35,20 @@ export interface TrackingWatchData {
   workouts: { at: number; end: number }[];
 }
 
-/** What the watch's downloads hold for a tracking: its minutes, what was measured within `nearMs`, and workouts overlapping it. */
-export async function trackingData(account: string, user: number, from: number, to: number, nearMs: number): Promise<TrackingWatchData> {
+/** What the watch's downloads hold for each tracking: its minutes, what was measured within `nearMs`, and workouts overlapping it. */
+export async function trackingData(account: string, trackings: readonly { user: number; from: number; to: number }[], nearMs: number): Promise<TrackingWatchData[]> {
   store.useAccount(account);
-  const records = (await store.listAllRecords()).filter((r) => r.user === user).sort((a, b) => a.start - b.start);
+  const all = (await store.listAllRecords()).sort((a, b) => a.start - b.start);
+  return trackings.map((t) => dataOf(all.filter((r) => r.user === t.user), t.from, t.to, nearMs));
+}
+
+function dataOf(records: readonly D2Record[], from: number, to: number, nearMs: number): TrackingWatchData {
   const near = (at: number): boolean => at >= from - nearMs && at <= to + nearMs;
   const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   const values = (r: D2Record): Record<string, number> => (r.data['values'] ?? {}) as Record<string, number>;
   const readings = (cls: number): D2Record[] => records.filter((r) => r.kind === 'reading' && r.data['cls'] === cls && near(r.start));
   return {
-    minutes: records.filter((r) => r.kind === 'activity').flatMap(minutesOf).filter((m) => m.t * 1000 >= from - 60000 && m.t * 1000 <= to).sort((a, b) => a.t - b.t),
+    minutes: records.filter((r) => r.kind === 'activity' && r.start <= to && r.start >= from - 2 * 86400000).flatMap(minutesOf).filter((m) => m.t * 1000 >= from - 60000 && m.t * 1000 <= to).sort((a, b) => a.t - b.t),
     hrv: readings(500044).map((r) => ({ at: r.start, rmssd: num(values(r)['500044831']) })),
     emotion: readings(500031).map((r) => ({ at: r.start, status: num(values(r)['500031195']), valence: num(values(r)['500031347']), arousal: num(values(r)['500031842']) })),
     stress: records.filter((r) => r.kind === 'stress' && near(r.start)).map((r) => ({ at: r.start, end: num(r.data['end']) ?? r.start, score: num(r.data['score']), level: num(r.data['level']) })),

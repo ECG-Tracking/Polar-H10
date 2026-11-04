@@ -1,5 +1,9 @@
 // The numbers of a synchronised tracking: what each device's beats give, how the two agree, and the two put together.
 
+import type { SessionMetrics } from './dsp';
+import type { TrackingWatchData } from './d2/backup';
+import type { SyncBp, SyncTrackingEntry } from './store';
+
 // ---------- beat intervals ----------
 
 /**
@@ -55,6 +59,22 @@ export interface SyncTrace {
   polarHr: HrPoint[];
   watchHr: HrPoint[];
   watchPoor: number; // beats the watch marked as unusable
+  /** Every version of the tracking's reports, oldest first. */
+  reports?: TrackVersion[];
+}
+
+/** What the reports show, as it was when generated. A new version is added when blood pressure or the watch's data changes. */
+export interface TrackVersion {
+  generatedAt: number;
+  changed: 'new' | 'bp' | 'watch' | 'both';
+  bpStamp: string; watchStamp: string;
+  bps: SyncBp[];
+  stored: TrackingWatchData | null;
+  ecg: Omit<SessionMetrics, 'hr'> | null;
+  p: BeatFigures | null; w: BeatFigures | null; c: BeatFigures | null;
+  fromWatch: number; // beats the watch added to the combined list
+  combinedBeats: number;
+  agreement: HrAgreement | null;
 }
 
 export interface BeatFigures {
@@ -192,6 +212,66 @@ export function combineHr(polar: readonly HrPoint[], watch: readonly HrPoint[]):
   const at = new Map<number, number[]>();
   for (const [t, hr] of [...polar, ...watch]) { const s = Math.round(t); at.set(s, [...(at.get(s) ?? []), hr]); }
   return [...at].sort((a, b) => a[0] - b[0]).map(([s, v]) => [s, mean(v)!]);
+}
+
+// ---------- versions ----------
+
+const stampOf = (v: unknown): string => {
+  const s = JSON.stringify(v) ?? '';
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return `${s.length}-${h.toString(36)}`;
+};
+
+/** What has changed since `prev`, or null if nothing has. */
+export function whatChanged(prev: TrackVersion | undefined, bps: readonly SyncBp[], stored: TrackingWatchData | null): TrackVersion['changed'] | null {
+  if (!prev) return 'new';
+  const bp = prev.bpStamp !== stampOf(bps), watch = prev.watchStamp !== stampOf(stored);
+  return bp && watch ? 'both' : bp ? 'bp' : watch ? 'watch' : null;
+}
+
+export function makeVersion(t: SyncTrace, bps: readonly SyncBp[], stored: TrackingWatchData | null, ecg: TrackVersion['ecg'], changed: TrackVersion['changed'], now: number): TrackVersion {
+  const { beats, fromWatch } = combineBeats(t.polar, t.watch);
+  return {
+    generatedAt: now, changed, bpStamp: stampOf(bps), watchStamp: stampOf(stored), bps: [...bps], stored, ecg,
+    p: beatFigures(t.polar), w: beatFigures(t.watch), c: beatFigures(beats), fromWatch, combinedBeats: beats.length,
+    agreement: hrAgreement(t.polarHr, t.watchHr),
+  };
+}
+
+// ---------- the cloud copy ----------
+
+export interface TrackingCloudPlan { upload: string[]; download: string[]; removeHere: string[]; markSynced: string[] }
+
+/** Each tracking is one cloud row: the most recently saved copy wins; one that left the cloud was deleted on another device. */
+export function planTracking(local: readonly SyncTrackingEntry[], cloud: ReadonlyMap<string, number>, deleting: ReadonlySet<string>): TrackingCloudPlan {
+  const plan: TrackingCloudPlan = { upload: [], download: [], removeHere: [], markSynced: [] };
+  const here = new Set(local.map((e) => e.id));
+  for (const e of local) {
+    const at = cloud.get(e.id);
+    if (at == null) (e.synced ? plan.removeHere : plan.upload).push(e.id);
+    else if ((e.savedAt ?? 0) > at) plan.upload.push(e.id);
+    else if ((e.savedAt ?? 0) < at) plan.download.push(e.id);
+    else if (!e.synced) plan.markSynced.push(e.id);
+  }
+  for (const id of cloud.keys()) if (!here.has(id) && !deleting.has(id)) plan.download.push(id);
+  return plan;
+}
+
+/** Two devices can each add a version: both are kept, in time order. */
+export function mergeVersions(a: readonly TrackVersion[] = [], b: readonly TrackVersion[] = []): TrackVersion[] {
+  const by = new Map<number, TrackVersion>();
+  for (const v of [...a, ...b]) by.set(v.generatedAt, v);
+  return [...by.values()].sort((x, y) => x.generatedAt - y.generatedAt);
+}
+
+/** A cloud row back in the app's terms; anything else is ignored. */
+export function parseTrackingRow(v: unknown): { entry: SyncTrackingEntry; trace: SyncTrace | null } | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { entry, trace } = v as { entry?: SyncTrackingEntry; trace?: SyncTrace | null };
+  if (typeof entry?.id !== 'string' || typeof entry.start !== 'number') return null;
+  const okTrace = trace != null && trace.id === entry.id && Array.isArray(trace.polar) && Array.isArray(trace.watch);
+  return { entry, trace: okTrace ? trace : null };
 }
 
 // ---------- the comparison table ----------

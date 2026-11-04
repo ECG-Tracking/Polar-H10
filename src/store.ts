@@ -170,9 +170,9 @@ export async function loadSignal(id: string): Promise<Int16Array | undefined> {
 }
 
 // Recordings deleted here that the cloud still has; removed there on the next sync.
-const tombstoneKey = (kind: 'ecg' | 'sleep' = 'ecg'): string => `${keyPrefix}ecg-analysis-${kind === 'ecg' ? 'deleted' : 'deleted-sleep'}`;
+const tombstoneKey = (kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): string => `${keyPrefix}ecg-analysis-${kind === 'ecg' ? 'deleted' : `deleted-${kind}`}`;
 
-export function pendingCloudDeletes(kind: 'ecg' | 'sleep' = 'ecg'): string[] {
+export function pendingCloudDeletes(kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): string[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(tombstoneKey(kind)) ?? '[]');
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
@@ -181,7 +181,7 @@ export function pendingCloudDeletes(kind: 'ecg' | 'sleep' = 'ecg'): string[] {
   }
 }
 
-export function setPendingCloudDeletes(ids: readonly string[], kind: 'ecg' | 'sleep' = 'ecg'): void {
+export function setPendingCloudDeletes(ids: readonly string[], kind: 'ecg' | 'sleep' | 'tracking' = 'ecg'): void {
   try { localStorage.setItem(tombstoneKey(kind), JSON.stringify(ids)); } catch { /* private mode */ }
 }
 
@@ -387,12 +387,16 @@ export async function importBin(item: BinItem, data?: BinSignalRecord): Promise<
 }
 
 /** Removes an item from the Recovery centre for good. */
-export async function purgeBin(id: string): Promise<void> {
-  await tx(['bin', 'binSignals', 'syncTraces'], 'readwrite', (t) => {
+async function dropFromBin(id: string): Promise<void> {
+  await tx(['bin', 'binSignals'], 'readwrite', (t) => {
     t.objectStore('bin').delete(id);
     t.objectStore('binSignals').delete(id);
-    if (id.startsWith('tracking:')) t.objectStore('syncTraces').delete(id.slice('tracking:'.length)); // its beats go with it
   });
+}
+
+export async function purgeBin(id: string): Promise<void> {
+  await dropFromBin(id);
+  if (id.startsWith('tracking:')) await tx(['syncTraces'], 'readwrite', (t) => { t.objectStore('syncTraces').delete(id.slice('tracking:'.length)); }); // its beats go with it
 }
 
 /**
@@ -427,9 +431,10 @@ export async function restoreBin(id: string): Promise<void> {
     const { session: ecg } = ecgId ? await loadSession(ecgId) : { session: undefined };
     if (ecg && !ecg.sleepId) await updateSession({ ...ecg, sleepId: item.session.id });
   } else {
+    setPendingCloudDeletes(withoutId(pendingCloudDeletes('tracking'), item.entry.id), 'tracking');
     saveSyncEntry(item.entry);
   }
-  await purgeBin(id);
+  await dropFromBin(id);
 }
 
 // ---------- Settings ----------
@@ -569,6 +574,8 @@ export interface SyncTrackingEntry {
   /** Every blood pressure reading taken on the watch within one hour of the start. */
   bps?: SyncBp[];
   ecgId: string | null; // the recording saved to ECG history
+  savedAt?: number; // last change, ms: the newest copy wins in the cloud
+  synced?: boolean; // in the account's cloud copy
 }
 
 const syncKey = (): string => `${keyPrefix}ecg-analysis-sync-tracking`;
@@ -581,19 +588,24 @@ export function loadSyncHistory(): SyncTrackingEntry[] {
   } catch { return []; }
 }
 
-export async function removeSyncEntry(id: string): Promise<void> {
+export async function removeSyncEntry(id: string, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const entry = loadSyncHistory().find((x) => x.id === id);
+  if (fromCloud && entry?.synced) setPendingCloudDeletes([...new Set([...pendingCloudDeletes('tracking'), id])], 'tracking');
   if (entry) await keepInBin({ id: `tracking:${id}`, kind: 'tracking', user: entry.user, deletedAt: Date.now(), size: JSON.stringify(entry).length, entry });
   try { localStorage.setItem(syncKey(), JSON.stringify(loadSyncHistory().filter((x) => x.id !== id))); } catch { /* storage unavailable */ }
 }
 
-/** Adds an entry, or replaces the one with the same id (e.g. when its blood pressure arrives later). Newest first. */
-export function saveSyncEntry(e: SyncTrackingEntry): void {
+/**
+ * Adds an entry, or replaces the one with the same id (e.g. when its blood pressure arrives later). Newest first.
+ * `fromCloud`: it came from the cloud, so it keeps its time and needs no upload.
+ */
+export function saveSyncEntry(e: SyncTrackingEntry, { fromCloud = false }: { fromCloud?: boolean } = {}): void {
   const rest = loadSyncHistory().filter((x) => x.id !== e.id);
-  try { localStorage.setItem(syncKey(), JSON.stringify([e, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
+  const saved = fromCloud ? { ...e, synced: true } : { ...e, savedAt: Date.now(), synced: false };
+  try { localStorage.setItem(syncKey(), JSON.stringify([saved, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
 }
 
-/** The beats of one tracking. Stay when it is deleted, so restoring it brings its reports back. */
+/** The beats and report versions of one tracking. They stay when it is deleted, so restoring it brings its reports back. */
 export async function saveSyncTrace(trace: SyncTrace): Promise<void> {
   await tx(['syncTraces'], 'readwrite', (t) => { t.objectStore('syncTraces').put(trace); });
 }

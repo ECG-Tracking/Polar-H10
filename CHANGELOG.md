@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.23.0 – Saved versions and cloud copies of tracking reports *(GitHub)*
+Why: earlier results should stay readable, and a tracking's numbers should be safe in the cloud like everything else.
+- When a tracking's blood pressure or the watch's data changes, new reports are generated and the earlier ones stay. Each version has its own row with its own four reports, newest first, and an older row opens the reports as they were.
+- Versions are generated after a tracking, after a watch download, after a sync from another device, and when the app opens.
+- Synchronised trackings, their beats and their report versions now sync to the cloud as numbers, so another device gets the full reports. The most recently saved copy wins, and versions from both devices are kept. Deleting a tracking removes it from your other devices, and it stays in the Recovery centre.
+- Fixed: restoring a tracking from the Recovery centre lost its beats.
+
 ## 4 Nov 2026 – v1.22.0 – Four reports for every synchronised tracking *(GitHub)*
 Why: one tracking from two devices should be read the same way as one sleep from two devices.
 - Synchronised Tracking History now lists each tracking with four reports: Polar H10, D2, Combined and Comparison, plus its ECG.
