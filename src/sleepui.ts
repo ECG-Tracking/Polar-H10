@@ -17,6 +17,8 @@ import { parseSleepReport, toAnalysis } from './summary';
 export interface SleepDeps {
   /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
   renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
+  /** An ECG saved during this time, for a recording that didn't save its own. */
+  ecgDuring: (from: number, to: number) => Promise<{ id: string } | null>;
   user: () => UserNumber;
   /** The mains-hum filter chosen in Biodata, for the live trace. */
   notch: () => number;
@@ -31,8 +33,10 @@ const MIN_SAVE_S = 10 * 60;
 
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
-  openReport: (id: string) => Promise<void>;
+  openReport: (id: string, from?: () => void) => Promise<void>;
   isRecording: () => boolean;
+  /** For Synchronised Sleep Tracking, which records through this page. */
+  recording: { canStart: () => boolean; start: () => Promise<void>; stop: () => Promise<string | null>; elapsed: () => string };
   refreshUser: () => void;
 } {
   let polar: PolarH10 | null = null;
@@ -204,9 +208,10 @@ export function initSleep(deps: SleepDeps): {
     $('sleepMove').textContent = recent.moving === null ? '--' : recent.moving ? 'Moving' : 'Still';
   }
 
-  async function stopRecording(): Promise<void> {
+  /** Gives the saved recording's id; with `show`, opens its report. */
+  async function stopRecording(show = true): Promise<string | null> {
     const r = recorder;
-    if (!r) return;
+    if (!r) return null;
     const nightEcg = ecg;
     recorder = null;
     ecg = null;
@@ -223,7 +228,7 @@ export function initSleep(deps: SleepDeps): {
     if (data.durationS < MIN_SAVE_S) {
       $('sleepElapsed').textContent = 'Too short';
       $('sleepSince').textContent = 'recordings under 10 min aren’t saved';
-      return;
+      return null;
     }
     const session: SleepSession = { id: `n${r.start}`, user: recUser, start: r.start, durationS: data.durationS, source: 'polar', summary: null };
     if (nightEcg && nightEcg.n >= MIN_SAVE_S * ECG_FS) {
@@ -240,7 +245,8 @@ export function initSleep(deps: SleepDeps): {
     }
     await store.saveSleep(session, data);
     historyChanged();
-    await openReport(session.id);
+    if (show) await openReport(session.id);
+    return session.id;
   }
 
   async function demoNight(): Promise<void> {
@@ -293,11 +299,15 @@ export function initSleep(deps: SleepDeps): {
   const brPlot = new Plot(brChartEl);
   let current: { session: SleepSession; analysis: SleepAnalysis } | null = null;
   let olderId: string | null = null, newerId: string | null = null;
+  let backTo: (() => void) | null = null;
   let donutParts: { key: SleepStageKey; value: number }[] = [];
 
   const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' ? null : s);
 
-  async function openReport(id: string): Promise<void> {
+  /** `from` is set when another page opened the report: its back button returns there. */
+  async function openReport(id: string, from?: () => void): Promise<void> {
+    backTo = from ?? null;
+    $('btnSleepBack').textContent = from ? '← Back' : '← Sleep history';
     deps.showSleepView('sleepReport');
     const busy = $('sleepBusy'), body = $('sleepBody');
     busy.hidden = false;
@@ -330,8 +340,10 @@ export function initSleep(deps: SleepDeps): {
     body.hidden = false;
     hypno.draw(); bars.draw(); hrPlot.draw(); brPlot.draw();
     const ecgSection = $('sleepEcgSection');
-    ecgSection.hidden = !session.ecgId;
-    if (session.ecgId) void deps.renderNightEcg($('sleepEcgBody'), session.ecgId);
+    const ecgId = session.ecgId ?? (await deps.ecgDuring(session.start, session.start + session.durationS * 1000))?.id;
+    ecgSection.hidden = !ecgId && !from;
+    if (ecgId) void deps.renderNightEcg($('sleepEcgBody'), ecgId);
+    else $('sleepEcgBody').replaceChildren(make('p', 'muted', 'No ECG was saved during this sleep.'));
     drawDonut($canvas('sleepDonut'), donutParts); // needs the report to be visible to have a size
   }
 
@@ -529,9 +541,9 @@ export function initSleep(deps: SleepDeps): {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && recorder && !wakeLock) void requestWakeLock();
   });
-  $button('btnSleepBack').addEventListener('click', () => deps.showSleepView('sleepHistory'));
-  $button('btnSleepOlder').addEventListener('click', () => { if (olderId) void openReport(olderId); });
-  $button('btnSleepNewer').addEventListener('click', () => { if (newerId) void openReport(newerId); });
+  $button('btnSleepBack').addEventListener('click', () => { if (backTo) backTo(); else deps.showSleepView('sleepHistory'); });
+  $button('btnSleepOlder').addEventListener('click', () => { if (olderId) void openReport(olderId, backTo ?? undefined); });
+  $button('btnSleepNewer').addEventListener('click', () => { if (newerId) void openReport(newerId, backTo ?? undefined); });
   $button('btnSleepPrint').addEventListener('click', () => window.print());
   /** Deletes a night (after the caller asked); its ECG is deleted too only if the user says so. */
   async function deleteNight(night: SleepSession): Promise<void> {
@@ -595,6 +607,12 @@ export function initSleep(deps: SleepDeps): {
     renderHistory,
     openReport,
     isRecording: () => recorder !== null,
+    recording: {
+      canStart: () => polar?.connected === true && polar.accOk === true,
+      start: startRecording,
+      stop: () => stopRecording(false),
+      elapsed: () => (recorder ? fmtTime(recorder.elapsedS) : ''),
+    },
     refreshUser,
   };
 }

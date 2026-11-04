@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.16.0 – Synchronised Sleep Tracking and four sleep reports *(GitHub)*
+Why: one sleep measured by two devices can show where they differ, and what to do about it.
+- New pages Synchronised Sleep Tracking and Synchronised Sleep Tracking History, at the end of Polar H10 + Watch D2.
+- Recordings from the Polar H10 and the Watch D2 that overlap for at least half of the shorter one count as one sleep, including sleep recorded earlier.
+- Each sleep has four reports: Polar H10, D2, Combined (the two merged minute by minute) and Comparison (agreement, differences side by side, where the stages differ, and how to improve accuracy).
+- Every report links to the ECG saved with that sleep. The Polar H10 and D2 reports now also show any ECG saved during the sleep when opened from their own history pages.
+- Watch naps now open as a D2 report from this history.
+
 ## 4 Nov 2026 – v1.15.8 – Sleep reports use the same reference ranges *(GitHub)*
 Why: one night should get the same verdict whichever report shows it.
 - The Sleep history report now uses D2 Link's references: times woke up 0–1, night sleep 6–10 h, light sleep under 55 %, deep sleep 20–60 %, REM 10–30 %. "About these numbers" says where they come from.

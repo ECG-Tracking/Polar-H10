@@ -16,6 +16,8 @@ import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
+import { initSyncSleep } from './syncsleepui';
+import { overlapMs } from './syncsleep';
 import { initBackups } from './backups';
 
 const FS = ECG_FS;
@@ -30,24 +32,26 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'settings' | 'backups' | 'recovery' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'settings', 'backups', 'recovery', 'about'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'settings' | 'backups' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'settings', 'backups', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 
 function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
-  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view;
+  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
   // the page's name in the top bar (a report is named for what it reports on)
   const tabLabel = document.querySelector<HTMLButtonElement>(`.tabs button[data-view="${tab}"]`)?.textContent?.trim() ?? '';
-  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' ? 'Sleep report' : tabLabel;
+  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : tabLabel;
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
   if (view === 'd2' || view === 'd2History') void openD2();
   if (view === 'sync' || view === 'syncHistory') openSync();
   if (view === 'syncHistory') syncUI?.refreshHistory();
+  if (view === 'syncSleep') openSyncSleep().refresh();
+  if (view === 'syncSleepHistory') void openSyncSleep().refreshHistory();
   if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2 }); }
   if (view === 'recovery') void renderRecovery($('recoveryRoot'), { loadD2, user: () => currentUser });
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
@@ -62,7 +66,7 @@ function show(view: View): void {
 // ---------- D2 Link (a separate, open-source script, loaded on first use) ----------
 
 declare const __D2_VERSION__: string; // set by scripts/build.mjs
-let d2: { refresh: () => void } | null = null;
+let d2: { refresh: () => void; openNight: (id: string, back: () => void) => Promise<void> } | null = null;
 let d2Loading: Promise<void> | null = null;
 /** D2 Link switched to its history page itself (e.g. to show a night): keep what it shows. */
 let d2KeepPage = false;
@@ -97,6 +101,42 @@ function openSync(): void {
   });
 }
 
+/** The ECG recording that overlaps this time the most, if there is one. */
+async function ecgDuring(from: number, to: number): Promise<{ id: string; label: string } | null> {
+  let best: Session | null = null, most = 0;
+  for (const s of await store.listSessions(currentUser)) {
+    const ms = overlapMs(from, to, s.start, s.start + s.durationS * 1000);
+    if (ms > most) { best = s; most = ms; }
+  }
+  return best && { id: best.id, label: new Date(best.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) };
+}
+
+let syncSleepUI: ReturnType<typeof initSyncSleep> | null = null;
+function openSyncSleep(): ReturnType<typeof initSyncSleep> {
+  syncSleepUI ??= initSyncSleep($('syncSleepRoot'), $('syncSleepHistoryRoot'), $('syncSleepReportRoot'), {
+    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser),
+    sleep: {
+      canStart: () => sleepUI?.recording.canStart() ?? false,
+      start: async () => { await sleepUI?.recording.start(); },
+      stop: async () => (await sleepUI?.recording.stop()) ?? null,
+      isRecording: () => sleepUI?.isRecording() ?? false,
+      elapsed: () => sleepUI?.recording.elapsed() ?? '',
+    },
+    openPolar: (id, back) => void sleepUI?.openReport(id, back),
+    openWatch: (id, back) => void openD2Night(id, back),
+    openEcg: (id) => void openReport(id),
+    ecgDuring,
+    show,
+  });
+  return syncSleepUI;
+}
+
+async function openD2Night(id: string, back: () => void): Promise<void> {
+  if (!d2) { d2KeepPage = false; await openD2(); }
+  d2KeepPage = true;
+  await d2?.openNight(id, back);
+}
+
 async function openD2(): Promise<void> {
   if (d2) { if (d2KeepPage) d2KeepPage = false; else d2.refresh(); return; }
   try {
@@ -109,6 +149,8 @@ async function openD2(): Promise<void> {
       // Settings → Biodata, sent to the watch as its profile with "Download all data" (only when height and weight are given)
       profile: biodataProfile,
       historyRoot: $('d2HistoryRoot'),
+      ecgDuring,
+      openEcg: (id) => void openReport(id),
       showHistory: () => { if (!$('view-d2History').classList.contains('active')) { d2KeepPage = true; show('d2History'); } },
     });
   } catch (err) {
@@ -1022,6 +1064,7 @@ account.cloud?.addEventListener('changed', () => {
 
 sleepUI = initSleep({
   renderNightEcg,
+  ecgDuring,
   user: () => currentUser,
   notch: () => settings.notch,
   userLabel,

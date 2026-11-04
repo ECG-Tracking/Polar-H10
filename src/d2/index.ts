@@ -4,7 +4,7 @@
 // (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors. Port © 2026 ECG-Tracking.
 // Full licence: LICENSE-D2-LINK.txt. Source: the src/d2 folder of https://github.com/ECG-Tracking/Polar-H10
 
-import { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, storedBloodPressure, syncD2 } from './backup';
+import { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, pairingSleep, storedBloodPressure, syncD2 } from './backup';
 import { connectLive, type LiveOptions, type LiveWatch } from './live';
 import { listRecovery, purgeRecovery, restoreRecovery } from './recovery';
 import { mount, type D2Deps } from './ui';
@@ -12,7 +12,9 @@ import { onWatch, type OpenWatch } from './watch';
 
 /** What d2link.js offers the app: the D2 Link page, and the watch live for synchronised tracking. */
 export interface D2Api {
-  mount: (root: HTMLElement, deps: D2Deps) => { refresh: () => void };
+  mount: (root: HTMLElement, deps: D2Deps) => { refresh: () => void; openNight: (id: string, back: () => void) => Promise<void> };
+  /** This user's nights and naps, for Synchronised Sleep Tracking. */
+  pairingSleep: typeof pairingSleep;
   connectLive: (o: LiveOptions) => Promise<LiveWatch>;
   /** `fn` runs now and whenever the shared watch connection connects or ends. */
   onWatch: (fn: (w: OpenWatch | null) => void) => void;
@@ -26,4 +28,4 @@ declare global {
   interface Window { OpenBeatD2?: D2Api }
 }
 
-window.OpenBeatD2 = { mount, connectLive, onWatch, recovery: { list: listRecovery, restore: restoreRecovery, purge: purgeRecovery }, backup: { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, syncD2, storedBloodPressure } };
+window.OpenBeatD2 = { mount, pairingSleep, connectLive, onWatch, recovery: { list: listRecovery, restore: restoreRecovery, purge: purgeRecovery }, backup: { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, syncD2, storedBloodPressure } };

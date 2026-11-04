@@ -346,6 +346,16 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
   .d2-donut, #view-sleepReport .d2-mix canvas { width: 96px; height: 96px; }
 }
 .d2-more { margin-top: 14px; }
+.sessions li.sync-sleep-row { cursor: default; grid-template-columns: 1fr auto; }
+.sync-sleep-row .stats { grid-column: 1 / -1; }
+.sync-sleep-actions { grid-column: 1 / -1; gap: 6px; margin-top: 6px; }
+.d2-steps { margin: 0 0 10px; padding-left: 20px; }
+.d2-steps li { margin-bottom: 6px; }
+#view-syncSleepReport .d2-night .chart, #view-syncSleepReport .d2-score .chart { background: none; border: 0; padding: 0; }
+#view-syncSleepReport .d2-mix canvas { width: 120px; height: 120px; }
+#view-syncSleepReport .d2-mix .stage-list { min-width: 0; }
+#view-syncSleepReport .d2-tiles { margin-bottom: 14px; }
+#view-syncSleepReport .d2-datenav { font-weight: 600; }
 #view-sleepReport .d2-night .chart, #view-sleepReport .d2-score .chart { background: none; border: 0; padding: 0; }
 #view-sleepReport .d2-score .chart.d2-wake { background: var(--bg); padding: 8px 10px; }
 #view-sleepReport .chart.d2-wake figcaption { font-size: 0.85rem; font-weight: 400; color: var(--ink); margin: 0; }

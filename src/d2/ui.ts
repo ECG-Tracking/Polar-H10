@@ -35,6 +35,9 @@ export interface D2Deps {
   historyRoot?: HTMLElement;
   /** Shows the history page (after a download, or to open a night). */
   showHistory?: () => void;
+  /** An ECG saved during this time, if there is one, and how to open it. */
+  ecgDuring?: (from: number, to: number) => Promise<{ id: string; label: string } | null>;
+  openEcg?: (id: string) => void;
 }
 
 // ---------- what a night shows ----------
@@ -152,7 +155,7 @@ function wakeBars(nights: D2Night[]): SVGSVGElement {
 
 // ---------- the screen ----------
 
-export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } {
+export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; openNight: (id: string, back: () => void) => Promise<void> } {
   store.useAccount(deps.account);
   root.replaceChildren();
   // two pages: D2 Link (connect and download) and D2 Link History (the nights and other data, and a night's report)
@@ -608,14 +611,29 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   }
 
   // ---------- report ----------
-  function openReport(id: string): void {
+  /** `from` is set when another page opened the report: its back button returns there. */
+  function openReport(id: string, from?: () => void): void {
     const i = nights.findIndex((n) => n.id === id);
-    const n = nights[i];
+    const n = nights[i] ?? [...napsByDay.values()].flat().find((x) => x.id === id);
     if (!n) return;
     renderReport(report, n, nights, napsByDay.get(dayKey(n)) ?? [], model, {
-      back: () => { report.hidden = true; histHome.hidden = false; window.scrollTo(0, 0); },
-      older: nights[i + 1] ? () => openReport(nights[i + 1]!.id) : null,
-      newer: i > 0 ? () => openReport(nights[i - 1]!.id) : null,
+      back: () => { report.hidden = true; histHome.hidden = false; window.scrollTo(0, 0); from?.(); },
+      backLabel: from ? '← Back' : '← Sleep',
+      older: nights[i + 1] ? () => openReport(nights[i + 1]!.id, from) : null,
+      newer: i > 0 ? () => openReport(nights[i - 1]!.id, from) : null,
+      ecg: (box) => {
+        const f = figures(n);
+        void deps.ecgDuring?.(f.inBedFromMs, f.inBedToMs).then((hit) => {
+          box.hidden = !hit && !from;
+          box.appendChild(el('h3', '', `ECG during this ${isNap(n) ? 'nap' : 'night'}`));
+          if (!hit) { box.appendChild(el('p', 'muted', 'No ECG was saved during this sleep.')); return; }
+          const r = el('div', 'row between d2-more-row');
+          r.append(el('span', 'muted', 'Saved ECG'), el('span', '', hit.label));
+          const open = button('Open ECG report');
+          open.addEventListener('click', () => deps.openEcg?.(hit.id));
+          box.append(r, open);
+        });
+      },
       remove: async () => {
         if (!window.confirm(n.synced ? 'Delete this night from this device and from your other devices? You can get it back from the Recovery centre.' : 'Delete this night from this device? You can get it back from the Recovery centre.')) return;
         await store.deleteNight(n.id);
@@ -642,10 +660,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void } 
   syncButtons();
   renderHistory();
   void renderList().then(sync);
-  return { refresh: () => { report.hidden = true; histHome.hidden = false; renderHistory(); void renderList().then(sync); } };
+  return {
+    refresh: () => { report.hidden = true; histHome.hidden = false; renderHistory(); void renderList().then(sync); },
+    openNight: async (id, back) => { await renderList(); openReport(id, back); },
+  };
 }
 
-interface ReportActions { back: () => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
+interface ReportActions { back: () => void; backLabel: string; ecg: (box: HTMLElement) => void; older: (() => void) | null; newer: (() => void) | null; remove: () => Promise<void> }
 
 const napText = (n: D2Night): string => { const f = figures(n); return `${clock(f.bedMs)}–${clock(f.wokeMs)} (${f.sleepMin} min)`; };
 
@@ -693,7 +714,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   const f = figures(n), s = n.summary;
 
   const bar = el('div', 'row between wrap');
-  const back = button('← Sleep');
+  const back = button(act.backLabel);
   back.addEventListener('click', act.back);
   const right = el('div', 'row wrap');
   const json = button('JSON');
@@ -717,7 +738,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   next.addEventListener('click', () => act.newer?.());
   nav.append(prev, el('span', 'd2-date', dayLabel(f.wokeMs)), next);
   const big = el('div', 'd2-big');
-  big.append(el('div', 'muted', 'Night sleep'), el('div', 'd2-big-value', f.sleepMin ? hm(f.sleepMin) : '--'));
+  big.append(el('div', 'muted', isNap(n) ? 'Nap sleep' : 'Night sleep'), el('div', 'd2-big-value', f.sleepMin ? hm(f.sleepMin) : '--'));
   const times = el('div', 'row between d2-times');
   const bedT = el('div'); bedT.append(el('div', 'muted', shortDate(f.bedMs)), el('div', '', `Bed time ${clock(f.bedMs)}`));
   const wokeT = el('div', 'd2-right'); wokeT.append(el('div', 'muted', shortDate(f.wokeMs)), el('div', '', `Woke up ${clock(f.wokeMs)}`));
@@ -807,8 +828,12 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
     napCard.appendChild(r);
   }
 
+  const ecgBox = el('div', 'card d2-more');
+  ecgBox.hidden = true;
+  act.ecg(ecgBox);
+
   const why = scoreCardFor(n, model);
-  box.append(bar, top, napCard, scoreCard, ...(why ? [why] : []), grid, more, notes);
+  box.append(bar, top, napCard, scoreCard, ...(why ? [why] : []), grid, more, ecgBox, notes);
 }
 
 function stars(score: number | null): HTMLElement {

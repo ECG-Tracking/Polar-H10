@@ -3,6 +3,7 @@
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
 import { syncNights, syncRecords, type CloudClient } from './cloud';
+import { figures, isNap } from './night';
 import * as store from './store';
 import type { D2BinItem, D2Night, D2Record, DownloadLogEntry } from './store';
 
@@ -11,6 +12,12 @@ import type { D2BinItem, D2Night, D2Record, DownloadLogEntry } from './store';
  * watch account ID (enter it again in D2 Link); `watchAccount` is only read from backups made before it was left out.
  */
 export interface D2Backup { v: 1; nights: D2Night[]; records: D2Record[]; downloads: DownloadLogEntry[]; watchAccount?: string; bin?: D2BinItem[] }
+
+export interface PairingSleep {
+  id: string; start: number; stages: number[]; nap: boolean; demo: boolean; watch: string; bedMs: number; wokeMs: number;
+  sleepMin: number; deepMin: number; lightMin: number; remMin: number; awakeMin: number; wakeups: number | null;
+  score: number | null; avgHR: number | null; avgHrv: number | null; avgSpo2: number | null; avgBreath: number | null;
+}
 
 /** `withBin` adds the deleted items kept for the Recovery centre (a backup has them, a comparison file doesn't). */
 export async function exportD2(account: string, withBin = false): Promise<D2Backup> {
@@ -39,6 +46,19 @@ export async function importD2(account: string, b: unknown): Promise<number> {
   if (Array.isArray(d.downloads)) store.replaceDownloadLog(d.downloads);
   if (typeof d.watchAccount === 'string' && d.watchAccount) store.saveWatchAccount(d.watchAccount);
   return nights.length + records.length;
+}
+
+/** This user's nights and naps with their figures, for Synchronised Sleep Tracking. The stages run from falling asleep to waking up. */
+export async function pairingSleep(account: string, user: number): Promise<PairingSleep[]> {
+  store.useAccount(account);
+  return (await store.listNights(user)).map((n) => {
+    const f = figures(n), s = n.summary;
+    return {
+      id: n.id, start: f.shown.start, stages: f.shown.stages, nap: isNap(n), demo: n.source === 'demo', watch: n.watch, bedMs: f.bedMs, wokeMs: f.wokeMs,
+      sleepMin: f.sleepMin, deepMin: f.deepMin, lightMin: f.lightMin, remMin: f.remMin, awakeMin: f.awakeMin, wakeups: f.wakeups,
+      score: s.sleepScore, avgHR: s.avgHeartRate, avgHrv: s.avgHrv, avgSpo2: s.avgOxygenSaturation, avgBreath: s.avgBreathRate,
+    };
+  });
 }
 
 /** Ids this device has, per cloud table (to make the cloud match this device). */
