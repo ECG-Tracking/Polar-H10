@@ -56,3 +56,11 @@ test('ecgHoursIn rounds down', () => {
   assert.equal(ecgHoursIn(130 * 2 * 3600 * 2.9), 2);
   assert.equal(ecgHoursIn(0), 0);
 });
+
+import { keepAllByDefault } from '../src/store';
+
+test('computers keep everything by default, phones and tablets the latest ones', () => {
+  assert.equal(keepAllByDefault('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/140', 0), true);
+  assert.equal(keepAllByDefault('Mozilla/5.0 (Linux; Android 12) Mobile Chrome/140', 5), false);
+  assert.equal(keepAllByDefault('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari', 5), false); // an iPad says Macintosh
+});

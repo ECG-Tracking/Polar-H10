@@ -1148,6 +1148,7 @@ sleepUI = initSleep({
 onStrap(useStrap);
 openSyncSleep().schedule(); // sleep that arrived or changed while the app was closed
 scheduleReports();
+if (store.keepAll()) void navigator.storage?.persist?.().catch(() => undefined); // asks the browser not to clear this data when space runs low
 
 // ---------- Reference sources ----------
 

@@ -119,3 +119,9 @@ test('cloud: versions from two devices are both kept, and bad rows are ignored',
   assert.equal(parseTrackingRow({ entry: entry('t1', 1, false), trace: { id: 'other', polar: [], watch: [] } })?.trace, null);
   assert.equal(parseTrackingRow({ entry: entry('t1', 1, false), trace })?.trace?.id, 't1');
 });
+
+test('cloud: a device at its limit leaves older trackings in the cloud', () => {
+  const cloud = new Map([['t100', 1], ['t900', 1]]);
+  const plan = planCloudCopies([entry('t500', 1, true)], new Map([...cloud, ['t500', 1]]), new Set(), (id) => Number(id.slice(1)) < 500);
+  assert.deepEqual(plan.download, ['t900']);
+});

@@ -233,8 +233,8 @@ const LOG_KIND = 'download-log';
 
 export interface DownloadPlan { upload: DownloadLogEntry[]; fetch: string[]; removeHere: DownloadLogEntry[]; markSynced: DownloadLogEntry[] }
 
-/** The history keeps the last 300 here, so older downloads in the cloud aren't fetched again. */
-export function planDownloads(local: readonly DownloadLogEntry[], cloud: ReadonlySet<string>, deleting: ReadonlySet<string>, max = store.MAX_DOWNLOADS): DownloadPlan {
+/** A device with a limit is full once it reaches it, so older downloads in the cloud aren't fetched again. */
+export function planDownloads(local: readonly DownloadLogEntry[], cloud: ReadonlySet<string>, deleting: ReadonlySet<string>, max = store.downloadLimit()): DownloadPlan {
   const plan: DownloadPlan = { upload: [], fetch: [], removeHere: [], markSynced: [] };
   const here = new Set(local.map(store.logId));
   for (const e of local) {

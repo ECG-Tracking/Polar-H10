@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.27.0 – Computers keep everything *(GitHub)*
+Why: a computer should hold every tracking and every download, not just the latest ones.
+- Computers now keep every synchronised tracking and the whole D2 Link download history, and fetch what was left out. Phones and tablets keep the latest 500 trackings and 300 downloads, and the rest stay in the cloud.
+- The Storage section on the About page has a Keep everything on this device tick box to change this for a device.
+- When keeping everything, the app asks the browser not to clear its data if the disk runs low.
+- If the browser's space for these lists fills up, the oldest entries already in the cloud make room, so a new entry is never lost.
+- Fixed: a device at its limit no longer fetches older trackings again at every sync.
+
 ## 4 Nov 2026 – v1.26.0 – D2 Link download history syncs *(GitHub)*
 Why: the history of downloads should be the same on every device.
 - D2 Link's download history now syncs to the cloud and your other devices. Removing a download from the history removes it from your other devices too, and it stays in the Recovery centre. Each device keeps the latest 300.

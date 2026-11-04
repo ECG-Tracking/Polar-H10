@@ -590,6 +590,44 @@ export interface SyncTrackingEntry {
 const syncKey = (): string => `${keyPrefix}ecg-analysis-sync-tracking`;
 const MAX_SYNC = 500;
 
+// ---------- keeping everything on this device ----------
+// A computer keeps every tracking and every line of D2 Link's download history; a phone or tablet keeps the latest ones,
+// and the rest stay in the cloud. The Storage section can change this for the device. d2/store.ts reads the same setting.
+const KEEP_ALL_KEY = 'openbeat-keep-all';
+
+export function keepAllByDefault(ua: string, touchPoints: number): boolean {
+  return !/Android|iPhone|iPad|Mobile/i.test(ua) && touchPoints < 2;
+}
+
+export function keepAll(): boolean {
+  try {
+    const v = localStorage.getItem(KEEP_ALL_KEY);
+    if (v != null) return v === '1';
+    return keepAllByDefault(navigator.userAgent, navigator.maxTouchPoints);
+  } catch { return false; }
+}
+
+export function setKeepAll(on: boolean): void {
+  try { localStorage.setItem(KEEP_ALL_KEY, on ? '1' : '0'); } catch { /* not kept */ }
+}
+
+/** How many trackings this device keeps. */
+export const trackingLimit = (): number => (keepAll() ? Infinity : MAX_SYNC);
+
+/**
+ * Saves a list, newest first. If the browser's space for such lists is full, the oldest entries already in the cloud
+ * make room, so a new entry is never lost.
+ */
+function saveNewestFirst(key: string, list: readonly { synced?: boolean }[]): void {
+  const left = [...list];
+  for (;;) {
+    try { localStorage.setItem(key, JSON.stringify(left)); return; } catch { /* full, or storage unavailable */ }
+    const i = left.map((e) => e.synced).lastIndexOf(true);
+    if (i < 0) return;
+    left.splice(i, 1);
+  }
+}
+
 export function loadSyncHistory(): SyncTrackingEntry[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(syncKey()) ?? '[]');
@@ -611,7 +649,7 @@ export async function removeSyncEntry(id: string, { fromCloud = true }: { fromCl
 export function saveSyncEntry(e: SyncTrackingEntry, { fromCloud = false }: { fromCloud?: boolean } = {}): void {
   const rest = loadSyncHistory().filter((x) => x.id !== e.id);
   const saved = fromCloud ? { ...e, synced: true } : { ...e, savedAt: Date.now(), synced: false };
-  try { localStorage.setItem(syncKey(), JSON.stringify([saved, ...rest].sort((a, b) => b.start - a.start).slice(0, MAX_SYNC))); } catch { /* storage unavailable */ }
+  saveNewestFirst(syncKey(), [saved, ...rest].sort((a, b) => b.start - a.start).slice(0, trackingLimit()));
 }
 
 /** The beats and report versions of one tracking. They stay when it is deleted, so restoring it brings its reports back. */

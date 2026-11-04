@@ -188,7 +188,9 @@ export class CloudSync extends EventTarget {
       if (typeof r['id'] === 'string' && at !== null) inCloud.set(r['id'], at);
     }
     const local = new Map(store.loadSyncHistory().map((e) => [e.id, e]));
-    const plan = planCloudCopies([...local.values()], inCloud, new Set(stillPending));
+    // a device with a limit that has reached it leaves the older trackings in the cloud
+    const oldest = local.size >= store.trackingLimit() ? Math.min(...[...local.values()].map((e) => e.start)) : 0;
+    const plan = planCloudCopies([...local.values()], inCloud, new Set(stillPending), (id) => Number(id.slice(1)) < oldest);
 
     for (const id of plan.removeHere) { await store.removeSyncEntry(id, { fromCloud: false }); result.deleted++; }
     for (const id of plan.markSynced) { const e = local.get(id); if (e) store.saveSyncEntry(e, { fromCloud: true }); }

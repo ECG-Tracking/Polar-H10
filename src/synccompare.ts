@@ -244,7 +244,7 @@ export function makeVersion(t: SyncTrace, bps: readonly SyncBp[], stored: Tracki
 export interface CloudPlan { upload: string[]; download: string[]; removeHere: string[]; markSynced: string[] }
 
 /** One cloud row per item: the most recently saved copy wins; one that left the cloud was deleted on another device. */
-export function planCloudCopies(local: readonly { id: string; savedAt?: number; synced?: boolean }[], cloud: ReadonlyMap<string, number>, deleting: ReadonlySet<string>): CloudPlan {
+export function planCloudCopies(local: readonly { id: string; savedAt?: number; synced?: boolean }[], cloud: ReadonlyMap<string, number>, deleting: ReadonlySet<string>, tooOld: (id: string) => boolean = () => false): CloudPlan {
   const plan: CloudPlan = { upload: [], download: [], removeHere: [], markSynced: [] };
   const here = new Set(local.map((e) => e.id));
   for (const e of local) {
@@ -254,7 +254,7 @@ export function planCloudCopies(local: readonly { id: string; savedAt?: number; 
     else if ((e.savedAt ?? 0) < at) plan.download.push(e.id);
     else if (!e.synced) plan.markSynced.push(e.id);
   }
-  for (const id of cloud.keys()) if (!here.has(id) && !deleting.has(id)) plan.download.push(id);
+  for (const id of cloud.keys()) if (!here.has(id) && !deleting.has(id) && !tooOld(id)) plan.download.push(id);
   return plan;
 }
 

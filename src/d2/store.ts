@@ -250,6 +250,26 @@ export interface DownloadLogEntry {
 const logKey = (): string => `d2link-downloads-${account}`;
 const MAX_LOG = 300;
 
+/** A computer keeps the whole history, a phone or tablet the latest 300; the app's Storage section can change it (see store.ts there). */
+export function downloadLimit(): number {
+  try {
+    const v = localStorage.getItem('openbeat-keep-all');
+    const all = v != null ? v === '1' : !/Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && navigator.maxTouchPoints < 2;
+    return all ? Infinity : MAX_LOG;
+  } catch { return MAX_LOG; }
+}
+
+/** Saves the history. If the browser's space is full, the oldest entries already in the cloud make room. */
+function saveLog(list: readonly DownloadLogEntry[]): void {
+  const left = [...list];
+  for (;;) {
+    try { localStorage.setItem(logKey(), JSON.stringify(left)); return; } catch { /* full, or storage unavailable */ }
+    const i = left.map((e) => e.synced).lastIndexOf(true);
+    if (i < 0) return;
+    left.splice(i, 1);
+  }
+}
+
 export function loadDownloadLog(): DownloadLogEntry[] {
   try {
     const v: unknown = JSON.parse(localStorage.getItem(logKey()) ?? '[]');
@@ -259,7 +279,7 @@ export function loadDownloadLog(): DownloadLogEntry[] {
 
 /** Replaces the whole download history (restoring a backup). */
 export function replaceDownloadLog(entries: readonly DownloadLogEntry[]): void {
-  try { localStorage.setItem(logKey(), JSON.stringify(entries.slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
+  saveLog(entries.slice(0, downloadLimit()));
 }
 
 const logDeletesKey = (): string => `d2link-download-deletes-${account}`;
@@ -279,12 +299,10 @@ export function setPendingLogDeletes(ids: readonly string[]): void {
 /** The cloud's name for a download in the history. */
 export const logId = (e: Pick<DownloadLogEntry, 'user' | 'at'>): string => `log:${e.user}:${e.at}`;
 
-/** The history as it should be: newest first, keeping the last 300. */
+/** The history as it should be: newest first. */
 export function saveDownloadLog(entries: readonly DownloadLogEntry[]): void {
   replaceDownloadLog([...entries].sort((a, b) => b.at - a.at));
 }
-
-export const MAX_DOWNLOADS = MAX_LOG;
 
 export async function removeDownloadLog(at: number, { fromCloud = true }: { fromCloud?: boolean } = {}): Promise<void> {
   const entry = loadDownloadLog().find((e) => e.at === at);
@@ -293,9 +311,9 @@ export async function removeDownloadLog(at: number, { fromCloud = true }: { from
   try { localStorage.setItem(logKey(), JSON.stringify(loadDownloadLog().filter((e) => e.at !== at))); } catch { /* storage unavailable */ }
 }
 
-/** Adds a download, newest first, keeping the last 300. */
+/** Adds a download, newest first. */
 export function addDownloadLog(e: DownloadLogEntry): void {
-  try { localStorage.setItem(logKey(), JSON.stringify([e, ...loadDownloadLog()].slice(0, MAX_LOG))); } catch { /* storage unavailable */ }
+  saveLog([e, ...loadDownloadLog()].slice(0, downloadLimit()));
 }
 
 const pairingKey = (): string => `d2link-pairing-${account}`;

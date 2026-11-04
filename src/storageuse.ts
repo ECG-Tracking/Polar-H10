@@ -164,5 +164,13 @@ export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Pro
     r.name, r.bytes == null ? '--' : formatBytes(r.bytes), r.bytes == null ? 'No recording yet' : r.basis,
   ])));
 
-  root.replaceChildren(tiles, what, needs);
+  const keep = make('section', 'card');
+  const box = make('input'), label = make('label', 'trend-all');
+  box.type = 'checkbox';
+  box.checked = store.keepAll();
+  box.addEventListener('change', () => store.setKeepAll(box.checked));
+  label.append(box, ' Keep everything on this device');
+  keep.append(make('h3', '', 'What this device keeps'), label, make('p', 'note', 'On: every tracking and the whole D2 Link download history stay here, as well as all recordings. Off: the latest 500 trackings and 300 downloads stay here, and the older ones stay in the cloud. Computers start on, phones and tablets off. The full ECG and raw sleep data stay on the device that recorded them.'));
+
+  root.replaceChildren(tiles, what, needs, keep);
 }
