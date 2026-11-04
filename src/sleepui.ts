@@ -6,10 +6,10 @@ import { analyzeSleep, isNap, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type Sl
 import { simulateNight } from './sleepsim';
 import { EcgFilter } from './dsp';
 import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
-import { sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
+import { checkRange, fmtRange, sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
 import type { Session, SleepSession, UserNumber } from './store';
-import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, metricTile, renderOutliers, download, type Outlier, type MetricRef } from './ui';
+import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
 import { parseSleepReport, toAnalysis } from './summary';
@@ -287,11 +287,12 @@ export function initSleep(deps: SleepDeps): {
 
   const hypno = new Hypnogram(document.querySelector<HTMLElement>('#view-sleepReport .chart.hypno') ?? $('sleepBody'));
   const bars = new Bars(document.querySelector<HTMLElement>('#view-sleepReport .chart.bars') ?? $('sleepBody'));
-  const [hrChartEl, brChartEl] = [...document.querySelectorAll<HTMLElement>('#view-sleepReport .grid2:not(.sleep-summary) .chart')];
+  const [hrChartEl, brChartEl] = [...document.querySelectorAll<HTMLElement>('#view-sleepReport .grid2 .chart')];
   if (!hrChartEl || !brChartEl) throw new Error('sleep report needs two charts');
   const hrPlot = new Plot(hrChartEl);
   const brPlot = new Plot(brChartEl);
   let current: { session: SleepSession; analysis: SleepAnalysis } | null = null;
+  let olderId: string | null = null, newerId: string | null = null;
   let donutParts: { key: SleepStageKey; value: number }[] = [];
 
   const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' ? null : s);
@@ -322,8 +323,9 @@ export function initSleep(deps: SleepDeps): {
     current = { session, analysis };
     // naps compare with naps and nights with nights: a nap would skew a night's ranges
     const nap = isNap(session.start, session.durationS);
-    const earlier = (await store.listSleeps(session.user)).filter((n) => n.start < session.start && isNap(n.start, n.durationS) === nap);
-    renderReport(session, analysis, earlier);
+    const all = await store.listSleeps(session.user);
+    const earlier = all.filter((n) => n.start < session.start && isNap(n.start, n.durationS) === nap);
+    renderReport(session, analysis, earlier, all);
     busy.hidden = true;
     body.hidden = false;
     hypno.draw(); bars.draw(); hrPlot.draw(); brPlot.draw();
@@ -333,15 +335,13 @@ export function initSleep(deps: SleepDeps): {
     drawDonut($canvas('sleepDonut'), donutParts); // needs the report to be visible to have a size
   }
 
-  function renderReport(session: SleepSession, a: SleepAnalysis, earlier: readonly SleepSession[]): void {
+  function renderReport(session: SleepSession, a: SleepAnalysis, earlier: readonly SleepSession[], all: readonly SleepSession[]): void {
     const m = a.metrics;
     const start = session.start;
-    const night = new Date(start);
     const nap = isNap(start, session.durationS);
     const word = nap ? 'nap' : 'night';
     $('sleepMeta').textContent = [
       deps.userLabel(session.user),
-      `${nap ? 'Nap' : 'Night'} of ${night.toLocaleDateString([], { dateStyle: 'full' })}`,
       session.source === 'demo' ? 'Demo night' : 'Polar H10',
       session.cloudOnly ? 'Synced copy from another device (as calculated there)' : '',
       m.coverage < 95 ? `Data for ${fmt(m.coverage)} % of the ${word} (strap dropped out)` : '',
@@ -351,10 +351,20 @@ export function initSleep(deps: SleepDeps): {
     $('sleepEcgHeading').textContent = `ECG during the ${word}`;
     document.querySelector('#view-sleepReport .chart.bars')?.setAttribute('aria-label', `Times woke up, last 7 ${word}s`);
     $('sleepDuration').textContent = m.sleepMin ? fmtHM(m.sleepMin) : 'No sleep detected';
+    const wakeMs = Number.isFinite(m.wakeS) ? start + m.wakeS * 1000 : start + session.durationS * 1000;
+    const dayLabel = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'numeric' });
+    $('sleepDate').textContent = new Date(wakeMs).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    $('sleepBedDate').textContent = dayLabel(start);
+    $('sleepWakeDate').textContent = dayLabel(wakeMs);
+    // ‹ and › step through all of this user's sleep, newest first
+    const at = all.findIndex((n) => n.id === session.id);
+    olderId = all[at + 1]?.id ?? null;
+    newerId = all[at - 1]?.id ?? null;
+    $button('btnSleepOlder').disabled = !olderId;
+    $button('btnSleepNewer').disabled = !newerId;
 
     hypno.set(a.stages.map(stageKey), start, EPOCH_S);
     $('sleepBed').textContent = fmtClock(start);
-    $('sleepOnset').textContent = Number.isFinite(m.onsetS) ? fmtClock(start + m.onsetS * 1000) : '--';
     $('sleepWake').textContent = Number.isFinite(m.wakeS) ? fmtClock(start + m.wakeS * 1000) : '--';
     const keys: SleepStageKey[] = ['deep', 'light', 'rem', 'awake'];
     $('sleepLegend').replaceChildren(...keys.map((k) => {
@@ -365,20 +375,37 @@ export function initSleep(deps: SleepDeps): {
       return item;
     }));
 
+    // naps that day, listed under the night
+    const naps = nap ? [] : all.filter((n) => isNap(n.start, n.durationS) && new Date(n.start).toDateString() === new Date(wakeMs).toDateString()).reverse();
+    const napBox = $('sleepNaps');
+    napBox.hidden = naps.length === 0;
+    napBox.replaceChildren(make('h3', '', `Naps that day · ${fmtHM(naps.reduce((min, n) => min + (n.summary?.sleepMin ?? n.durationS / 60), 0))}`));
+    for (const n of naps) {
+      const r = make('div', 'row between d2-more-row');
+      r.append(make('span', 'muted', `${fmtClock(n.start)}–${fmtClock(n.start + n.durationS * 1000)}`), make('span', '', fmtHM(n.summary?.sleepMin ?? n.durationS / 60)));
+      napBox.appendChild(r);
+    }
+
     // score
     $('sleepScoreCard').hidden = nap; // the score expects a full night, so naps aren't scored
+    $('sleepScoreHowBox').hidden = nap;
+    const half = Math.ceil(Math.max(0, Math.min(100, m.score)) / 10); // 0–10 half stars
+    $('sleepStars').setAttribute('aria-label', `${half / 2} of 5 stars`);
+    $('sleepStars').replaceChildren(...[0, 1, 2, 3, 4].map((i) => make('span', `d2-star ${half >= 2 * (i + 1) ? 'full' : half === 2 * i + 1 ? 'half' : 'empty'}`, '★')));
     $('sleepScore').textContent = m.sleepMin ? String(m.score) : '--';
     $('sleepScoreWord').textContent = !m.sleepMin ? '' : m.score >= 85 ? 'Very good night' : m.score >= 70 ? 'Good night' : m.score >= 55 ? 'Fair night' : 'Poor night';
     $('sleepScoreHow').textContent = SCORE_EXPLANATION;
 
     // times woke up, last 7 nights (or naps) including this one
     const week = [...earlier.slice(0, 6).reverse(), session];
-    const dayLabel = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'numeric' });
     bars.set(week.map((n) => {
       const v = n.id === session.id ? m.awakenings : n.summary?.awakenings ?? 0;
       return { label: dayLabel(n.start), value: v, title: `${dayLabel(n.start)} · <b>${v} time${v === 1 ? '' : 's'}</b>`, highlight: n.id === session.id };
     }));
     $('sleepBarsRange').textContent = week.length > 1 ? `(${dayLabel(week[0]?.start ?? start)}–${dayLabel(start)})` : '';
+    const wakeCount = $('sleepWakeCount');
+    wakeCount.className = m.awakenings > 1 ? 'd2-high' : 'd2-normal';
+    wakeCount.textContent = `${m.awakenings} time${m.awakenings === 1 ? '' : 's'}`;
 
     // stage ring and list
     const parts = [
@@ -387,20 +414,42 @@ export function initSleep(deps: SleepDeps): {
       { key: 'rem' as const, value: m.remMin, pct: m.remPct },
     ];
     donutParts = parts;
-    $('sleepStageList').replaceChildren(...[...parts, { key: 'awake' as const, value: m.awakeMin, pct: NaN }].map((p) => {
+    $('sleepStageList').replaceChildren(...parts.map((p) => {
       const li = make('li');
       const name = make('span', 'dot-label');
       const sw = make('span', 'swatch');
       sw.style.background = `var(${STAGE_COLOR_VAR[p.key]})`;
-      name.append(sw, p.key === 'awake' ? 'Awake after falling asleep' : STAGE_LABEL[p.key]);
-      li.append(name, make('span', '', fmtHM(p.value)), make('span', 'pct', Number.isFinite(p.pct) ? `${fmt(p.pct)} %` : ''));
+      name.append(sw, STAGE_LABEL[p.key]);
+      li.append(name, make('span', '', fmtHM(p.value)), make('span', 'pct', `${fmt(p.pct)} %`));
       return li;
     }));
 
     // tiles with reference and personal ranges
     const R = sleepRanges();
     const outliers: Outlier[] = [];
-    const tile = (k: string, v: string, unit: string, hint: string, ref?: MetricRef | null): HTMLDivElement => metricTile(k, v, unit, hint, ref, outliers);
+    /** Checks a value against its range: a value outside it goes on the outliers list. Gives the words and colour to show, and the reference text. */
+    const judge = (k: string, v: string, unit: string, ref?: MetricRef | null): { text: string; kind: string; ref: string } | null => {
+      if (!ref) return null;
+      if (!('range' in ref)) return { text: '', kind: '', ref: ref.skipped };
+      const rangeText = ref.rangeText ?? `${fmtRange(ref.range)}${unit ? ` ${unit}` : ''}`;
+      const own = ref.label === 'Personal range';
+      const refText = `${own ? 'Personal range:' : 'References:'} ${rangeText}`;
+      const status = checkRange(ref.range, ref.value);
+      if (status) {
+        const label = status === 'high' ? ref.range.highLabel : ref.range.lowLabel;
+        outliers.push({ name: label ? `${k} (${label.toLowerCase()})` : k, value: `${v}${unit ? ` ${unit}` : ''}`, range: rangeText, status });
+        return { text: label ?? (own ? `${status === 'high' ? 'Above' : 'Below'} range` : status === 'high' ? 'High' : 'Low'), kind: own ? 'personal' : status, ref: refText };
+      }
+      return { text: ref.value != null && Number.isFinite(ref.value) ? ref.okLabel ?? '' : '', kind: own ? 'personal' : 'normal', ref: refText };
+    };
+    const tile = (k: string, v: string, unit: string, note: string, ref?: MetricRef | null): HTMLDivElement => {
+      const verdict = judge(k, v, unit, ref);
+      const box = make('div', 'd2-tile'), value = make('div', 'd2-tile-value', v);
+      if (unit) value.appendChild(make('small', '', ` ${unit}`));
+      if (verdict?.text) value.appendChild(make('span', `d2-verdict d2-${verdict.kind}`, ` ${verdict.text}`));
+      box.append(make('div', 'd2-tile-name', k), value, make('div', 'd2-tile-ref', [verdict?.ref, note].filter(Boolean).join(' · ')));
+      return box;
+    };
     const normal = (range: MetricRef & { range: unknown }): MetricRef => ({ ...range, okLabel: 'Normal' });
     const personal = (values: number[], value: number, unit: string): MetricRef => {
       const range = personalRange(values);
@@ -408,23 +457,43 @@ export function initSleep(deps: SleepDeps): {
       return { range, value, label: 'Personal range', rangeText: `${range.lo}–${range.hi} ${unit}`, okLabel: 'Within range' };
     };
     const prev = (f: (s: NonNullable<SleepSession['summary']>) => number): number[] => earlier.flatMap((n) => (n.summary ? [f(n.summary)] : []));
+    // in the order of D2 Link's report
     $('sleepTiles').replaceChildren(
-      tile(`${nap ? 'Nap' : 'Night'} sleep`, fmtHM(m.sleepMin), '', 'deep + light + REM', nap ? null : normal({ range: R.sleepHours, value: m.sleepMin / 60, rangeText: '7–9 h' })),
       tile('Times woke up', String(m.awakenings), 'times', '', normal({ range: R.awakenings, value: m.awakenings, rangeText: '0–2 times' })),
-      tile('Deep sleep', fmt(m.deepPct), '%', fmtHM(m.deepMin), normal({ range: R.deepPct, value: m.deepPct })),
       tile('Light sleep', fmt(m.lightPct), '%', fmtHM(m.lightMin), normal({ range: R.lightPct, value: m.lightPct })),
-      tile('REM sleep', fmt(m.remPct), '%', fmtHM(m.remMin), normal({ range: R.remPct, value: m.remPct })),
       tile('Avg heart rate', fmt(m.avgHR), 'bpm', `lowest ${fmt(m.minHR)} bpm`, personal(prev((s) => s.avgHR), m.avgHR, 'bpm')),
-      tile('Avg HRV', fmt(m.avgHrv), 'ms', 'RMSSD while asleep', personal(prev((s) => s.avgHrv), m.avgHrv, 'ms')),
-      tile('Breathing rate', fmt(m.breathingRate, 1), '/min', 'while asleep', normal({ range: R.breathing, value: m.breathingRate })),
-      tile('Breathing regularity', fmt(m.breathingRegularity), 'points', 'steady breathing scores higher', normal({ range: R.regularity, value: m.breathingRegularity, rangeText: '70–100 points' })),
+      tile(`${nap ? 'Nap' : 'Night'} sleep`, fmtHM(m.sleepMin), '', 'deep + light + REM', nap ? null : normal({ range: R.sleepHours, value: m.sleepMin / 60, rangeText: '7–9 h' })),
+      tile('Deep sleep', fmt(m.deepPct), '%', fmtHM(m.deepMin), normal({ range: R.deepPct, value: m.deepPct })),
+      tile('REM sleep', fmt(m.remPct), '%', fmtHM(m.remMin), normal({ range: R.remPct, value: m.remPct })),
       tile('Deep sleep continuity', fmt(m.deepContinuity), 'points', 'deep sleep in spells of 10 min or more', normal({ range: R.continuity, value: m.deepContinuity, rangeText: '70–100 points' })),
-      tile('Sleep efficiency', fmt(m.efficiency), '%', `of ${fmtHM(m.timeInBedMin)} in bed`, normal({ range: R.efficiency, value: m.efficiency })),
-      tile('Time to fall asleep', fmt(m.latencyMin), 'min', '', normal({ range: R.latency, value: m.latencyMin })),
-      tile('Awake after falling asleep', fmt(m.awakeMin), 'min', '', normal({ range: R.waso, value: m.awakeMin })),
-      tile('Avg SpO₂', '--', '', 'not measured: the Polar H10 has no blood-oxygen sensor'),
+      tile('Breathing quality', fmt(m.breathingRegularity), 'points', 'steady breathing scores higher', normal({ range: R.regularity, value: m.breathingRegularity, rangeText: '70–100 points' })),
+      tile('Avg HRV', fmt(m.avgHrv), 'ms', 'RMSSD while asleep', personal(prev((s) => s.avgHrv), m.avgHrv, 'ms')),
+      tile('Avg SpO₂', '--', '', 'Not measured: the Polar H10 has no blood-oxygen sensor'),
+      tile('Avg respiratory rate', fmt(m.breathingRate, 1), 'brpm', 'while asleep', normal({ range: R.breathing, value: m.breathingRate })),
     );
-    renderOutliers($('sleepFlags'), outliers, ['Sleep stages are estimates; see “About these results” below.']);
+
+    // the measures D2 Link lists under "More from the watch"
+    const more = $('sleepMore');
+    more.replaceChildren(make('h3', '', 'More from the strap'));
+    const onset = Number.isFinite(m.onsetS) ? ` (fell asleep ${fmtClock(start + m.onsetS * 1000)})` : '';
+    const moreRows: [string, string, MetricRef][] = [
+      ['Sleep efficiency', fmt(m.efficiency), normal({ range: R.efficiency, value: m.efficiency })],
+      ['Time to fall asleep', fmt(m.latencyMin), normal({ range: R.latency, value: m.latencyMin })],
+      ['Awake after falling asleep', fmt(m.awakeMin), normal({ range: R.waso, value: m.awakeMin })],
+    ];
+    const row = (k: string, v: string): void => {
+      const r = make('div', 'row between d2-more-row');
+      r.append(make('span', 'muted', k), make('span', '', v));
+      more.appendChild(r);
+    };
+    row('Time in bed', `${fmtClock(start)}–${fmtClock(start + session.durationS * 1000)} (${fmtHM(m.timeInBedMin)})`);
+    for (const [k, v, ref] of moreRows) {
+      const unit = k === 'Sleep efficiency' ? '%' : 'min';
+      const verdict = judge(k, v, unit, ref);
+      row(k, `${v} ${unit}${k === 'Sleep efficiency' ? ' (asleep ÷ time in bed)' : k === 'Time to fall asleep' ? onset : ''}${verdict?.text ? ` · ${verdict.text}` : ''}`);
+    }
+
+    renderOutliers($('sleepFlags'), outliers, ['Sleep stages are estimates; see “About these numbers” below.']);
 
     // heart rate and breathing through the night, as clock time
     const toPoints = (series: readonly (number | null)[]): Point[] => {
@@ -461,6 +530,8 @@ export function initSleep(deps: SleepDeps): {
     if (document.visibilityState === 'visible' && recorder && !wakeLock) void requestWakeLock();
   });
   $button('btnSleepBack').addEventListener('click', () => deps.showSleepView('sleepHistory'));
+  $button('btnSleepOlder').addEventListener('click', () => { if (olderId) void openReport(olderId); });
+  $button('btnSleepNewer').addEventListener('click', () => { if (newerId) void openReport(newerId); });
   $button('btnSleepPrint').addEventListener('click', () => window.print());
   /** Deletes a night (after the caller asked); its ECG is deleted too only if the user says so. */
   async function deleteNight(night: SleepSession): Promise<void> {

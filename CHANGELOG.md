@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 4 Nov 2026 – v1.15.7 – Sleep report laid out like the D2 Link report *(GitHub)*
+Why: the same kind of report should read the same way, whichever device recorded the sleep.
+- The Sleep history report now follows the D2 Link report: date with ‹ and › to step through your sleep, sleep time with the stage chart, a score card with stars, times woke up and the stage ring, tiles in the same order and style, then a "More from the strap" card.
+- A night's report lists any naps that day. Naps still have no score.
+- Tile names now match: Breathing quality and Avg respiratory rate. The heart rate and breathing graphs, ECG results and reference ranges stay as they were.
+
 ## 4 Nov 2026 – v1.15.6 – Every sleep recording saves its ECG *(GitHub)*
 Why: Sleep monitor shows the ECG live, but "Start sleep recording" threw it away, so the ECG of those sessions was lost.
 - Sleep monitor now has one button, Start sleep & ECG recording. Each recording of 10 minutes or more saves its ECG in ECG history, linked both ways to its sleep report ("Open sleep report" and "Open full ECG report").

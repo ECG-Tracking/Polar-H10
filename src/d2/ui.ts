@@ -693,7 +693,7 @@ function renderReport(box: HTMLElement, n: D2Night, all: D2Night[], naps: D2Nigh
   const f = figures(n), s = n.summary;
 
   const bar = el('div', 'row between wrap');
-  const back = button('← Nights');
+  const back = button('← Sleep');
   back.addEventListener('click', act.back);
   const right = el('div', 'row wrap');
   const json = button('JSON');
