@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 5 Nov 2026 – v1.32.0 – Map the signal automatically while walking *(GitHub)*
+Why: pressing a button at every spot is slow.
+- Locate connected devices has a Start walking button. It listens to the device continuously and saves a reading about every 3 seconds once you have moved 1 m, so the map and the + update by themselves.
+- Your position comes from counting steps and the phone's compass after you tap your start point. GPS is used only when accurate to 6 m, which is rare indoors. A tap corrects any drift.
+- A Mac has no step sensors or GPS, so tap your position as you move.
+
 ## 5 Nov 2026 – v1.31.0 – Measure the signal on the device you hold *(GitHub)*
 Why: one device is easier than reading a second one while walking around.
 - Locate connected devices has a Calculate ave dBm button. It averages the signal for 10 seconds on the phone or laptop you are holding, where the browser allows it. Tap the plan to save the average. The slider stays for a reading from a scanner app.
