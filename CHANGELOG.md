@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 5 Nov 2026 – v1.32.1 – Walking copes with sparse signals *(GitHub)*
+Why: a phone may hear the device only every few seconds, and gentle steps weren't counted.
+- Each reading now uses the signal heard in the last 10 seconds, not only the last 3.
+- Gentle steps are counted.
+- The page says if the device has no step sensor or compass, or if nothing has been heard.
+
 ## 5 Nov 2026 – v1.32.0 – Map the signal automatically while walking *(GitHub)*
 Why: pressing a button at every spot is slow.
 - Locate connected devices has a Start walking button. It listens to the device continuously and saves a reading about every 3 seconds once you have moved 1 m, so the map and the + update by themselves.

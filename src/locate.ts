@@ -70,8 +70,8 @@ export function averageSignal(samples: readonly number[]): number | null {
 
 // ---------- knowing where you are while walking ----------
 
-const STRIDE_M = 0.7, GPS_GOOD_M = 6, CAPTURE_MS = 3000, MIN_MOVE_M = 1;
-const STEP_HIGH = 11, STEP_LOW = 9, STEP_GAP_MS = 300; // m/s² of the phone's total acceleration, gravity included
+const STRIDE_M = 0.7, GPS_GOOD_M = 6, CAPTURE_MS = 3000, MIN_MOVE_M = 1, SIGNAL_WINDOW_MS = 10000;
+const STEP_HIGH = 10.6, STEP_LOW = 9.2, STEP_GAP_MS = 300; // m/s² of the phone's total acceleration, gravity included
 
 /** Counts steps from the phone's acceleration: a rise above the high mark, then a fall below the low one. */
 export function stepCounter(): (magnitude: number, ms: number) => boolean {
@@ -301,12 +301,12 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
       const dev = chosen[device] ?? await navigator.bluetooth.requestDevice(device === 'polar' ? { filters: [{ namePrefix: 'Polar H10' }] } : { acceptAllDevices: true });
       chosen[device] = dev;
       if (typeof dev.watchAdvertisements !== 'function') { say2('Chrome isn’t measuring the signal yet. Open chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, relaunch Chrome and press again.'); return; }
-      let samples: number[] = [], lastHeard = Date.now(), lastSaved: Point | null = null, saved = 0, heading: number | null = null, up = 0, steps = 0;
+      let samples: { at: number; rssi: number }[] = [], motionSeen = false, lastHeard = Date.now(), lastSaved: Point | null = null, saved = 0, heading: number | null = null, up = 0, steps = 0;
       let source = 'taps', gpsFrom: { lat: number; lon: number } | null = null, start: Point | null = null;
       const stop = new AbortController();
       const heard = (e: Event): void => {
         const v = (e as Event & { rssi?: number }).rssi;
-        if (v != null) { samples.push(v); lastHeard = Date.now(); }
+        if (v != null) { samples.push({ at: Date.now(), rssi: v }); lastHeard = Date.now(); }
       };
       dev.addEventListener('advertisementreceived', heard);
       await dev.watchAdvertisements({ signal: stop.signal } as WatchAdvertisementsOptions);
@@ -322,12 +322,14 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
       const stepped = stepCounter();
       const moved = (e: DeviceMotionEvent): void => {
         const a = e.accelerationIncludingGravity;
-        if (a?.x == null || a.y == null || a.z == null || !walker || heading == null) return;
-        if (stepped(Math.hypot(a.x, a.y, a.z), e.timeStamp)) {
-          walker = stepForward(walker, heading, up, plan().w, plan().h);
-          steps++; source = 'steps and compass';
-          draw();
-        }
+        if (a?.x == null || a.y == null || a.z == null) return;
+        motionSeen = true;
+        if (!walker || !stepped(Math.hypot(a.x, a.y, a.z), e.timeStamp)) return;
+        steps++;
+        if (heading == null) return; // without a compass a step can't be placed
+        walker = stepForward(walker, heading, up, plan().w, plan().h);
+        source = 'steps and compass';
+        draw();
       };
       window.addEventListener('deviceorientationabsolute', compass);
       window.addEventListener('deviceorientation', compass);
@@ -349,8 +351,8 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
       };
       const capture = setInterval(() => {
         if (Date.now() - lastHeard > 15000) void dev.watchAdvertisements({ signal: stop.signal } as WatchAdvertisementsOptions).catch(() => undefined); // browsers can stop listening
-        const pos = walker, average = averageSignal(samples);
-        samples = [];
+        samples = samples.filter((s) => Date.now() - s.at <= SIGNAL_WINDOW_MS); // a phone may hear the device only every few seconds
+        const pos = walker, average = averageSignal(samples.map((s) => s.rssi));
         if (average != null) { slider.value = String(average); notFound = false; }
         if (pos && (!lastSaved || Math.hypot(pos.x - lastSaved.x, pos.y - lastSaved.y) >= MIN_MOVE_M)) {
           plan().readings.push({ x: Number(pos.x.toFixed(1)), y: Number(pos.y.toFixed(1)), rssi: average });
@@ -358,7 +360,10 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
           save();
         }
         draw();
-        say2(walker ? `Walking: ${count(saved, 'reading')} saved, ${count(steps, 'step')}, last signal ${average ?? 'none'}${average == null ? '' : ' dBm'}. Position from ${source}.` : `Signal ${average ?? 'not heard yet'}${average == null ? '' : ' dBm'}. Point the top of the phone towards the top of the plan, and tap where you are.`);
+        const sensors = [motionSeen ? '' : 'no step sensor', heading == null ? 'no compass' : ''].filter(Boolean).join(' and ');
+        const tapNote = sensors ? ` This device reports ${sensors}, so tap your position as you move.` : '';
+        const heardNote = average == null ? ' Nothing heard in the last 10 seconds: the device may be asleep, connected to something else, or out of range.' : '';
+        say2(walker ? `Walking: ${count(saved, 'reading')} saved, ${count(steps, 'step')}, signal ${average ?? 'none'}${average == null ? '' : ` dBm from ${count(samples.length, 'signal')}`}. Position from ${source}.${tapNote}${heardNote}` : `Signal ${average ?? 'not heard yet'}${average == null ? '' : ' dBm'}. Point the top of the phone towards the top of the plan, and tap where you are.`);
       }, CAPTURE_MS);
 
       walkBtn.textContent = 'Stop';

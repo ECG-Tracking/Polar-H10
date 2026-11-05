@@ -40,6 +40,7 @@ test('steps are counted from the rise and fall of each stride', () => {
   const count = (values: number[], gap = 100): number => { const s = stepCounter(); return values.filter((v, i) => s(v, i * gap)).length; };
   assert.equal(count([9.8, 12, 13, 8, 9.8, 12, 8, 9.8, 12.5, 8.5]), 3);
   assert.equal(count([9.8, 10, 9.6, 9.9]), 0, 'holding still is no step');
+  assert.equal(count([9.8, 10.9, 9.1, 9.8, 10.8, 9.0]), 2, 'a gentle walk with the phone held flat');
   assert.equal(count([12, 8, 12, 8], 40), 1, 'too quick to be two steps');
 });
 
