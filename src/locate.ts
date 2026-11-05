@@ -1,5 +1,6 @@
-// Locate connected devices: maps the Bluetooth signal strength read from a scanner app around the home, and shades where a
-// lost Polar H10 or Watch D2 most likely is. A web page can't read signal strength itself, so the readings are typed in.
+// Locate connected devices: maps the Bluetooth signal strength around the home, and shades where a lost Polar H10 or
+// Watch D2 most likely is. The device in your hand measures the signal for 10 seconds where the browser allows it;
+// otherwise a reading from a scanner app is set by hand.
 
 import { css } from './charts';
 import { make } from './ui';
@@ -61,6 +62,13 @@ export function estimate(readings: readonly Reading[], w: number, h: number): Es
   return { cols, rows, odds, best: { x: sumX / held, y: sumY / held }, areaM2: count * STEP * STEP, share: count / odds.length, next: far >= 1.5 ? next : null };
 }
 
+/** The average of what was heard, in whole dBm; null if nothing was. */
+export function averageSignal(samples: readonly number[]): number | null {
+  const ok = samples.filter((v) => Number.isFinite(v) && v < 0);
+  return ok.length ? Math.round(ok.reduce((a, b) => a + b, 0) / ok.length) : null;
+}
+
+const MEASURE_S = 10;
 const KEY = 'openbeat-locate';
 
 function load(): Record<Device, Plan> {
@@ -76,6 +84,7 @@ function load(): Record<Device, Plan> {
 export function initLocate(root: HTMLElement, back: () => void): { refresh: () => void } {
   const plans = load();
   let device: Device = 'polar', notFound = false, photo: HTMLImageElement | null = null;
+  const chosen: Partial<Record<Device, BluetoothDevice>> = {}; // kept so each press doesn't ask again
   const save = (): void => { try { localStorage.setItem(KEY, JSON.stringify(plans)); } catch { /* kept for this visit */ } };
   const plan = (): Plan => plans[device];
   const name = (): string => DEVICES.find((d) => d[0] === device)?.[1] ?? '';
@@ -98,11 +107,13 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
   const slider = make('input');
   Object.assign(slider, { type: 'range', min: '-100', max: '-30', step: '1', value: '-70' });
   slider.setAttribute('aria-label', 'Signal from your scanner app, in dBm');
-  const sliderBox = make('label', 'locate-slider', 'Signal from your scanner app');
+  const sliderBox = make('label', 'locate-slider', 'Or set it from a scanner app');
   sliderBox.appendChild(slider);
   const noneBtn = make('button', '', 'Not found here');
+  const measureBtn = make('button', 'primary', 'Calculate ave dBm');
   const top = make('div', 'row wrap locate-top');
-  top.append(value, sliderBox, noneBtn);
+  top.append(measureBtn, value, sliderBox, noneBtn);
+  const measureNote = make('p', 'note', `Stand still, then press to average the signal for ${MEASURE_S} seconds on the device you are holding.`);
 
   const canvas = make('canvas', 'locate-plan');
   canvas.setAttribute('aria-label', 'Plan of your home with readings and the most likely area');
@@ -131,18 +142,18 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
   const tools = make('div', 'row wrap');
   tools.append(undoBtn, clearBtn, photoLabel, width.el, depth.el);
   const mapCard = make('section', 'card locate-card');
-  mapCard.append(top, canvas, hint, tools);
+  mapCard.append(top, measureNote, canvas, hint, tools);
 
   const steps = make('ol', 'tips');
   for (const s of [
-    'Open a scanner app such as nRF Connect or LightBlue on your phone and find the device in the scan.',
-    'Stand still for about 10 seconds with the phone at waist height, and note the typical number.',
-    'Set that number here and tap your position on the plan. If the device isn’t listed, choose Not found here and tap.',
+    'Open this page on the phone or laptop you will carry, in Chrome. Disconnect the device you are looking for, because a connected device stops sending its signal.',
+    `Stand still at waist height and press Calculate ave dBm. The first time, choose the device in Chrome’s list. Stay still for ${MEASURE_S} seconds.`,
+    'Tap your position on the plan to save the average. If nothing was heard, Not found here is selected for you, so tap anyway.',
     `Repeat in at least ${ENOUGH} places across different rooms, including the dashed ring on the plan.`,
   ]) steps.appendChild(make('li', '', s));
   const help = make('section', 'card');
   help.append(make('h3', 'sync-h', 'How to use it'), steps,
-    make('p', 'note', 'A web page can’t read Bluetooth signal strength for you, so you enter it. Walls and furniture weaken the signal, so the shaded area is where to start, not an exact spot. Readings stay on this device.'));
+    make('p', 'note', 'If your browser can’t measure the signal, read it from a scanner app such as nRF Connect or LightBlue and set it with the slider. Walls and furniture weaken the signal, so the shaded area is where to start, not an exact spot. Readings stay on this device.'));
 
   root.replaceChildren(backBtn, make('h2', '', 'Locate connected devices'), lead, result, mapCard, help);
 
@@ -209,7 +220,41 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
     }
   }
 
+  async function measure(): Promise<void> {
+    measureBtn.disabled = true;
+    const say2 = (s: string): void => { measureNote.textContent = s; };
+    try {
+      if (!navigator.bluetooth) { say2('This browser has no Bluetooth. Use Chrome on Android or a computer, or set the signal from a scanner app.'); return; }
+      const dev = chosen[device] ?? await navigator.bluetooth.requestDevice(device === 'polar' ? { filters: [{ namePrefix: 'Polar H10' }] } : { acceptAllDevices: true });
+      chosen[device] = dev;
+      if (typeof dev.watchAdvertisements !== 'function') { say2('Chrome isn’t measuring the signal yet. Open chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, relaunch Chrome and press again. Or set the signal from a scanner app.'); return; }
+      const samples: number[] = [];
+      const heard = (e: Event): void => { const v = (e as Event & { rssi?: number }).rssi; if (v != null) samples.push(v); };
+      const stop = new AbortController();
+      dev.addEventListener('advertisementreceived', heard);
+      await dev.watchAdvertisements({ signal: stop.signal } as WatchAdvertisementsOptions);
+      for (let left = MEASURE_S; left > 0; left--) {
+        say2(`Measuring ${dev.name ?? name()}: ${left} s left, ${samples.length} signals. Stay still.`);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      stop.abort();
+      dev.removeEventListener('advertisementreceived', heard);
+      const average = averageSignal(samples);
+      notFound = average == null;
+      if (average != null) slider.value = String(average);
+      draw();
+      say2(average == null
+        ? `Nothing heard in ${MEASURE_S} seconds. Not found here is selected: tap your position to save it. If it is never heard, the device may be asleep, connected to something else, or out of range.`
+        : `Average ${average} dBm from ${samples.length} signals. Tap your position on the plan to save it.`);
+    } catch (e) {
+      say2(e instanceof DOMException && e.name === 'NotFoundError' ? 'No device was chosen. Press again and choose it in Chrome’s list.' : `The signal couldn’t be measured: ${e instanceof Error ? e.message : String(e)} Set it from a scanner app instead.`);
+    } finally {
+      measureBtn.disabled = false;
+    }
+  }
+
   const changed = (): void => { save(); draw(); };
+  measureBtn.addEventListener('click', () => void measure());
   canvas.addEventListener('click', (e) => {
     const b = canvas.getBoundingClientRect(), p = plan();
     const x = ((e.clientX - b.left) / b.width) * p.w, y = ((e.clientY - b.top) / b.height) * p.h;

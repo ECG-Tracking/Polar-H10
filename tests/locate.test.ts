@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimate, type Reading } from '../src/locate';
+import { averageSignal, estimate, type Reading } from '../src/locate';
 
 const noise = [3, -4, 2, -5, 4, -2, 3];
 const spots = [[1.5, 1.5], [6, 1.5], [10.5, 2], [2, 7], [6.5, 7], [10, 7.5], [8, 4.5]] as const;
@@ -27,4 +27,11 @@ test('more readings narrow the area, and a next spot is suggested until they do'
   const few = estimate(around(9.5, 6).slice(0, 2), 12, 9), many = estimate(around(9.5, 6), 12, 9);
   assert.ok(many.share < few.share);
   assert.ok(few.next);
+});
+
+test('the signal is averaged over what was heard', () => {
+  assert.equal(averageSignal([-70, -72, -74]), -72);
+  assert.equal(averageSignal([-70, NaN, -72]), -71);
+  assert.equal(averageSignal([]), null);
+  assert.equal(averageSignal([0, 127]), null);
 });
