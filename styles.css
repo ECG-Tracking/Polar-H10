@@ -255,6 +255,12 @@ legend { font-size: 0.85rem; color: var(--ink-2); padding: 0 4px; }
 .trend-all { display: block; font-weight: 600; margin-bottom: 6px; }
 .trend-ticks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 12px; font-size: 0.9rem; }
 
+.locate-top { align-items: center; gap: 10px 14px; }
+.locate-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 6.5em; color: var(--accent); }
+.locate-slider { flex: 1 1 200px; min-width: 0; font-size: 0.85rem; color: var(--ink-2); }
+.locate-slider input { width: 100%; }
+.locate-plan { display: block; width: 100%; margin-top: 10px; border: 1px solid var(--line); border-radius: 6px; touch-action: manipulation; cursor: crosshair; }
+
 /* ---------- Sleep ---------- */
 .tiles.four { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 760px) { .tiles.four { grid-template-columns: repeat(2, 1fr); } .tiles.four .tile.hero { grid-column: span 2; } }

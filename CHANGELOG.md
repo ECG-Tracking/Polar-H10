@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 5 Nov 2026 – v1.30.0 – Locate connected devices *(GitHub)*
+Why: to help find a lost Polar H10 or Watch D2 at home.
+- New page Locate connected devices, opened from Sync & backups. Enter the signal strength from a phone scanner app at different places on a plan of your home, and the map shades where the device most likely is, marks the best spot and suggests where to take the next reading. A photo of a floor plan can go behind the plan.
+- A web page can't read signal strength itself, so the readings are typed in. They stay on the device.
+
 ## 5 Nov 2026 – v1.29.0 – Better sleep stages from the Polar H10 *(GitHub)*
 Why: comparing with the whole night only found the lowest heart rate hours, and stages flickered.
 - Each 30 seconds is now compared with the surrounding 90 minutes, not the whole night, so the night's drift in heart rate no longer decides the stage.

@@ -21,6 +21,7 @@ import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
 import { overlapMs } from './syncsleep';
 import { initBackups } from './backups';
+import { initLocate } from './locate';
 import { renderStorage } from './storageuse';
 
 const FS = ECG_FS;
@@ -35,19 +36,19 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'syncReport' | 'settings' | 'backups' | 'recovery' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'syncReport', 'settings', 'backups', 'recovery', 'about'];
+type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'syncReport' | 'settings' | 'backups' | 'locate' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'syncReport', 'settings', 'backups', 'locate', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 printInLightColours();
 
 function show(view: View): void {
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
-  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view === 'syncReport' ? 'syncHistory' : view;
+  const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view === 'syncReport' ? 'syncHistory' : view === 'locate' ? 'backups' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
   // the page's name in the top bar (a report is named for what it reports on)
   const tabLabel = document.querySelector<HTMLButtonElement>(`.tabs button[data-view="${tab}"]`)?.textContent?.trim() ?? '';
-  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : view === 'syncReport' ? 'Tracking report' : tabLabel;
+  $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : view === 'syncReport' ? 'Tracking report' : view === 'locate' ? 'Locate connected devices' : tabLabel;
   if (view === 'history') void renderHistory();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
@@ -56,7 +57,8 @@ function show(view: View): void {
   if (view === 'syncHistory') syncUI?.refreshHistory();
   if (view === 'syncSleep') openSyncSleep().refresh();
   if (view === 'syncSleepHistory') void openSyncSleep().refreshHistory();
-  if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2 }); }
+  if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2, openLocate: () => show('locate') }); }
+  if (view === 'locate') { locateUI ??= initLocate($('locateRoot'), () => show('backups')); locateUI.refresh(); }
   if (view === 'recovery') void renderRecovery($('recoveryRoot'), { loadD2, user: () => currentUser });
   if (view === 'about') void renderStorage($('storageRoot'), { loadD2 });
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
@@ -98,6 +100,7 @@ const biodataProfile = (): { heightCm: number; weightKg: number; age: number; se
 
 let syncUI: ReturnType<typeof initSyncTracking> | null = null;
 let backupsReady = false;
+let locateUI: ReturnType<typeof initLocate> | null = null;
 function openSync(): void {
   syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), $('syncReportRoot'), {
     loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,

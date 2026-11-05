@@ -308,7 +308,7 @@ function pickFile(): Promise<unknown> {
 
 const stamp = (): string => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
-export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2Api> }): void {
+export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2Api>; openLocate: () => void }): void {
   const d2 = async (): Promise<D2Api | null> => { try { return await deps.loadD2(); } catch { return null; } };
   const status = make('p', 'note backup-status');
   const busy = (b: boolean, ...buttons: HTMLButtonElement[]): void => { for (const x of buttons) x.disabled = b; };
@@ -341,6 +341,12 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
     status,
   );
   root.replaceChildren(make('p', 'muted backup-intro', 'Download a backup of your account, restore one, and compare or repair the copies on this device and in the cloud.'), card);
+
+  const locateCard = make('div', 'card backup-card');
+  const locateBtn = make('button', '', 'Locate connected devices');
+  locateBtn.addEventListener('click', deps.openLocate);
+  locateCard.append(make('h3', 'backup-h', 'Find a lost device'), make('p', '', 'Map the Bluetooth signal around your home to narrow down where a Polar H10 or Watch D2 is.'), locateBtn);
+  root.appendChild(locateCard);
 
   const offline = (): boolean => !current.account || current.account.offline;
   if (offline()) { busy(true, compareBtn, overwriteBtn, restoreCloudBtn); status.textContent = 'Offline: backup and restore on this device work; the cloud copy can’t be reached.'; }

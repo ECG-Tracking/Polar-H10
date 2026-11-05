@@ -33,7 +33,7 @@ const KEYWORDS: Readonly<Record<string, string>> = {
   sync: 'synchronised synchronized tracking polar watch blood pressure', syncHistory: 'synchronised synchronized tracking results',
   syncSleep: 'synchronised synchronized sleep tracking polar watch night', syncSleepHistory: 'synchronised synchronized sleep reports combined comparison nights naps',
   settings: 'settings biodata age height weight users notch alias',
-  backups: 'sync backups backup restore export cloud compare overwrite account',
+  backups: 'sync backups backup restore export cloud compare overwrite account locate find lost device strap',
   recovery: 'recovery recover restore deleted undelete bin trash',
   about: 'about browsers requirements bluetooth backed up privacy storage memory space size disk usage',
 };
