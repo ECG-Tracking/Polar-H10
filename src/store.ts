@@ -235,6 +235,9 @@ export interface SleepSession {
   cloudOnly?: boolean; // a report copy from another device: no raw data on this device
   report?: unknown; // the synced report (SleepReport) for copies from another device
   ecgId?: string; // the ECG recorded during this night
+  context?: 'night' | 'nap'; // chosen by the person; otherwise the clock decides
+  onsetUnknown?: boolean; // the recording started after falling asleep
+  labelAt?: number; // when those two were last set, ms: the newest wins in the cloud
 }
 
 interface SleepSignalRecord {

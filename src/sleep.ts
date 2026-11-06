@@ -7,15 +7,19 @@ import { Biquad, median } from './dsp';
 
 export const EPOCH_S = 30;
 /** Raised when the stages are worked out differently, so reports made before can be generated again. */
-export const SLEEP_METHOD = 2;
+export const SLEEP_METHOD = 3;
 const LOCAL_REACH = 90; // epochs either side: 45 min
 const MIN_BOUT_EPOCHS = 10; // 5 min
 const NIGHT_PULL = 0.5; // how far the time of night moves the deep and REM scores, at its strongest
 const MIN_PATTERN_S = 3 * 3600;
+const RR_JOIN_S = 5;
+const MIN_LOCAL_EPOCHS = 20; // 10 min of sleep around an epoch, to compare it with
+const EARLY_REM_MIN = 50, EARLY_REM_PULL = 1; // REM is unusual soon after falling asleep, but strong evidence can overrule that
+const QUIET_WAKE_Z = 2, QUIET_WAKE_EPOCHS = 4; // heart rate well above its surroundings for 2 min, without moving
 /** Accelerometer value marking a missing sample (strap disconnected). */
 export const ACC_MISSING = -32768;
 
-export type Stage = 'awake' | 'rem' | 'light' | 'deep' | 'nodata';
+export type Stage = 'awake' | 'rem' | 'light' | 'deep' | 'uncertain' | 'nodata'; // uncertain: asleep, but too little signal to name the stage
 
 export interface SleepData {
   durationS: number;
@@ -27,7 +31,7 @@ export interface SleepData {
 
 export interface SleepMetrics {
   timeInBedMin: number;
-  sleepMin: number; // deep + light + REM
+  sleepMin: number; // deep + light + REM + uncertain
   deepMin: number;
   lightMin: number;
   remMin: number;
@@ -47,7 +51,11 @@ export interface SleepMetrics {
   score: number; // points 0–100
   onsetS: number; // seconds from start, NaN if no sleep found
   wakeS: number;
-  coverage: number; // % of the night with data
+  coverage: number; // % of the night with both usable heart and movement data
+  // % of the night with each signal; missing from reports made before v1.33.0
+  rrPct?: number; hrvPct?: number; movementPct?: number; breathingPct?: number;
+  uncertainMin?: number; // asleep, but too little signal to name the stage
+  quietWakes?: number; // spells of raised heart rate without moving: possibly awake. A note only: stages and score ignore it
 }
 
 export interface SleepAnalysis {
@@ -188,17 +196,23 @@ interface HeartFeatures {
   rrBreathCv: (number | null)[]; // breathing regularity seen in the heartbeats (they speed up and slow down with each breath)
 }
 
-/** Each breath moves the beat intervals: the intervals, evenly resampled, carry the breathing, independent of how the strap lies. */
-function heartBreathing(data: SleepData, nE: number): (number | null)[] {
+/**
+ * Each breath moves the beat intervals: the intervals, evenly resampled, carry the breathing, independent of how the strap
+ * lies. Only beats that passed the checks are used, joined across gaps of up to 5 s, as one bad beat shouldn't lose a minute.
+ */
+function heartBreathing(data: SleepData, nE: number, keep: Uint8Array): (number | null)[] {
   const fs = 4, n = Math.floor(nE * EPOCH_S * fs);
   const x = new Float64Array(n), have = new Uint8Array(n);
+  const beats: number[] = [];
+  for (let i = 0; i < keep.length; i++) if (keep[i]) beats.push(i);
   let j = 1;
-  for (let i = 0; i < n; i++) {
+  for (let i = 0; i < n && beats.length > 1; i++) {
     const t = i / fs;
-    while (j < data.rrT.length - 1 && at(data.rrT, j) < t) j++;
-    const t0 = at(data.rrT, j - 1), t1 = at(data.rrT, j), a = at(data.rr, j - 1), b = at(data.rr, j);
-    if (t < t0 || t > t1 || t1 - t0 > 3 || !(a >= 300 && a <= 2000 && b >= 300 && b <= 2000) || Math.abs(a - b) > 0.2 * a) continue;
-    x[i] = a + ((t - t0) / (t1 - t0)) * (b - a);
+    while (j < beats.length - 1 && at(data.rrT, at(beats, j)) < t) j++;
+    const p = at(beats, j - 1), q = at(beats, j);
+    const t0 = at(data.rrT, p), t1 = at(data.rrT, q);
+    if (t < t0 || t > t1 || t1 - t0 > RR_JOIN_S) continue;
+    x[i] = at(data.rr, p) + ((t - t0) / (t1 - t0)) * (at(data.rr, q) - at(data.rr, p));
     have[i] = 1;
   }
   const m = mean(Array.from(x).filter((_, i) => have[i]));
@@ -210,7 +224,7 @@ function heartBreathing(data: SleepData, nE: number): (number | null)[] {
     const a = Math.max(0, Math.round(mid - 30 * fs)), b = Math.min(n, Math.round(mid + 30 * fs));
     let ok = 0;
     for (let i = a; i < b; i++) ok += at(have, i);
-    out.push(b - a < 40 * fs || ok < 0.9 * (b - a) ? null : breathsIn(band, a, b, fs)?.cv ?? null);
+    out.push(b - a < 40 * fs || ok < 0.75 * (b - a) ? null : breathsIn(band, a, b, fs)?.cv ?? null);
   }
   return out;
 }
@@ -251,7 +265,7 @@ function heartFeatures(data: SleepData, nE: number): HeartFeatures {
     for (let k = Math.max(0, e - 2); k <= Math.min(nE - 1, e + 2); k++) { const v = hr[k]; if (finite(v)) w.push(v); }
     hrVar.push(w.length >= 3 ? std(w) : null);
   }
-  return { hr, rmssd, hrVar, rrBreathCv: heartBreathing(data, nE) };
+  return { hr, rmssd, hrVar, rrBreathCv: heartBreathing(data, nE, keep) };
 }
 
 // ---------- Scoring ----------
@@ -268,20 +282,21 @@ function zScores(values: readonly (number | null)[], mask: readonly boolean[]): 
  */
 export function localZ(values: readonly (number | null)[], mask: readonly boolean[], reach = LOCAL_REACH): (number | null)[] {
   const n = values.length;
-  const sum = new Float64Array(n + 1), cnt = new Float64Array(n + 1);
-  for (let i = 0; i < n; i++) {
-    const v = values[i];
-    const use = finite(v) && (mask[i] ?? false);
-    sum[i + 1] = at(sum, i) + (use ? v : 0);
-    cnt[i + 1] = at(cnt, i) + (use ? 1 : 0);
-  }
   const residual = values.map((v, i) => {
     if (!finite(v)) return null;
-    const a = Math.max(0, i - reach), b = Math.min(n, i + reach + 1);
-    const c = at(cnt, b) - at(cnt, a);
-    return c ? v - (at(sum, b) - at(sum, a)) / c : null;
+    const around: number[] = [];
+    for (let k = Math.max(0, i - reach); k <= Math.min(n - 1, i + reach); k++) {
+      const u = values[k];
+      if (finite(u) && (mask[k] ?? false)) around.push(u);
+    }
+    // a mean, not a median: heart rate spikes upward, and a median would make every ordinary value look high
+    return around.length >= MIN_LOCAL_EPOCHS ? v - mean(around) : null; // too little around it to judge
   });
-  const s = std(residual.filter((v, i): v is number => finite(v) && (mask[i] ?? false))) || 1;
+  const pool = residual.filter((v, i): v is number => finite(v) && (mask[i] ?? false));
+  // spread measured with outliers capped: a few artefacts can't widen it, and it stays on the scale the thresholds were set for
+  const robust = 1.4826 * median(pool.map(Math.abs));
+  const cap = Number.isFinite(robust) && robust > 0 ? 4 * robust : Infinity;
+  const s = std(pool.map((v) => Math.max(-cap, Math.min(cap, v)))) || 1;
   return residual.map((v) => (finite(v) ? v / s : null));
 }
 
@@ -329,7 +344,9 @@ function runs<T>(a: readonly T[]): { value: T; from: number; to: number }[] {
 }
 
 /** Day-time sleep: the middle of the recording falls between 08:00 and 20:00 local time. */
-export function isNap(start: number, durationS: number): boolean {
+export function isNap(start: number, durationS: number, context?: 'night' | 'nap'): boolean {
+  if (context) return context === 'nap'; // what the person said wins over the clock
+
   const hour = new Date(start + durationS * 500).getHours();
   return hour >= 8 && hour < 20;
 }
@@ -351,7 +368,23 @@ export const SCORE_EXPLANATION =
   'Starts at 100. Minus 10 per hour of sleep under 7 h (max 40) and 5 per hour over 9 h; minus 1 per % of sleep efficiency under 85 % (max 20); ' +
   'minus 1 per % of deep sleep under 15 % and of REM under 15 % (max 10 each); minus 3 per awakening after the first (max 15).';
 
-export function analyzeSleep(data: SleepData): SleepAnalysis {
+/** A score from the measures that exist, scaled up to the full weight, so a missing measure isn't read as an average one. */
+export function weighted(terms: readonly (readonly [number | null | undefined, number])[]): number {
+  let sum = 0, used = 0, all = 0;
+  for (const [z, w] of terms) {
+    all += Math.abs(w);
+    if (z == null) continue;
+    sum += z * w; used += Math.abs(w);
+  }
+  return used ? (sum * all) / used : 0;
+}
+
+/** Spells of at least `min` epochs while asleep with heart rate well above its surroundings. */
+export function quietWakeSpells(zHr: readonly (number | null)[], asleep: readonly boolean[], min = QUIET_WAKE_EPOCHS): number {
+  return runs(zHr.map((z, e) => (asleep[e] ?? false) && z != null && z >= QUIET_WAKE_Z)).filter((r) => r.value && r.to - r.from >= min).length;
+}
+
+export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean } = {}): SleepAnalysis {
   const nE = Math.max(1, Math.floor(data.durationS / EPOCH_S));
   const acc = accFeatures(data, nE);
   const heart = heartFeatures(data, nE);
@@ -403,30 +436,35 @@ export function analyzeSleep(data: SleepData): SleepAnalysis {
   const zRm = localZ(heart.rmssd, sleepMask);
   const zChest = zScores(acc.breathCv, sleepMask), zHeart = zScores(heart.rrBreathCv, sleepMask);
   const zCv = zChest.map((c, e) => { const h = zHeart[e] ?? null; return c != null && h != null ? (c + h) / 2 : c ?? h; });
-  const v = (a: (number | null)[], e: number): number => a[e] ?? 0;
   const periodE = Math.max(1, wakeIdx - onset);
   // over a whole night, deep sleep is likelier early and REM late; short sleep has no such pattern
-  const nightLong = periodE * EPOCH_S >= MIN_PATTERN_S;
+  // a recording started after falling asleep can't say how far through the night it is
+  const nightLong = periodE * EPOCH_S >= MIN_PATTERN_S && !options.onsetUnknown;
   let stages: Stage[] = Array.from({ length: nE }, (_, e): Stage => {
     if (!hasData[e]) return 'nodata';
     if (!inPeriod(e) || !asleep(e)) return 'awake';
     const through = nightLong ? clamp((e - onset) / periodE, 0, 1) : 0.5; // 0 = start of the night, 1 = end
-    const deep = -v(zHR, e) - v(zCv, e) + 0.5 * v(zRm, e) - 0.5 * v(zVar, e) + NIGHT_PULL * (1 - 2 * through);
-    const rem = v(zHR, e) + v(zVar, e) + v(zCv, e) - 0.3 * v(zRm, e) + NIGHT_PULL * (2 * through - 1);
+    // heart rate, HRV and breathing are the evidence: with fewer than two of them, say so rather than guess
+    const hr = zHR[e] ?? null, hrSpread = zVar[e] ?? null, hrv = zRm[e] ?? null, breath = zCv[e] ?? null;
+    if ([hr, hrv, breath].filter((z) => z != null).length < 2) return 'uncertain';
     const minutesAsleep = ((e - onset) * EPOCH_S) / 60;
-    if (deep > 1.2) return 'deep';
-    if (rem > 1.2 && minutesAsleep > 50) return 'rem';
+    const early = nightLong ? EARLY_REM_PULL * Math.max(0, 1 - minutesAsleep / EARLY_REM_MIN) : 0;
+    const deep = weighted([[hr, -1], [breath, -1], [hrv, 0.5], [hrSpread, -0.5]]) + NIGHT_PULL * (1 - 2 * through);
+    const rem = weighted([[hr, 1], [hrSpread, 1], [breath, 1], [hrv, -0.3]]) + NIGHT_PULL * (2 * through - 1) - early;
+    if (deep > 1.2 || rem > 1.2) return deep >= rem ? 'deep' : 'rem'; // the stronger evidence decides
     return 'light';
   });
   // smooth sleep stages without moving awake/no-data epochs
   const smoothed = modeFilter(stages, 3);
-  stages = minBouts(stages.map((s, e) => (s === 'awake' || s === 'nodata' ? s : (smoothed[e] === 'awake' || smoothed[e] === 'nodata' ? s : smoothed[e] ?? s))));
+  const fixed = (s: Stage | undefined): boolean => s === 'awake' || s === 'nodata' || s === 'uncertain';
+  stages = minBouts(stages.map((s, e) => (fixed(s) || fixed(smoothed[e]) ? s : smoothed[e] ?? s)));
 
   // ---- metrics ----
   const count = (s: Stage, inside = true): number => stages.filter((x, e) => x === s && (!inside || inPeriod(e))).length;
   const toMin = (epochs: number): number => (epochs * EPOCH_S) / 60;
   const deepE = count('deep'), lightE = count('light'), remE = count('rem');
-  const sleepE = deepE + lightE + remE;
+  const uncertainE = count('uncertain');
+  const sleepE = deepE + lightE + remE + uncertainE;
   const awakeE = count('awake');
   const awakeRuns = runs(stages.map((s, e) => (inPeriod(e) ? s : 'out'))).filter((r) => r.value === 'awake');
   const awakenings = awakeRuns.filter((r) => r.to - r.from >= 4).length; // at least 2 min
@@ -438,6 +476,7 @@ export function analyzeSleep(data: SleepData): SleepAnalysis {
   const deepInLongRuns = deepRuns.filter((r) => r.to - r.from >= 20).reduce((s, r) => s + r.to - r.from, 0);
   const timeInBedE = nE;
   const pct = (part: number): number => (sleepE ? (100 * part) / sleepE : 0);
+  const share = (ok: (e: number) => boolean): number => (100 * Array.from({ length: nE }, (_, e) => ok(e)).filter(Boolean).length) / nE;
   const partial: Omit<SleepMetrics, 'score'> = {
     timeInBedMin: toMin(timeInBedE),
     sleepMin: toMin(sleepE),
@@ -459,7 +498,10 @@ export function analyzeSleep(data: SleepData): SleepAnalysis {
     deepContinuity: deepE ? Math.round((100 * deepInLongRuns) / deepE) : NaN,
     onsetS: onset >= 0 ? onset * EPOCH_S : NaN,
     wakeS: wakeIdx >= 0 ? wakeIdx * EPOCH_S : NaN,
-    coverage: (100 * hasData.filter(Boolean).length) / nE,
+    coverage: share((e) => finite(heart.hr[e]) && finite(acc.activity[e])),
+    rrPct: share((e) => finite(heart.hr[e])), hrvPct: share((e) => finite(heart.rmssd[e])),
+    movementPct: share((e) => finite(acc.activity[e])), breathingPct: share((e) => finite(acc.breathCv[e]) || finite(heart.rrBreathCv[e])),
+    uncertainMin: toMin(uncertainE), quietWakes: quietWakeSpells(zHR, sleepMask),
   };
   const metrics: SleepMetrics = { ...partial, score: sleepE ? sleepScore(partial) : 0 };
   return { stages, hr: heart.hr, breathing: acc.breathing, activity: acc.activity, metrics };

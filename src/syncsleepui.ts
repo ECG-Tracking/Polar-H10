@@ -188,7 +188,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       const report = parseSleepReport(session.report);
       if (report) a = toAnalysis(report);
     } else if (signals) {
-      a = analyzeSleep({ durationS: session.durationS, ...signals } satisfies SleepData);
+      a = analyzeSleep({ durationS: session.durationS, ...signals } satisfies SleepData, { onsetUnknown: session.onsetUnknown === true });
     }
     if (!a) return null;
     const m = a.metrics;

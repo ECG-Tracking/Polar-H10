@@ -279,7 +279,7 @@ export function initSleep(deps: SleepDeps): {
     $('sleepEmpty').hidden = nights.length > 0;
     for (const n of nights) {
       const s = n.summary;
-      const nap = isNap(n.start, n.durationS);
+      const nap = isNap(n.start, n.durationS, n.context);
       const li = make('li');
       const stats = s ? [nap ? '' : `Score ${s.score}`, `${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'}`, `HR ${fmt(s.avgHR)} bpm`, `HRV ${fmt(s.avgHrv)} ms`, fmtHM(s.sleepMin)] : ['Open to analyse', fmtTime(n.durationS)];
       li.append(
@@ -307,7 +307,7 @@ export function initSleep(deps: SleepDeps): {
   let backTo: (() => void) | null = null;
   let donutParts: { key: SleepStageKey; value: number }[] = [];
 
-  const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' ? null : s);
+  const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' || s === 'uncertain' ? null : s);
 
   /** `from` is set when another page opened the report: its back button returns there. */
   async function openReport(id: string, from?: () => void): Promise<void> {
@@ -330,7 +330,7 @@ export function initSleep(deps: SleepDeps): {
     } else {
       if (!signals) { busy.textContent = 'Recording not found.'; return; }
       const data: SleepData = { durationS: session.durationS, ...signals };
-      analysis = analyzeSleep(data);
+      analysis = analyzeSleep(data, { onsetUnknown: session.onsetUnknown === true });
       const m = analysis.metrics;
       session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };
       store.updateSleep(session).catch(() => {});
@@ -350,9 +350,9 @@ export function initSleep(deps: SleepDeps): {
     const busy = $('sleepBusy'), body = $('sleepBody');
     current = { session, analysis };
     // naps compare with naps and nights with nights: a nap would skew a night's ranges
-    const nap = isNap(session.start, session.durationS);
+    const nap = isNap(session.start, session.durationS, session.context);
     const all = await store.listSleeps(session.user);
-    const earlier = all.filter((n) => n.start < session.start && isNap(n.start, n.durationS) === nap);
+    const earlier = all.filter((n) => n.start < session.start && isNap(n.start, n.durationS, n.context) === nap);
     renderReport(session, analysis, earlier, copy ? [session] : all);
     $button('btnSleepDelete').hidden = copy;
     if (copy) $('sleepMeta').textContent += ' · Saved version of this report';
@@ -370,13 +370,13 @@ export function initSleep(deps: SleepDeps): {
   function renderReport(session: SleepSession, a: SleepAnalysis, earlier: readonly SleepSession[], all: readonly SleepSession[]): void {
     const m = a.metrics;
     const start = session.start;
-    const nap = isNap(start, session.durationS);
+    const nap = isNap(start, session.durationS, session.context);
     const word = nap ? 'nap' : 'night';
     $('sleepMeta').textContent = [
       deps.userLabel(session.user),
       session.source === 'demo' ? 'Demo night' : 'Polar H10',
       session.cloudOnly ? 'Synced copy from another device (as calculated there)' : '',
-      m.coverage < 95 ? `Data for ${fmt(m.coverage)} % of the ${word} (strap dropped out)` : '',
+      m.coverage < 95 ? `Heart and movement data for ${fmt(m.coverage)} % of the ${word}` : '',
     ].filter(Boolean).join(' · ');
     $('sleepHeroLabel').textContent = `${nap ? 'Nap' : 'Night'} sleep`;
     for (const [id, what] of [['sleepHrCaption', 'Heart rate'], ['sleepBrCaption', 'Breathing rate']] as const) $(id).textContent = `${what} through the ${word}`;
@@ -408,7 +408,7 @@ export function initSleep(deps: SleepDeps): {
     }));
 
     // naps that day, listed under the night
-    const naps = nap ? [] : all.filter((n) => isNap(n.start, n.durationS) && new Date(n.start).toDateString() === new Date(wakeMs).toDateString()).reverse();
+    const naps = nap ? [] : all.filter((n) => isNap(n.start, n.durationS, n.context) && new Date(n.start).toDateString() === new Date(wakeMs).toDateString()).reverse();
     const napBox = $('sleepNaps');
     napBox.hidden = naps.length === 0;
     napBox.replaceChildren(make('h3', '', `Naps that day · ${fmtHM(naps.reduce((min, n) => min + (n.summary?.sleepMin ?? n.durationS / 60), 0))}`));
@@ -525,7 +525,14 @@ export function initSleep(deps: SleepDeps): {
       row(k, `${v} ${unit}${k === 'Sleep efficiency' ? ' (asleep ÷ time in bed)' : k === 'Time to fall asleep' ? onset : ''}${verdict?.text ? ` · ${verdict.text}` : ''}`);
     }
 
-    renderOutliers($('sleepFlags'), outliers, ['Sleep stages are estimates; see “About these numbers” below.']);
+    renderOutliers($('sleepFlags'), outliers, [
+      'Sleep stages are estimates; see “About these numbers” below.',
+      ...(m.rrPct == null ? [] : [`Signal: heart rate ${fmt(m.rrPct)} %, HRV ${fmt(m.hrvPct ?? NaN)} %, movement ${fmt(m.movementPct ?? NaN)} %, breathing ${fmt(m.breathingPct ?? NaN)} %.`]),
+      ...(m.uncertainMin ? [`${fmtHM(m.uncertainMin)} of sleep had too little signal to name a stage. It counts as sleep, but appears as a gap in the stages.`] : []),
+      ...(m.quietWakes ? [`Possibly awake while lying still ${m.quietWakes} time${m.quietWakes === 1 ? '' : 's'}: heart rate rose without movement. This doesn’t change the stages or score.`] : []),
+      ...(session.onsetUnknown ? ['This recording started after you fell asleep, so the time you fell asleep isn’t known.'] : []),
+    ]);
+    renderContext(session);
 
     // heart rate and breathing through the night, as clock time
     const toPoints = (series: readonly (number | null)[]): Point[] => {
@@ -568,7 +575,7 @@ export function initSleep(deps: SleepDeps): {
   /** Deletes a night (after the caller asked); its ECG is deleted too only if the user says so. */
   async function deleteNight(night: SleepSession): Promise<void> {
     const ecgId = night.ecgId;
-    if (ecgId && window.confirm(`Also delete the ECG recorded during this ${isNap(night.start, night.durationS) ? 'nap' : 'night'}? (Cancel keeps it in ECG history and trending.)`)) await store.deleteSession(ecgId);
+    if (ecgId && window.confirm(`Also delete the ECG recorded during this ${isNap(night.start, night.durationS, night.context) ? 'nap' : 'night'}? (Cancel keeps it in ECG history and trending.)`)) await store.deleteSession(ecgId);
     else if (ecgId) {
       // keep the ECG, but stop it pointing at a night that no longer exists
       // (a cloud copy may keep the link; the ECG report hides "Open sleep report" when the night is gone)
@@ -582,9 +589,33 @@ export function initSleep(deps: SleepDeps): {
     historyChanged();
     deps.sleepChanged();
   }
+  /** Night or nap, and whether the recording began after falling asleep: the person knows better than the clock. */
+  function renderContext(session: SleepSession): void {
+    const box = $('sleepContext');
+    const pick = make('select'), label = make('label', 'd2-days', 'Count this as ');
+    pick.setAttribute('aria-label', 'Count this as');
+    for (const [v, t] of [['', 'Automatic (by the time)'], ['night', 'Night'], ['nap', 'Nap']] as const) { const o = make('option', '', t); o.value = v; pick.appendChild(o); }
+    pick.value = session.context ?? '';
+    label.appendChild(pick);
+    const late = make('input'), lateLabel = make('label', 'd2-days');
+    late.type = 'checkbox'; late.checked = session.onsetUnknown === true;
+    lateLabel.append(late, ' Recording started after I fell asleep');
+    const apply = (): void => void (async () => {
+      const { context: _c, onsetUnknown: _o, ...rest } = session;
+      const next: SleepSession = { ...rest, labelAt: Date.now(), ...(pick.value === 'night' || pick.value === 'nap' ? { context: pick.value } : {}), ...(late.checked ? { onsetUnknown: true } : {}) };
+      await store.updateSleep(next);
+      deps.sleepChanged();
+      historyChanged();
+      await openReport(session.id);
+    })();
+    pick.addEventListener('change', apply);
+    late.addEventListener('change', apply);
+    box.replaceChildren(label, lateLabel);
+  }
+
   $button('btnSleepDelete').addEventListener('click', () => {
     void (async () => {
-      if (!current || !window.confirm(`Delete this ${isNap(current.session.start, current.session.durationS) ? 'nap' : 'night'}? You can get it back from the Recovery centre.`)) return;
+      if (!current || !window.confirm(`Delete this ${isNap(current.session.start, current.session.durationS, current.session.context) ? 'nap' : 'night'}? You can get it back from the Recovery centre.`)) return;
       await deleteNight(current.session);
       current = null;
       deps.showSleepView('sleepHistory');
@@ -603,7 +634,7 @@ export function initSleep(deps: SleepDeps): {
     const { session, analysis } = current;
     const { score: _metricsScore, ...napMetrics } = analysis.metrics;
     const { score: _summaryScore, ...napSummary } = session.summary ?? { score: 0 };
-    const nap = isNap(session.start, session.durationS);
+    const nap = isNap(session.start, session.durationS, session.context);
     const out = { app: 'OpenBeat ECG', sleep: nap ? { ...session, summary: napSummary } : { ...session }, metrics: nap ? napMetrics : analysis.metrics, ranges: sleepRanges(), epochS: EPOCH_S, stages: analysis.stages };
     download(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `${fileStem(session)}_sleep.json`);
   });

@@ -132,6 +132,7 @@ export class CloudSync extends EventTarget {
       await this.syncSettings();
       await this.syncTracking(result);
       await this.syncSleepReports(result);
+      await this.syncSleepLabels(result);
     } catch (err) {
       result.ok = false;
       result.reason = describe(err);
@@ -221,6 +222,33 @@ export class CloudSync extends EventTarget {
       const ins = await this.client.from(DATA_TABLE).upsert({ kind: 'tracking', id, data: { entry: { ...sent, savedAt }, trace }, saved_at: savedAt });
       if (ins.error) throw new Error(ins.error.message);
       store.saveSyncEntry({ ...entry, savedAt }, { fromCloud: true });
+      result.uploaded++;
+    }
+  }
+
+  // ---------- night or nap, and late starts (table user_data, kind 'sleep-label') ----------
+
+  private async syncSleepLabels(result: SyncResult): Promise<void> {
+    const kind = 'sleep-label';
+    const { data, error } = await this.client.from(DATA_TABLE).select('id, data, saved_at').eq('kind', kind);
+    if (error) throw new Error(error.message);
+    const sleeps = new Map((await store.listAllSleeps()).map((s) => [s.id, s]));
+    for (const row of (data as unknown[] | null) ?? []) {
+      const r = row as Obj, at = finiteNum(r, 'saved_at'), s = sleeps.get(String(r['id']));
+      if (at === null || !s || (s.labelAt ?? 0) >= at) continue;
+      const { context: _c, onsetUnknown: _o, ...rest } = s;
+      const v = (r['data'] ?? {}) as { context?: unknown; onsetUnknown?: unknown };
+      const context = v.context === 'night' ? 'night' as const : v.context === 'nap' ? 'nap' as const : null;
+      const updated: store.SleepSession = { ...rest, labelAt: at, ...(context ? { context } : {}), ...(v.onsetUnknown === true ? { onsetUnknown: true } : {}) };
+      await store.updateSleep(updated);
+      sleeps.set(s.id, updated);
+      result.downloaded++;
+    }
+    const inCloud = new Map(((data as unknown[] | null) ?? []).map((row) => [String((row as Obj)['id']), finiteNum(row as Obj, 'saved_at') ?? 0]));
+    for (const s of sleeps.values()) {
+      if (s.labelAt == null || (inCloud.get(s.id) ?? 0) >= s.labelAt) continue;
+      const ins = await this.client.from(DATA_TABLE).upsert({ kind, id: s.id, data: { context: s.context ?? null, onsetUnknown: s.onsetUnknown === true }, saved_at: s.labelAt });
+      if (ins.error) throw new Error(ins.error.message);
       result.uploaded++;
     }
   }

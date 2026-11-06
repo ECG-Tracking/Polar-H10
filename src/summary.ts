@@ -155,15 +155,15 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
 export interface SleepReport {
   v: 1;
   metrics: SleepMetrics;
-  stages: string; // one letter per 30 s: a = awake, r = REM, l = light, d = deep, n = no data
+  stages: string; // one letter per 30 s: a = awake, r = REM, l = light, d = deep, u = uncertain, n = no data
   hr: (number | null)[];
   breathing: (number | null)[];
   activity: (number | null)[];
   ecgId?: string; // the ECG recorded during this night
 }
 
-const STAGE_CODE: Readonly<Record<Stage, string>> = { awake: 'a', rem: 'r', light: 'l', deep: 'd', nodata: 'n' };
-const CODE_STAGE: Readonly<Record<string, Stage>> = { a: 'awake', r: 'rem', l: 'light', d: 'deep', n: 'nodata' };
+const STAGE_CODE: Readonly<Record<Stage, string>> = { awake: 'a', rem: 'r', light: 'l', deep: 'd', uncertain: 'u', nodata: 'n' };
+const CODE_STAGE: Readonly<Record<string, Stage>> = { a: 'awake', r: 'rem', l: 'light', d: 'deep', u: 'uncertain', n: 'nodata' };
 
 export function buildSleepReport(data: SleepData, ecgId?: string): SleepReport {
   const rep = fromAnalysis(analyzeSleep(data));
@@ -185,7 +185,7 @@ export function parseSleepReport(v: unknown): SleepReport | null {
   return {
     v: 1,
     metrics: restoreNumbers<SleepMetrics>(v['metrics'], []),
-    stages: v['stages'].replace(/[^arldn]/g, 'n'),
+    stages: v['stages'].replace(/[^arldun]/g, 'n'),
     hr: arr(v['hr']),
     breathing: arr(v['breathing']),
     activity: arr(v['activity']),

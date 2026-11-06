@@ -4,7 +4,7 @@
 import { ACC_FS } from './polar';
 import { EPOCH_S, type SleepData, type Stage } from './sleep';
 
-type SleepStage = Exclude<Stage, 'nodata'>;
+type SleepStage = Exclude<Stage, 'nodata' | 'uncertain'>;
 
 interface StageParams { hr: number; rsa: number; noise: number; breath: number; breathCv: number; move: number }
 const PARAMS: Readonly<Record<SleepStage, StageParams>> = {

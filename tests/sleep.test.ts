@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSleep, isNap, localZ, minBouts, sleepScore, SleepRecorder, ACC_MISSING, EPOCH_S, type Stage } from '../src/sleep';
+import { analyzeSleep, isNap, localZ, minBouts, quietWakeSpells, sleepScore, SleepRecorder, weighted, ACC_MISSING, EPOCH_S, type SleepData, type Stage } from '../src/sleep';
 import { simulateNight } from '../src/sleepsim';
 import { personalRange, checkRange, sleepRanges } from '../src/ranges';
 
@@ -101,4 +101,39 @@ test('stages last at least 5 minutes', () => {
   assert.deepEqual(minBouts(kept), kept, 'awake isn’t touched');
   const long = [...rep('deep', 10), ...rep('light', 10)];
   assert.deepEqual(minBouts(long), long, 'runs of 5 minutes stay');
+});
+
+test('a missing measure isn’t read as an average one', () => {
+  assert.equal(weighted([[2, 1], [null, 1]]), 4, 'the measures that exist carry the full weight');
+  assert.equal(weighted([[2, 1], [2, 1]]), 4);
+  assert.equal(weighted([[null, 1]]), 0);
+});
+
+test('possible quiet wake needs a lasting rise in heart rate during sleep', () => {
+  const z = [0, 3, 3, 3, 3, 0, 3, 3, 0, 3, 3, 3, 3], asleep = z.map((_, i) => i < 9);
+  assert.equal(quietWakeSpells(z, asleep), 1, 'the short spell and the spell after waking aren’t counted');
+});
+
+test('the local comparison ignores a few artefacts and needs enough data', () => {
+  const steady = Array.from({ length: 300 }, (_, i) => 55 + (i % 3) * 0.5);
+  const spiked = steady.map((v, i) => (i === 150 ? 120 : v));
+  const mask = steady.map(() => true);
+  assert.ok(Math.abs(localZ(spiked, mask)[100] ?? 9) < 5, 'one spike doesn’t distort its neighbours');
+  assert.equal(localZ([50, 51, 52], [true, true, true])[1], null, 'too little around it');
+});
+
+test('a person’s choice of night or nap wins over the clock', () => {
+  const noon = new Date(2026, 10, 5, 12).getTime();
+  assert.equal(isNap(noon, 3600), true);
+  assert.equal(isNap(noon, 3600, 'night'), false);
+  assert.equal(isNap(noon - 12 * 3600000, 3600, 'nap'), true);
+});
+
+test('a night with lost heart data is marked uncertain, not given a stage', () => {
+  const kept: SleepData = simulateNight(5).data;
+  const t = Array.from(kept.rrT), r = Array.from(kept.rr);
+  const from = 3 * 3600, to = 3.5 * 3600;
+  const a = analyzeSleep({ ...kept, rrT: Float64Array.from(t.filter((x) => x < from || x > to)), rr: Float32Array.from(r.filter((_, i) => (t[i] ?? 0) < from || (t[i] ?? 0) > to)) });
+  assert.ok(a.metrics.coverage < 96, `coverage ${a.metrics.coverage}`);
+  assert.ok((a.metrics.rrPct ?? 100) < 96);
 });

@@ -42,7 +42,7 @@ export function pairUp(polar: readonly SleepSession[], watch: readonly WatchSlee
   for (const { p, w } of options.sort((a, b) => b.ms - a.ms)) {
     if (usedP.has(p.id) || usedW.has(w.id)) continue;
     usedP.add(p.id); usedW.add(w.id);
-    pairs.push({ id: `${p.id}+${w.id}`, polar: p, watch: w, start: Math.min(p.start, w.bedMs), nap: w.nap || isNap(p.start, p.durationS) });
+    pairs.push({ id: `${p.id}+${w.id}`, polar: p, watch: w, start: Math.min(p.start, w.bedMs), nap: p.context ? p.context === 'nap' : w.nap || isNap(p.start, p.durationS) });
   }
   return pairs.sort((a, b) => b.start - a.start);
 }
@@ -59,7 +59,7 @@ export function watchMinute(code: number | undefined): Minute {
 function strapMinutes(stages: readonly Stage[], startMs: number, epochS: number): Map<number, Minute> {
   const counts = new Map<number, Map<Known, number>>();
   stages.forEach((s, e) => {
-    if (s === 'nodata') return;
+    if (s === 'nodata' || s === 'uncertain') return;
     const k = slot(startMs + e * epochS * 1000);
     const c = counts.get(k) ?? new Map<Known, number>();
     c.set(s, (c.get(s) ?? 0) + 1);

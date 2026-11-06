@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 6 Nov 2026 – v1.33.0 – More honest sleep stages *(GitHub)*
+Why: a report should show what it knows, and not guess when a signal is missing.
+- Coverage now counts only time with both usable heart and movement data, and the report shows heart rate, HRV, movement and breathing separately.
+- A missing measure is no longer read as an average one. With too little signal, sleep is kept but the stage is marked uncertain and appears as a gap.
+- Breathing from the heartbeats now joins across bad beats, so it is available far more often.
+- The local comparison resists artefacts and needs at least 10 minutes of sleep around it.
+- REM is no longer blocked for the first 50 minutes: it is only less likely, and strong evidence can overrule that. The stronger of deep and REM now decides.
+- On a sleep report, choose whether it counts as a night or nap, and mark a recording that started after you fell asleep. These sync to your other devices.
+- The report notes possible quiet waking, when heart rate rises without movement. This doesn't change the stages or score.
+- Synchronised Sleep Tracking reports are generated again, and earlier versions stay.
+
 ## 5 Nov 2026 – v1.32.1 – Walking copes with sparse signals *(GitHub)*
 Why: a phone may hear the device only every few seconds, and gentle steps weren't counted.
 - Each reading now uses the signal heard in the last 10 seconds, not only the last 3.
