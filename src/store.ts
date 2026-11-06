@@ -1,6 +1,7 @@
 // Local persistence: sessions in IndexedDB, settings in localStorage. Cloud copies are made by cloud.ts.
 
 import type { SavedSleepReports } from './syncsleep';
+import type { RecordingPart } from './sleep';
 import type { SyncTrace } from './synccompare';
 
 // ---------- Accounts ----------
@@ -83,13 +84,14 @@ export interface Session {
 interface SignalRecord { id: string; samples: Int16Array } // µV
 
 let dbPromise: Promise<IDBDatabase> | null = null;
-const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports', 'syncTraces'];
+const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sleepSignals', 'ecgSummaries', 'bin', 'binSignals', 'sleepReports', 'syncTraces', 'recordingParts'];
 
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre,
-    // version 5 the synchronised sleep reports, version 6 the beats of each synchronised tracking; existing data is kept
-    const req = indexedDB.open(dbName, 6);
+    // version 5 the synchronised sleep reports, version 6 the beats of each synchronised tracking, version 7 sleep recordings
+    // as they run; existing data is kept
+    const req = indexedDB.open(dbName, 7);
     req.onupgradeneeded = () => {
       const db = req.result;
       for (const name of STORE_NAMES) {
@@ -102,7 +104,7 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports' | 'syncTraces';
+export type StoreName = 'sessions' | 'signals' | 'sleeps' | 'sleepSignals' | 'ecgSummaries' | 'bin' | 'binSignals' | 'sleepReports' | 'syncTraces' | 'recordingParts';
 
 /** Runs `fn` in a transaction and resolves when it completes (with the request's result, if one is returned). */
 function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => IDBRequest<T> | void): Promise<T | undefined> {
@@ -250,6 +252,27 @@ interface SleepSignalRecord {
 }
 
 export interface SleepSignals { rrT: Float64Array; rr: Float32Array; acc: Int16Array; accFs: number }
+
+let recordingSleep = false;
+export const sleepRecording = (): boolean => recordingSleep;
+export function setSleepRecording(on: boolean): void {
+  recordingSleep = on;
+  if (!on) window.dispatchEvent(new Event('openbeat-sleep-stopped'));
+}
+
+/** Part of a sleep recording that is still running, kept until it is saved as a whole. */
+export async function saveRecordingPart(part: RecordingPart): Promise<void> {
+  await tx(['recordingParts'], 'readwrite', (t) => { t.objectStore('recordingParts').put(part); });
+}
+
+export async function listRecordingParts(): Promise<RecordingPart[]> {
+  return (await tx<RecordingPart[]>(['recordingParts'], 'readonly', (t) => t.objectStore('recordingParts').getAll() as IDBRequest<RecordingPart[]>)) ?? [];
+}
+
+export async function deleteRecordingParts(rec: number): Promise<void> {
+  const ids = (await listRecordingParts()).filter((p) => p.rec === rec).map((p) => p.id);
+  await tx(['recordingParts'], 'readwrite', (t) => { for (const id of ids) t.objectStore('recordingParts').delete(id); });
+}
 
 export async function saveSleep(session: SleepSession, signals: SleepSignals): Promise<void> {
   await tx(['sleeps', 'sleepSignals'], 'readwrite', (t) => {

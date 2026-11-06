@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 7 Nov 2026 – v1.35.0 – Sleep recordings can't be lost *(GitHub)*
+Why: a recording was held in memory until Stop, so a closed page or crash lost the whole night.
+- A running sleep recording, with its ECG, is saved on the device every 2 minutes.
+- If the page closes, the browser stops or the device restarts, the recording is restored when the app next opens, and a message says so. It is saved up to the last 2 minutes or so.
+- The browser warns before you close or reload the page during a recording.
+- A sign-in that lapses overnight no longer reloads the page during a recording. It reloads after you press Stop.
+- Locate connected devices explains what to do if Chrome can't measure the signal, and reminds you to set its experimental setting back to Default afterwards.
+- This needs a small storage update: close any other open tabs of the app after updating.
+
 ## 6 Nov 2026 – v1.34.1 – Reports follow new stages from other devices *(GitHub)*
 Why: a report sent from another device can change the stages while its totals stay the same.
 - A device with a cloud copy now makes new Synchronised Sleep Tracking reports whenever the stages themselves change.

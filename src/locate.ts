@@ -104,6 +104,7 @@ export function gpsPoint(start: Point, from: { lat: number; lon: number }, to: {
 
 const count = (n: number, what: string): string => `${n} ${what}${n === 1 ? '' : 's'}`;
 const MEASURE_S = 10;
+const NO_SIGNAL_HELP = 'Chrome isn’t measuring the signal. Option 1: set the signal yourself. Open a scanner app such as nRF Connect on a phone, read the number, set it with the slider and tap your position. Option 2: open chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, relaunch Chrome and press again. When you have finished, set it back to Default and relaunch, and don’t leave it on during an overnight recording.';
 const KEY = 'openbeat-locate';
 
 function load(): Record<Device, Plan> {
@@ -192,7 +193,7 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
   ]) steps.appendChild(make('li', '', s));
   const help = make('section', 'card');
   help.append(make('h3', 'sync-h', 'How to use it'), steps,
-    make('p', 'note', 'Position comes from counting steps and the phone’s compass, and from GPS only if it is accurate to 6 m, which is rare indoors. A Mac has no GPS or step sensors, so tap your position as you move. If your browser can’t measure the signal, use a scanner app and the slider. Walls and furniture weaken the signal, so the shaded area is where to start, not an exact spot. Readings stay on this device.'));
+    make('p', 'note', 'Position comes from counting steps and the phone’s compass, and from GPS only if it is accurate to 6 m, which is rare indoors. A Mac has no GPS or step sensors, so tap your position as you move. If Chrome can’t measure the signal, the page tells you what to do: use a scanner app and the slider, or turn on Chrome’s experimental setting while you search and set it back to Default afterwards. Walls and furniture weaken the signal, so the shaded area is where to start, not an exact spot. Readings stay on this device.'));
 
   root.replaceChildren(backBtn, make('h2', '', 'Locate connected devices'), lead, result, mapCard, help);
 
@@ -267,7 +268,7 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
       if (!navigator.bluetooth) { say2('This browser has no Bluetooth. Use Chrome on Android or a computer, or set the signal from a scanner app.'); return; }
       const dev = chosen[device] ?? await navigator.bluetooth.requestDevice(device === 'polar' ? { filters: [{ namePrefix: 'Polar H10' }] } : { acceptAllDevices: true });
       chosen[device] = dev;
-      if (typeof dev.watchAdvertisements !== 'function') { say2('Chrome isn’t measuring the signal yet. Open chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, relaunch Chrome and press again. Or set the signal from a scanner app.'); return; }
+      if (typeof dev.watchAdvertisements !== 'function') { say2(NO_SIGNAL_HELP); return; }
       const samples: number[] = [];
       const heard = (e: Event): void => { const v = (e as Event & { rssi?: number }).rssi; if (v != null) samples.push(v); };
       const stop = new AbortController();
@@ -300,7 +301,7 @@ export function initLocate(root: HTMLElement, back: () => void): { refresh: () =
       if (!navigator.bluetooth) { say2('This browser has no Bluetooth. Use Chrome on Android or a computer.'); return; }
       const dev = chosen[device] ?? await navigator.bluetooth.requestDevice(device === 'polar' ? { filters: [{ namePrefix: 'Polar H10' }] } : { acceptAllDevices: true });
       chosen[device] = dev;
-      if (typeof dev.watchAdvertisements !== 'function') { say2('Chrome isn’t measuring the signal yet. Open chrome://flags/#enable-experimental-web-platform-features, set it to Enabled, relaunch Chrome and press again.'); return; }
+      if (typeof dev.watchAdvertisements !== 'function') { say2(NO_SIGNAL_HELP); return; }
       let samples: { at: number; rssi: number }[] = [], motionSeen = false, lastHeard = Date.now(), lastSaved: Point | null = null, saved = 0, heading: number | null = null, up = 0, steps = 0;
       let source = 'taps', gpsFrom: { lat: number; lon: number } | null = null, start: Point | null = null;
       const stop = new AbortController();

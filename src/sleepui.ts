@@ -2,7 +2,7 @@
 
 import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } from './devices';
 import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
-import { analyzeSleep, isNap, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
+import { analyzeSleep, isNap, joinParts, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
 import { EcgFilter } from './dsp';
 import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
@@ -32,6 +32,8 @@ export interface SleepDeps {
 }
 
 const MIN_SAVE_S = 10 * 60;
+const PART_MS = 2 * 60000; // how often a running recording is saved
+const LIVE_PART_MS = 6 * 60000; // a recording saved this recently may still be running in another tab
 
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
@@ -52,6 +54,9 @@ export function initSleep(deps: SleepDeps): {
   let wakeLock: WakeLockSentinel | null = null;
   let reconnecting = false;
   let gaps = 0;
+  // a running recording is saved in parts, so closing the page or a crash loses only the last minutes
+  let partTimer: ReturnType<typeof setInterval> | null = null;
+  let partSeq = 0, ecgSent = 0, partSaving: Promise<void> = Promise.resolve();
 
   const log = (line: string): void => {
     const el = $('sleepLog');
@@ -192,11 +197,50 @@ export function initSleep(deps: SleepDeps): {
     $('sleepGaps').textContent = 'no gaps';
     $('sleepSince').textContent = `since ${fmtClock(recorder.start)}`;
     await requestWakeLock();
+    partSeq = 0; ecgSent = 0;
+    store.setSleepRecording(true);
+    partTimer = setInterval(() => void savePart(), PART_MS);
     tick = setInterval(updateLive, 2000);
     updateLive();
     refreshUser();
     syncButtons();
     deps.recordingChanged();
+  }
+
+  /** Saves what is new; one at a time, so the parts stay in order. */
+  function savePart(): Promise<void> {
+    const r = recorder, night = ecg;
+    if (!r) return partSaving;
+    const add = r.takeNew(), chunks = night?.chunks.slice(ecgSent) ?? [];
+    ecgSent = night?.chunks.length ?? 0;
+    const e = new Int16Array(chunks.reduce((s, c) => s + c.length, 0));
+    let o = 0;
+    for (const c of chunks) { e.set(c, o); o += c.length; }
+    const seq = partSeq++;
+    const part = { ...add, id: `${r.start}:${seq}`, rec: r.start, user: recUser, seq, at: Date.now(), ecg: e };
+    partSaving = partSaving.then(() => store.saveRecordingPart(part)).catch((err: unknown) => log(`Couldn’t save part of the recording: ${errorMessage(err)}`));
+    return partSaving;
+  }
+
+  /** Recordings left unfinished by a closed page or a crash are saved as they stood. */
+  async function recoverRecordings(): Promise<void> {
+    const parts = await store.listRecordingParts();
+    for (const rec of new Set(parts.map((p) => p.rec))) {
+      if (rec === recorder?.start) continue;
+      const mine = parts.filter((p) => p.rec === rec);
+      if (Date.now() - Math.max(...mine.map((p) => p.at)) < LIVE_PART_MS) continue; // probably still running in another tab
+      const { session } = await store.loadSleep(`n${rec}`);
+      if (!session) {
+        const { data, ecg: samples } = joinParts(mine);
+        if (data.durationS >= MIN_SAVE_S) {
+          await saveRecording(rec, (mine[0]?.user ?? 1) as UserNumber, data, samples);
+          const text = `A sleep recording from ${new Date(rec).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} wasn’t stopped, so it was restored up to ${fmtTime(data.durationS)} long. It is in Sleep history.`;
+          for (const id of ['sleepRecovered', 'sleepRecoveredHistory']) { $(id).textContent = text; $(id).hidden = false; }
+          if ($('view-sleepHistory').classList.contains('active')) void renderHistory();
+        }
+      }
+      await store.deleteRecordingParts(rec);
+    }
   }
 
   function updateLive(): void {
@@ -220,6 +264,9 @@ export function initSleep(deps: SleepDeps): {
     ecg = null;
     if (tick) clearInterval(tick);
     tick = null;
+    if (partTimer) clearInterval(partTimer);
+    partTimer = null;
+    await partSaving;
     try { await wakeLock?.release(); } catch { /* ignore */ }
     wakeLock = null;
     $('sleepDim').hidden = true;
@@ -231,16 +278,27 @@ export function initSleep(deps: SleepDeps): {
     if (data.durationS < MIN_SAVE_S) {
       $('sleepElapsed').textContent = 'Too short';
       $('sleepSince').textContent = 'recordings under 10 min aren’t saved';
+      await store.deleteRecordingParts(r.start).catch(() => undefined);
+      store.setSleepRecording(false);
       return null;
     }
-    const session: SleepSession = { id: `n${r.start}`, user: recUser, start: r.start, durationS: data.durationS, source: 'polar', summary: null };
-    if (nightEcg && nightEcg.n >= MIN_SAVE_S * ECG_FS) {
+    const samples = new Int16Array(nightEcg?.n ?? 0);
+    let o = 0;
+    for (const c of nightEcg?.chunks ?? []) { samples.set(c, o); o += c.length; }
+    const id = await saveRecording(r.start, recUser, data, samples);
+    await store.deleteRecordingParts(r.start).catch(() => undefined);
+    store.setSleepRecording(false);
+    if (show) await openReport(id);
+    return id;
+  }
+
+  /** Saves a finished recording, and its ECG if long enough. */
+  async function saveRecording(start: number, user: UserNumber, data: SleepData, samples: Int16Array): Promise<string> {
+    const session: SleepSession = { id: `n${start}`, user, start, durationS: data.durationS, source: 'polar', summary: null };
+    if (samples.length >= MIN_SAVE_S * ECG_FS) {
       // the night's ECG goes into ECG history too, linked both ways
-      const samples = new Int16Array(nightEcg.n);
-      let o = 0;
-      for (const c of nightEcg.chunks) { samples.set(c, o); o += c.length; }
       const ecgSession: Session = {
-        id: `s${r.start}`, user: recUser, start: r.start, durationS: nightEcg.n / ECG_FS, fs: ECG_FS, alias: store.loadSettings(recUser).alias,
+        id: `s${start}`, user, start, durationS: samples.length / ECG_FS, fs: ECG_FS, alias: store.loadSettings(user).alias,
         source: 'polar', userEvents: [], summary: null, sleepId: session.id,
       };
       await store.saveSession(ecgSession, samples);
@@ -249,7 +307,6 @@ export function initSleep(deps: SleepDeps): {
     await store.saveSleep(session, data);
     historyChanged();
     deps.sleepChanged();
-    if (show) await openReport(session.id);
     return session.id;
   }
 
@@ -568,6 +625,12 @@ export function initSleep(deps: SleepDeps): {
   $button('btnSleepStart').addEventListener('click', () => void (recorder ? stopRecording() : startRecording()));
   $button('btnSleepDim').addEventListener('click', () => { $('sleepDim').hidden = false; });
   $('sleepDim').addEventListener('click', () => { $('sleepDim').hidden = true; });
+  // the last minutes, if the page is going away, and a warning before it does
+  window.addEventListener('pagehide', () => { if (recorder) void savePart(); });
+  window.addEventListener('beforeunload', (e) => { if (recorder) e.preventDefault(); });
+  void recoverRecordings().catch(() => undefined);
+  setInterval(() => { if (!recorder) void recoverRecordings().catch(() => undefined); }, LIVE_PART_MS);
+
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && recorder && !wakeLock) void requestWakeLock();
   });

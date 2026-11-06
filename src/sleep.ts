@@ -503,6 +503,35 @@ export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean 
 
 // ---------- Recording helpers (used live) ----------
 
+/** What a sleep recording added since the last save, so a closed page or a crash loses only the last minutes. */
+export interface RecordingPart {
+  id: string; // `${rec}:${seq}`
+  rec: number; // when the recording started, ms: its id
+  user: number;
+  seq: number;
+  at: number; // when this part was saved, ms
+  durationS: number; // of the whole recording so far
+  accFs: number;
+  rrT: Float64Array; rr: Float32Array; acc: Int16Array; ecg: Int16Array;
+}
+
+/** The parts of one recording put back together. */
+export function joinParts(parts: readonly RecordingPart[]): { data: SleepData; ecg: Int16Array } {
+  const sorted = [...parts].sort((a, b) => a.seq - b.seq);
+  const last = sorted[sorted.length - 1];
+  const size = (f: (p: RecordingPart) => { length: number }): number => sorted.reduce((s, p) => s + f(p).length, 0);
+  const durationS = last?.durationS ?? 0, accFs = last?.accFs ?? 25;
+  const rrT = new Float64Array(size((p) => p.rrT)), rr = new Float32Array(size((p) => p.rr)), ecg = new Int16Array(size((p) => p.ecg));
+  const acc = new Int16Array(Math.max(size((p) => p.acc), 3 * Math.round(durationS * accFs))).fill(ACC_MISSING);
+  let b = 0, a = 0, e = 0;
+  for (const p of sorted) {
+    rrT.set(p.rrT, b); rr.set(p.rr, b); b += p.rr.length;
+    acc.set(p.acc, a); a += p.acc.length;
+    ecg.set(p.ecg, e); e += p.ecg.length;
+  }
+  return { data: { durationS, rrT, rr, acc, accFs }, ecg };
+}
+
 /** Collects RR intervals and accelerometer samples as they arrive, keeping timing across dropouts. */
 export class SleepRecorder {
   readonly start = Date.now();
@@ -511,8 +540,21 @@ export class SleepRecorder {
   private accChunks: Int16Array[] = [];
   private accCursor = 0; // samples written so far (per axis)
   private beatClock = 0; // seconds of the last beat
+  private sentBeats = 0; private sentChunks = 0; // what takeNew has already handed over
 
   constructor(readonly accFs: number) {}
+
+  /** Everything since the last call, for saving part of the recording. */
+  takeNew(): Pick<SleepData, 'durationS' | 'rrT' | 'rr' | 'acc' | 'accFs'> {
+    const chunks = this.accChunks.slice(this.sentChunks);
+    const acc = new Int16Array(chunks.reduce((s, c) => s + c.length, 0));
+    let o = 0;
+    for (const c of chunks) { acc.set(c, o); o += c.length; }
+    const part = { durationS: this.now(), rrT: Float64Array.from(this.rrT.slice(this.sentBeats)), rr: Float32Array.from(this.rr.slice(this.sentBeats)), acc, accFs: this.accFs };
+    this.sentBeats = this.rr.length;
+    this.sentChunks = this.accChunks.length;
+    return part;
+  }
 
   private now(): number { return (Date.now() - this.start) / 1000; }
 

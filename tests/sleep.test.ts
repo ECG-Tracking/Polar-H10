@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSleep, isNap, localZ, minBouts, quietWakeSpells, sleepScore, SleepRecorder, weighted, ACC_MISSING, EPOCH_S, type SleepData, type Stage } from '../src/sleep';
+import { analyzeSleep, isNap, joinParts, localZ, minBouts, quietWakeSpells, sleepScore, SleepRecorder, weighted, ACC_MISSING, EPOCH_S, type RecordingPart, type SleepData, type Stage } from '../src/sleep';
 import { simulateNight } from '../src/sleepsim';
 import { personalRange, checkRange, sleepRanges } from '../src/ranges';
 
@@ -136,4 +136,23 @@ test('a night with lost heart data is marked uncertain, not given a stage', () =
   const a = analyzeSleep({ ...kept, rrT: Float64Array.from(t.filter((x) => x < from || x > to)), rr: Float32Array.from(r.filter((_, i) => (t[i] ?? 0) < from || (t[i] ?? 0) > to)) });
   assert.ok(a.metrics.coverage < 96, `coverage ${a.metrics.coverage}`);
   assert.ok((a.metrics.rrPct ?? 100) < 96);
+});
+
+test('a recording saved in parts comes back whole', () => {
+  const r = new SleepRecorder(25);
+  const part = (seq: number): RecordingPart => ({ ...r.takeNew(), id: `1:${seq}`, rec: 1, user: 2, seq, at: seq, ecg: Int16Array.of(seq, seq) });
+  r.addRR([800, 810]);
+  r.addAcc(Int16Array.of(1, 2, 3, 4, 5, 6));
+  const first = part(0);
+  r.addRR([820]);
+  r.addAcc(Int16Array.of(7, 8, 9));
+  const second = part(1);
+  const empty = part(2);
+  assert.equal(second.rr.length, 1, 'only what is new');
+  assert.equal(empty.rr.length, 0);
+  const { data, ecg } = joinParts([empty, second, first]);
+  assert.deepEqual([...data.rr], [800, 810, 820], 'in order, whatever order they are read in');
+  assert.deepEqual([...data.acc.subarray(0, 9)], [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual([...ecg], [0, 0, 1, 1, 2, 2]);
+  assert.equal(data.accFs, 25);
 });

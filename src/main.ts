@@ -155,7 +155,12 @@ async function boot(): Promise<void> {
   showSyncStatus();
   void sync?.sync();
   // signed out elsewhere (e.g. the session was revoked): back to the sign-in screen
-  supabase().auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT' && !account.offline) location.reload(); });
+  supabase().auth.onAuthStateChange((event) => {
+    if (event !== 'SIGNED_OUT' || account.offline) return;
+    // a sign-in that lapses overnight mustn't end a recording: the page reloads once it has stopped
+    if (store.sleepRecording()) window.addEventListener('openbeat-sleep-stopped', () => location.reload(), { once: true });
+    else location.reload();
+  });
 }
 
 void boot();
