@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
+import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, stagesStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
 import { SLEEP_METHOD, type Stage } from '../src/sleep';
 
@@ -194,4 +194,22 @@ test('changing night or nap, or a late start, makes new reports', () => {
   assert.equal(whatChanged(saved, p), null);
   assert.equal(whatChanged(saved, { ...p, polar: { ...polar, context: 'nap' } }), 'labels');
   assert.equal(whatChanged(saved, { ...p, polar: { ...polar, onsetUnknown: true } }), 'labels');
+});
+
+test('a new report from another device with the same totals but different stages makes new reports', () => {
+  const copy = (stages: string) => ({ id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null, cloudOnly: true, report: { stages, method: 3 } }) as unknown as SleepSession;
+  const stages = ['light', 'rem', 'deep', 'awake'] as Stage[];
+  const saved = { method: 3, stagesStamp: stagesStamp(stages), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
+  const p = (polar: SleepSession): SleepPair => ({ id: 'x', polar, watch: {} as WatchSleep, start: 0, nap: false });
+  assert.equal(whatChanged(saved, p(copy('lrda'))), null, 'the same stages, whether worked out here or read from the cloud');
+  assert.equal(whatChanged(saved, p(copy('lrla'))), 'polar');
+});
+
+test('reports made from an older cloud copy keep that copy’s rule version', () => {
+  const polar = { id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null, cloudOnly: true, report: { stages: 'l', method: 3 } } as unknown as SleepSession;
+  const watch = { id: 'w', start: 0, stages: [1], nap: false, demo: false, watch: 'W', bedMs: 0, wokeMs: 60000 } as unknown as WatchSleep;
+  const figures = { sleepMin: 1, deepPct: 0, remPct: 0 } as unknown as Parameters<typeof buildReports>[1];
+  assert.equal(buildReports({ id: 'x', polar, watch, start: 0, nap: false }, figures, ['light'], 30, 1).method, 3);
+  const { cloudOnly: _c, report: _r, ...own } = polar;
+  assert.equal(buildReports({ id: 'x', polar: own, watch, start: 0, nap: false }, figures, ['light'], 30, 1).method, SLEEP_METHOD);
 });

@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 6 Nov 2026 – v1.34.1 – Reports follow new stages from other devices *(GitHub)*
+Why: a report sent from another device can change the stages while its totals stay the same.
+- A device with a cloud copy now makes new Synchronised Sleep Tracking reports whenever the stages themselves change.
+- Reports made from an older cloud copy keep that copy's rule version, so the device with the raw recording still redoes them.
+
 ## 6 Nov 2026 – v1.34.0 – Reports stay consistent with your choices *(GitHub)*
 Why: a review found places where reports and devices could disagree.
 - Changing night or nap, or a late start, now generates new Synchronised Sleep Tracking reports.

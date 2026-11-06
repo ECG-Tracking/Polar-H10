@@ -3,7 +3,7 @@
 // Both are plain JSON; strips are 16-bit samples in base64.
 
 import { analyze, sessionMetrics, EVENT_LABELS, type BeatMeasure, type EventType, type Polarity, type SessionMetrics } from './dsp';
-import { analyzeSleep, type SleepAnalysis, type SleepData, type SleepMetrics, type Stage } from './sleep';
+import { analyzeSleep, SLEEP_METHOD, type SleepAnalysis, type SleepData, type SleepMetrics, type Stage } from './sleep';
 import type { Session, Settings } from './store';
 
 export const STRIP_S = 30; // representative strip: the first 30 s
@@ -161,13 +161,14 @@ export interface SleepReport {
   activity: (number | null)[];
   ecgId?: string; // the ECG recorded during this night
   reportAt?: number; // when it was worked out, ms: another device replaces its copy with a newer one
+  method?: number; // the stage rules it was worked out with (see SLEEP_METHOD); missing = the first ones
 }
 
 const STAGE_CODE: Readonly<Record<Stage, string>> = { awake: 'a', rem: 'r', light: 'l', deep: 'd', uncertain: 'u', nodata: 'n' };
 const CODE_STAGE: Readonly<Record<string, Stage>> = { a: 'awake', r: 'rem', l: 'light', d: 'deep', u: 'uncertain', n: 'nodata' };
 
 export function buildSleepReport(data: SleepData, ecgId?: string, onsetUnknown = false, now = Date.now()): SleepReport {
-  const rep = { ...fromAnalysis(analyzeSleep(data, { onsetUnknown })), reportAt: now };
+  const rep = { ...fromAnalysis(analyzeSleep(data, { onsetUnknown })), reportAt: now, method: SLEEP_METHOD };
   return ecgId ? { ...rep, ecgId } : rep;
 }
 
@@ -192,5 +193,6 @@ export function parseSleepReport(v: unknown): SleepReport | null {
     activity: arr(v['activity']),
     ...(typeof v['ecgId'] === 'string' ? { ecgId: v['ecgId'] } : {}),
     ...(typeof v['reportAt'] === 'number' ? { reportAt: v['reportAt'] } : {}),
+    ...(typeof v['method'] === 'number' ? { method: v['method'] } : {}),
   };
 }

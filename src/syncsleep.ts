@@ -281,6 +281,8 @@ export interface SavedSleepReports {
   polarStamp: string; watchStamp: string;
   /** When first made, when last made, and which recording changed then ('new' the first time). */
   firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both' | 'method' | 'labels';
+  /** The strap's stages it was made from (see stagesStamp): another device's new report can change them and nothing else. */
+  stagesStamp?: string;
   /** What the person said about this sleep when it was made (see labelsOf); missing = nothing said. */
   labels?: string;
   /** How the strap's stages were worked out (see SLEEP_METHOD); missing = before v1.29.0. */
@@ -315,6 +317,15 @@ export function watchStamp(w: WatchSleep): string {
   return hash(JSON.stringify(w));
 }
 
+/** One letter per 30 s, the same whether worked out here or read from a cloud copy. */
+export const stagesStamp = (stages: readonly Stage[]): string => hash(stages.map((s) => s[0]).join(''));
+
+/** The stages in a cloud copy; null if it has none, as a recording with its raw data here doesn't. */
+const copyStamp = (s: SleepSession): string | null => {
+  const stages = (s.report as { stages?: unknown } | undefined)?.stages;
+  return typeof stages === 'string' ? hash(stages) : null;
+};
+
 /** Night or nap, and a late start: changing either changes the reports. */
 export const labelsOf = (s: Pick<SleepSession, 'context' | 'onsetUnknown'>): string => `${s.context ?? ''}|${s.onsetUnknown ? 1 : 0}`;
 
@@ -324,7 +335,10 @@ export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair):
   if (!p.polar.cloudOnly && (saved.method ?? 1) < SLEEP_METHOD) return 'method'; // only the device with the raw recording can redo it
   if ((saved.labels ?? labelsOf({})) !== labelsOf(p.polar)) return 'labels';
   // the device with the raw recording decides whether it changed: another device's copy of it reads differently
-  const polar = !p.polar.cloudOnly && saved.polarStamp !== polarStamp(p.polar) && saved.polarStamp !== polarStamp({ ...p.polar, cloudOnly: true });
+  const copy = p.polar.cloudOnly ? copyStamp(p.polar) : null;
+  const polar = p.polar.cloudOnly
+    ? copy != null && copy !== saved.stagesStamp // that device sent new stages
+    : saved.polarStamp !== polarStamp(p.polar) && saved.polarStamp !== polarStamp({ ...p.polar, cloudOnly: true });
   const watch = saved.watchStamp !== watchStamp(p.watch);
   return polar && watch ? 'both' : polar ? 'polar' : watch ? 'watch' : null;
 }
@@ -369,7 +383,9 @@ export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly
     firstAt: before?.firstAt ?? now, generatedAt: now, changed: whatChanged(before, p) ?? 'new',
     start: p.start, end: Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs), nap: p.nap, demo: p.polar.source === 'demo' || p.watch.demo, ecgId: p.polar.ecgId ?? null,
     timelineStart: t.startMs, polarMinutes: t.polar, watchMinutes: t.watch, combined,
-    method: SLEEP_METHOD, labels: labelsOf(p.polar), figures: figuresOf(combined, t.startMs, p.nap, midWakes(polar.awakenings, watch.wakeups)), agreement, polar, watch,
+    // a copy keeps the rules it was made with, so the device with the raw recording still redoes it
+    method: p.polar.cloudOnly ? (p.polar.report as { method?: number } | undefined)?.method ?? 1 : SLEEP_METHOD,
+    stagesStamp: stagesStamp(stages), labels: labelsOf(p.polar), figures: figuresOf(combined, t.startMs, p.nap, midWakes(polar.awakenings, watch.wakeups)), agreement, polar, watch,
     tips: suggestions({
       agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: polar.coverage,
       sleepDiffMin: watch.sleepMin - polar.sleepMin, onsetDiffMin: minutes(polar.onsetMs, watch.bedMs), wakeDiffMin: minutes(polar.wakeMs, watch.wokeMs),
