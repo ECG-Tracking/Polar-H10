@@ -274,6 +274,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'labels' ? `Generated again ${dateTime(r.generatedAt)}, because you changed how this sleep is counted`
     : r.changed === 'method' ? `Generated again ${dateTime(r.generatedAt)}, because the Polar H10 sleep stages are now worked out better`
     : `Generated again ${dateTime(r.generatedAt)}, because ${r.changed === 'polar' ? 'the Polar H10 recording' : r.changed === 'watch' ? 'the watch’s sleep' : 'both recordings'} changed`);
 
@@ -393,7 +394,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
   }
 
   function renderCombined(r: PastSleepReports, ecg: HTMLElement, all: SavedSleepReports): void {
-    const stages = r.combined, f = r.figures, m = r.polar, w = r.watch, R = sleepRanges(), nap = r.nap;
+    const stages = r.combined.map((x) => (x === 'asleep' ? null : x)), f = r.figures, m = r.polar, w = r.watch, R = sleepRanges(), nap = r.nap;
 
     const top = make('div', 'card d2-night');
     const big = make('div', 'd2-big');
@@ -467,14 +468,14 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     const head = make('div', 'card d2-score');
     const main = make('div', 'd2-score-top');
     const score = make('div', 'd2-score-main');
-    const pts = make('div', 'd2-points', agreement.stagePct == null ? '--' : fmt(agreement.stagePct));
+    const pts = make('div', 'd2-points', agreement.stagePct == null ? 'N/A' : fmt(agreement.stagePct));
     pts.appendChild(make('small', '', ' %'));
     score.append(pts, make('div', 'muted', 'of minutes in the same stage'));
     const facts = make('div');
     facts.append(
       moreRow('Same main stage in 5-minute blocks', agreement.fiveMinPct == null ? '--' : `${fmt(agreement.fiveMinPct)} %`),
       moreRow('Agree on asleep or awake', agreement.sleepWakePct == null ? '--' : `${fmt(agreement.sleepWakePct)} %`),
-      moreRow('Agreement beyond chance (kappa)', agreement.kappa == null ? '--' : `${agreement.kappa.toFixed(2)} ${agreement.kappa >= 0.6 ? '(good)' : agreement.kappa >= 0.4 ? '(moderate)' : '(weak)'}`),
+      moreRow('Agreement beyond chance (kappa)', agreement.kappa == null ? 'N/A: the watch gave no stages' : `${agreement.kappa.toFixed(2)} ${agreement.kappa >= 0.6 ? '(good)' : agreement.kappa >= 0.4 ? '(moderate)' : '(weak)'}`),
       moreRow('Minutes both recorded', String(agreement.sharedMin)),
     );
     main.append(score, facts);

@@ -17,6 +17,8 @@ export interface SleepPair { id: string; polar: SleepSession; watch: WatchSleep;
 /** One minute of sleep. 'asleep' is the watch's nap code: sleep with no stage. */
 export type Minute = 'deep' | 'light' | 'rem' | 'awake' | 'asleep' | null;
 export type Known = 'deep' | 'light' | 'rem' | 'awake';
+/** A minute of the combined sleep; 'asleep' when neither device names a stage. */
+export type Combined = Known | 'asleep' | null;
 const KNOWN: readonly Known[] = ['deep', 'light', 'rem', 'awake'];
 
 /** Two recordings are one sleep when they overlap for at least half of the shorter one. */
@@ -57,17 +59,18 @@ export function watchMinute(code: number | undefined): Minute {
 
 /** The strap's 30-second stages as one stage per clock minute (the most common; a tie takes the first). */
 function strapMinutes(stages: readonly Stage[], startMs: number, epochS: number): Map<number, Minute> {
-  const counts = new Map<number, Map<Known, number>>();
+  const counts = new Map<number, Map<Exclude<Minute, null>, number>>();
   stages.forEach((s, e) => {
-    if (s === 'nodata' || s === 'uncertain') return;
+    if (s === 'nodata') return;
     const k = slot(startMs + e * epochS * 1000);
-    const c = counts.get(k) ?? new Map<Known, number>();
-    c.set(s, (c.get(s) ?? 0) + 1);
+    const c = counts.get(k) ?? new Map<Exclude<Minute, null>, number>();
+    const stage = s === 'uncertain' ? 'asleep' : s; // known to be asleep, with no stage
+    c.set(stage, (c.get(stage) ?? 0) + 1);
     counts.set(k, c);
   });
   const out = new Map<number, Minute>();
   for (const [k, c] of counts) {
-    let best: Known | null = null, n = 0;
+    let best: Minute = null, n = 0;
     for (const [s, v] of c) if (v > n) { best = s; n = v; }
     out.set(k, best);
   }
@@ -100,13 +103,13 @@ export const WAKE_RUN_MIN = 5;
  * WAKE_RUN_MIN minutes or more. Where both are asleep: deep or REM wins over light, as light is what both fall back on;
  * deep against REM follows the strap, which has every heartbeat and the breathing.
  */
-export function combine(polar: readonly Minute[], watch: readonly Minute[]): (Known | null)[] {
+export function combine(polar: readonly Minute[], watch: readonly Minute[]): Combined[] {
   const n = polar.length;
   const split = (i: number): boolean => {
     const p = polar[i] ?? null, w = watch[i] ?? null;
     return p != null && w != null && (p === 'awake') !== (w === 'awake');
   };
-  const out: (Known | null)[] = [];
+  const out: Combined[] = [];
   for (let i = 0; i < n; i++) {
     const p = polar[i] ?? null, w = watch[i] ?? null;
     if (split(i)) {
@@ -115,14 +118,14 @@ export function combine(polar: readonly Minute[], watch: readonly Minute[]): (Kn
       while (to < n - 1 && split(to + 1)) to++;
       if (to - from + 1 >= WAKE_RUN_MIN) { out.push('awake'); continue; }
       const stage = p === 'awake' ? w : p;
-      out.push(stage === 'asleep' || stage == null ? 'light' : stage === 'awake' ? 'light' : stage);
+      out.push(stage == null || stage === 'awake' ? 'light' : stage);
       continue;
     }
     const a = p ?? w;
     const b = w ?? p;
     if (a == null || b == null) { out.push(null); continue; }
-    if (a === b) { out.push(a === 'asleep' ? 'light' : a); continue; }
-    if (a === 'asleep') { out.push(b === 'asleep' ? 'light' : b); continue; }
+    if (a === b) { out.push(a); continue; } // asleep with no stage stays that way: neither device supplied one
+    if (a === 'asleep') { out.push(b); continue; }
     if (b === 'asleep') { out.push(a); continue; }
     if (a === 'light') { out.push(b); continue; }
     out.push(a); // b is light, or deep against REM, where a is the strap
@@ -137,9 +140,9 @@ export interface CombinedFigures {
 }
 
 /** Awake spells of 2 minutes or more between sleep count as waking up, as in the strap's own analysis. */
-export function figuresOf(stages: readonly (Known | null)[], startMs: number, nap: boolean, wakes?: number): CombinedFigures {
-  const count = (s: Known): number => stages.filter((x) => x === s).length;
-  const asleep = (x: Known | null | undefined): boolean => x === 'deep' || x === 'light' || x === 'rem';
+export function figuresOf(stages: readonly Combined[], startMs: number, nap: boolean, wakes?: number): CombinedFigures {
+  const count = (s: Exclude<Combined, null>): number => stages.filter((x) => x === s).length;
+  const asleep = (x: Combined | undefined): boolean => x === 'deep' || x === 'light' || x === 'rem' || x === 'asleep';
   const first = stages.findIndex(asleep);
   let last = -1;
   for (let i = stages.length - 1; i >= 0; i--) if (asleep(stages[i])) { last = i; break; }
@@ -148,7 +151,7 @@ export function figuresOf(stages: readonly (Known | null)[], startMs: number, na
     if (stages[i] === 'awake') { run++; if (run === 2) awakenings++; } else run = 0;
   }
   const deepMin = count('deep'), lightMin = count('light'), remMin = count('rem'), awakeMin = count('awake');
-  const sleepMin = deepMin + lightMin + remMin;
+  const sleepMin = deepMin + lightMin + remMin + count('asleep');
   const timeInBedMin = stages.filter((x) => x != null).length;
   const pct = (v: number): number => (sleepMin ? (100 * v) / sleepMin : 0);
   const efficiency = timeInBedMin ? (100 * sleepMin) / timeInBedMin : 0;
@@ -277,11 +280,13 @@ export interface SavedSleepReports {
   id: string; user: number; polarId: string; watchId: string;
   polarStamp: string; watchStamp: string;
   /** When first made, when last made, and which recording changed then ('new' the first time). */
-  firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both' | 'method';
+  firstAt: number; generatedAt: number; changed: 'new' | 'polar' | 'watch' | 'both' | 'method' | 'labels';
+  /** What the person said about this sleep when it was made (see labelsOf); missing = nothing said. */
+  labels?: string;
   /** How the strap's stages were worked out (see SLEEP_METHOD); missing = before v1.29.0. */
   method?: number;
   start: number; end: number; nap: boolean; demo: boolean; ecgId: string | null;
-  timelineStart: number; polarMinutes: Minute[]; watchMinutes: Minute[]; combined: (Known | null)[];
+  timelineStart: number; polarMinutes: Minute[]; watchMinutes: Minute[]; combined: Combined[];
   figures: CombinedFigures; agreement: Agreement; tips: string[]; polar: PolarFigures; watch: Omit<WatchSleep, 'stages'>;
   /** The Polar H10 and D2 reports as they were at this version, so that each version has all four reports. */
   polarCopy?: SleepCopy; watchCopy?: unknown;
@@ -310,10 +315,14 @@ export function watchStamp(w: WatchSleep): string {
   return hash(JSON.stringify(w));
 }
 
+/** Night or nap, and a late start: changing either changes the reports. */
+export const labelsOf = (s: Pick<SleepSession, 'context' | 'onsetUnknown'>): string => `${s.context ?? ''}|${s.onsetUnknown ? 1 : 0}`;
+
 /** Null when the saved reports are up to date, otherwise what has to be said about the new ones. */
 export function whatChanged(saved: SavedSleepReports | undefined, p: SleepPair): SavedSleepReports['changed'] | null {
   if (!saved) return 'new';
   if (!p.polar.cloudOnly && (saved.method ?? 1) < SLEEP_METHOD) return 'method'; // only the device with the raw recording can redo it
+  if ((saved.labels ?? labelsOf({})) !== labelsOf(p.polar)) return 'labels';
   // the device with the raw recording decides whether it changed: another device's copy of it reads differently
   const polar = !p.polar.cloudOnly && saved.polarStamp !== polarStamp(p.polar) && saved.polarStamp !== polarStamp({ ...p.polar, cloudOnly: true });
   const watch = saved.watchStamp !== watchStamp(p.watch);
@@ -360,7 +369,7 @@ export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly
     firstAt: before?.firstAt ?? now, generatedAt: now, changed: whatChanged(before, p) ?? 'new',
     start: p.start, end: Math.max(p.polar.start + p.polar.durationS * 1000, p.watch.wokeMs), nap: p.nap, demo: p.polar.source === 'demo' || p.watch.demo, ecgId: p.polar.ecgId ?? null,
     timelineStart: t.startMs, polarMinutes: t.polar, watchMinutes: t.watch, combined,
-    method: SLEEP_METHOD, figures: figuresOf(combined, t.startMs, p.nap, midWakes(polar.awakenings, watch.wakeups)), agreement, polar, watch,
+    method: SLEEP_METHOD, labels: labelsOf(p.polar), figures: figuresOf(combined, t.startMs, p.nap, midWakes(polar.awakenings, watch.wakeups)), agreement, polar, watch,
     tips: suggestions({
       agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: polar.coverage,
       sleepDiffMin: watch.sleepMin - polar.sleepMin, onsetDiffMin: minutes(polar.onsetMs, watch.bedMs), wakeDiffMin: minutes(polar.wakeMs, watch.wokeMs),

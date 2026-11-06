@@ -103,8 +103,8 @@ test('stages last at least 5 minutes', () => {
   assert.deepEqual(minBouts(long), long, 'runs of 5 minutes stay');
 });
 
-test('a missing measure isn’t read as an average one', () => {
-  assert.equal(weighted([[2, 1], [null, 1]]), 4, 'the measures that exist carry the full weight');
+test('less evidence can’t make a stage look more certain', () => {
+  assert.equal(weighted([[2, 1], [null, 1]]), 2);
   assert.equal(weighted([[2, 1], [2, 1]]), 4);
   assert.equal(weighted([[null, 1]]), 0);
 });

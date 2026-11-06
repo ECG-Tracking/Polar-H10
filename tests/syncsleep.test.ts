@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, suggestions, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
+import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
-import type { Stage } from '../src/sleep';
+import { SLEEP_METHOD, type Stage } from '../src/sleep';
 
 const at = (h: number, m = 0, d = 4): number => new Date(2026, 10, d, h, m).getTime();
 const strap = (id: string, start: number, hours: number): SleepSession => ({ id, user: 1, start, durationS: hours * 3600, source: 'polar', summary: null });
@@ -53,7 +53,7 @@ test('combining: a brief stir is sleep, a sustained one is awake, on either devi
 });
 
 test('combining: a nap minute from the watch takes the strap\'s stage', () => {
-  assert.deepEqual(combine(['rem', null], ['asleep', 'asleep']), ['rem', 'light']);
+  assert.deepEqual(combine(['rem', null], ['asleep', 'asleep']), ['rem', 'asleep'], 'with no stage from either, none is invented');
 });
 
 test('combined figures: minutes, waking up, and no score for a nap', () => {
@@ -170,4 +170,28 @@ test('reports made with the earlier stage rules are generated again, but only wh
   const saved = { method: 1, polarStamp: 'a', watchStamp: 'b' } as unknown as Parameters<typeof whatChanged>[0];
   assert.equal(whatChanged(saved, p), 'method');
   assert.notEqual(whatChanged(saved, { ...p, polar: { ...polar, cloudOnly: true } }), 'method');
+});
+
+test('sleep with an uncertain stage still counts as sleep, and no stage is invented', () => {
+  const t = lineUp(['uncertain', 'uncertain', 'uncertain', 'uncertain'] as Stage[], 0, 30, { start: 0, stages: [5, 5] });
+  assert.deepEqual(t.polar, ['asleep', 'asleep']);
+  const a = compareMinutes(t.polar, t.watch);
+  assert.equal(a.sharedMin, 2);
+  assert.equal(a.sleepWakePct, 100);
+  assert.equal(a.stagePct, null, 'nothing to compare stage by stage');
+  assert.equal(a.kappa, null);
+  const c = combine(t.polar, t.watch);
+  assert.deepEqual(c, ['asleep', 'asleep']);
+  const f = figuresOf(c, 0, true);
+  assert.equal(f.sleepMin, 2);
+  assert.equal(f.lightMin, 0);
+});
+
+test('changing night or nap, or a late start, makes new reports', () => {
+  const polar = { id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null } as SleepSession;
+  const saved = { method: SLEEP_METHOD, polarStamp: polarStamp(polar), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
+  const p: SleepPair = { id: 'x', polar, watch: {} as WatchSleep, start: 0, nap: false };
+  assert.equal(whatChanged(saved, p), null);
+  assert.equal(whatChanged(saved, { ...p, polar: { ...polar, context: 'nap' } }), 'labels');
+  assert.equal(whatChanged(saved, { ...p, polar: { ...polar, onsetUnknown: true } }), 'labels');
 });

@@ -7,7 +7,7 @@ import { Biquad, median } from './dsp';
 
 export const EPOCH_S = 30;
 /** Raised when the stages are worked out differently, so reports made before can be generated again. */
-export const SLEEP_METHOD = 3;
+export const SLEEP_METHOD = 4;
 const LOCAL_REACH = 90; // epochs either side: 45 min
 const MIN_BOUT_EPOCHS = 10; // 5 min
 const NIGHT_PULL = 0.5; // how far the time of night moves the deep and REM scores, at its strongest
@@ -368,15 +368,9 @@ export const SCORE_EXPLANATION =
   'Starts at 100. Minus 10 per hour of sleep under 7 h (max 40) and 5 per hour over 9 h; minus 1 per % of sleep efficiency under 85 % (max 20); ' +
   'minus 1 per % of deep sleep under 15 % and of REM under 15 % (max 10 each); minus 3 per awakening after the first (max 15).';
 
-/** A score from the measures that exist, scaled up to the full weight, so a missing measure isn't read as an average one. */
+/** A score from the measures that exist. It isn't scaled up for those missing, so less evidence can't make a stage look more certain. */
 export function weighted(terms: readonly (readonly [number | null | undefined, number])[]): number {
-  let sum = 0, used = 0, all = 0;
-  for (const [z, w] of terms) {
-    all += Math.abs(w);
-    if (z == null) continue;
-    sum += z * w; used += Math.abs(w);
-  }
-  return used ? (sum * all) / used : 0;
+  return terms.reduce((sum, [z, w]) => sum + (z == null ? 0 : z * w), 0);
 }
 
 /** Spells of at least `min` epochs while asleep with heart rate well above its surroundings. */

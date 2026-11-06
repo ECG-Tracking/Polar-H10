@@ -12,6 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport } from './summary';
+import { SLEEP_METHOD } from './sleep';
 import { mergeVersions, parseTrackingRow, planCloudCopies } from './synccompare';
 import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
 import { errorMessage } from './util';
@@ -379,7 +380,7 @@ export class CloudSync extends EventTarget {
     }
     store.setPendingCloudDeletes(stillPending, 'sleep');
 
-    const { data, error } = await this.client.from(SLEEP_TABLE).select('id, user_no, started_at, duration_s, source');
+    const { data, error } = await this.client.from(SLEEP_TABLE).select('id, user_no, started_at, duration_s, source, reportAt:report->reportAt');
     if (error) throw new Error(error.message);
     const rows = ((data as unknown[] | null) ?? []).map(parseSleepRow).filter((r): r is SleepRow => r !== null);
     const inCloud = new Set(rows.map((r) => r.id));
@@ -388,22 +389,35 @@ export class CloudSync extends EventTarget {
     const deleting = new Set(stillPending);
 
     for (const n of local) {
-      if (inCloud.has(n.id)) {
+      const outdated = !n.cloudOnly && ((n.sentMethod ?? 1) < SLEEP_METHOD || (n.labelAt ?? 0) > (n.sentLabelAt ?? 0));
+      if (inCloud.has(n.id) && !outdated) {
         if (!n.synced) await store.updateSleep({ ...n, synced: true });
         continue;
       }
-      if (n.synced) {
+      if (n.synced && !inCloud.has(n.id)) {
         await store.deleteSleep(n.id, { fromCloud: false });
         result.deleted++;
         continue;
       }
       const { signals } = await store.loadSleep(n.id);
-      const report = signals ? buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId) : n.report;
+      const report = signals ? buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId, n.onsetUnknown === true) : n.report;
       if (report == null) continue;
       const ins = await this.client.from(SLEEP_TABLE).upsert({ id: n.id, user_no: n.user, started_at: n.start, duration_s: n.durationS, source: n.source, report });
       if (ins.error) throw new Error(ins.error.message);
-      await store.updateSleep({ ...n, synced: true });
+      await store.updateSleep({ ...n, synced: true, sentMethod: SLEEP_METHOD, ...(n.labelAt == null ? {} : { sentLabelAt: n.labelAt }) });
       result.uploaded++;
+    }
+
+    // a newer report from the device with the raw recording replaces this device's copy
+    const reportAt = new Map(((data as unknown[] | null) ?? []).map((x) => [(x as Obj)['id'], Number((x as Obj)['reportAt'] ?? 0)]));
+    for (const n of local.filter((s) => s.cloudOnly && Number(reportAt.get(s.id) ?? 0) > ((s.report as { reportAt?: number } | undefined)?.reportAt ?? 0))) {
+      const res = await this.client.from(SLEEP_TABLE).select('report').eq('id', n.id).maybeSingle();
+      if (res.error) throw new Error(res.error.message);
+      const report = parseSleepReport((res.data as Obj | null)?.['report']);
+      if (!report) continue;
+      const m = report.metrics;
+      await store.updateSleep({ ...n, report, summary: { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate } });
+      result.downloaded++;
     }
 
     const missing = rows.filter((r) => !localIds.has(r.id) && !deleting.has(r.id));

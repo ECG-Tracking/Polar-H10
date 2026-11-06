@@ -238,6 +238,7 @@ export interface SleepSession {
   context?: 'night' | 'nap'; // chosen by the person; otherwise the clock decides
   onsetUnknown?: boolean; // the recording started after falling asleep
   labelAt?: number; // when those two were last set, ms: the newest wins in the cloud
+  sentMethod?: number; sentLabelAt?: number; // the stage rules and labels of the report in the cloud
 }
 
 interface SleepSignalRecord {

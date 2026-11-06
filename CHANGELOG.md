@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 6 Nov 2026 – v1.34.0 – Reports stay consistent with your choices *(GitHub)*
+Why: a review found places where reports and devices could disagree.
+- Changing night or nap, or a late start, now generates new Synchronised Sleep Tracking reports.
+- A late start is now used in the report sent to the cloud, and a report redone on the device with the raw recording replaces the copy on other devices.
+- Sleep with an uncertain stage still counts as sleep when the devices are compared, and the Combined report no longer calls it light sleep.
+- Saved versions of a sleep report can no longer change the recording.
+- Scores are no longer scaled up when a measure is missing, so less evidence can't make a stage look more certain.
+- Agreement shows N/A when the watch gave no stages, as for naps. Sleep stages are labelled experimental.
+
 ## 6 Nov 2026 – v1.33.0 – More honest sleep stages *(GitHub)*
 Why: a report should show what it knows, and not guess when a signal is missing.
 - Coverage now counts only time with both usable heart and movement data, and the report shows heart rate, HRV, movement and breathing separately.

@@ -346,9 +346,12 @@ export function initSleep(deps: SleepDeps): {
     await showReport(session, toAnalysis(report), from, true);
   }
 
+  let showingCopy = false;
+
   async function showReport(session: SleepSession, analysis: SleepAnalysis, from?: () => void, copy = false): Promise<void> {
     const busy = $('sleepBusy'), body = $('sleepBody');
     current = { session, analysis };
+    showingCopy = copy;
     // naps compare with naps and nights with nights: a nap would skew a night's ranges
     const nap = isNap(session.start, session.durationS, session.context);
     const all = await store.listSleeps(session.user);
@@ -526,13 +529,13 @@ export function initSleep(deps: SleepDeps): {
     }
 
     renderOutliers($('sleepFlags'), outliers, [
-      'Sleep stages are estimates; see “About these numbers” below.',
+      'Sleep stages are experimental estimates, not checked against a sleep study; see “About these numbers” below.',
       ...(m.rrPct == null ? [] : [`Signal: heart rate ${fmt(m.rrPct)} %, HRV ${fmt(m.hrvPct ?? NaN)} %, movement ${fmt(m.movementPct ?? NaN)} %, breathing ${fmt(m.breathingPct ?? NaN)} %.`]),
       ...(m.uncertainMin ? [`${fmtHM(m.uncertainMin)} of sleep had too little signal to name a stage. It counts as sleep, but appears as a gap in the stages.`] : []),
       ...(m.quietWakes ? [`Possibly awake while lying still ${m.quietWakes} time${m.quietWakes === 1 ? '' : 's'}: heart rate rose without movement. This doesn’t change the stages or score.`] : []),
       ...(session.onsetUnknown ? ['This recording started after you fell asleep, so the time you fell asleep isn’t known.'] : []),
     ]);
-    renderContext(session);
+    renderContext(session, showingCopy);
 
     // heart rate and breathing through the night, as clock time
     const toPoints = (series: readonly (number | null)[]): Point[] => {
@@ -590,8 +593,10 @@ export function initSleep(deps: SleepDeps): {
     deps.sleepChanged();
   }
   /** Night or nap, and whether the recording began after falling asleep: the person knows better than the clock. */
-  function renderContext(session: SleepSession): void {
+  function renderContext(session: SleepSession, copy: boolean): void {
     const box = $('sleepContext');
+    box.replaceChildren();
+    if (copy) return; // a saved version shows the sleep as it was, so it can't be changed from here
     const pick = make('select'), label = make('label', 'd2-days', 'Count this as ');
     pick.setAttribute('aria-label', 'Count this as');
     for (const [v, t] of [['', 'Automatic (by the time)'], ['night', 'Night'], ['nap', 'Nap']] as const) { const o = make('option', '', t); o.value = v; pick.appendChild(o); }
@@ -601,7 +606,9 @@ export function initSleep(deps: SleepDeps): {
     late.type = 'checkbox'; late.checked = session.onsetUnknown === true;
     lateLabel.append(late, ' Recording started after I fell asleep');
     const apply = (): void => void (async () => {
-      const { context: _c, onsetUnknown: _o, ...rest } = session;
+      const { session: now } = await store.loadSleep(session.id); // the recording as it is now, not as this page opened it
+      if (!now) return;
+      const { context: _c, onsetUnknown: _o, ...rest } = now;
       const next: SleepSession = { ...rest, labelAt: Date.now(), ...(pick.value === 'night' || pick.value === 'nap' ? { context: pick.value } : {}), ...(late.checked ? { onsetUnknown: true } : {}) };
       await store.updateSleep(next);
       deps.sleepChanged();

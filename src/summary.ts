@@ -160,13 +160,14 @@ export interface SleepReport {
   breathing: (number | null)[];
   activity: (number | null)[];
   ecgId?: string; // the ECG recorded during this night
+  reportAt?: number; // when it was worked out, ms: another device replaces its copy with a newer one
 }
 
 const STAGE_CODE: Readonly<Record<Stage, string>> = { awake: 'a', rem: 'r', light: 'l', deep: 'd', uncertain: 'u', nodata: 'n' };
 const CODE_STAGE: Readonly<Record<string, Stage>> = { a: 'awake', r: 'rem', l: 'light', d: 'deep', u: 'uncertain', n: 'nodata' };
 
-export function buildSleepReport(data: SleepData, ecgId?: string): SleepReport {
-  const rep = fromAnalysis(analyzeSleep(data));
+export function buildSleepReport(data: SleepData, ecgId?: string, onsetUnknown = false, now = Date.now()): SleepReport {
+  const rep = { ...fromAnalysis(analyzeSleep(data, { onsetUnknown })), reportAt: now };
   return ecgId ? { ...rep, ecgId } : rep;
 }
 
@@ -190,5 +191,6 @@ export function parseSleepReport(v: unknown): SleepReport | null {
     breathing: arr(v['breathing']),
     activity: arr(v['activity']),
     ...(typeof v['ecgId'] === 'string' ? { ecgId: v['ecgId'] } : {}),
+    ...(typeof v['reportAt'] === 'number' ? { reportAt: v['reportAt'] } : {}),
   };
 }
