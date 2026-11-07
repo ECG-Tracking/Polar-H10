@@ -669,14 +669,11 @@ async function summarise(id: string): Promise<void> {
   if ($('view-history').classList.contains('active')) void renderHistory();
 }
 
-// "Ignore Irregular Shape": remembered on this device, for every ECG report
-const IGNORE_SHAPE_KEY = 'openbeat-ignore-shape';
-let ignoreShapeHere: boolean | null = null;
-/** Whether Irregular Shape is ignored: always for a row saved without it, otherwise as the button says. */
+// "Ignore Irregular Shape": for the recording it was turned on for only; opening another one shows its original version
+let ignoreShapeFor: string | null = null;
+/** Whether Irregular Shape is ignored: always for a row saved ignoring it, otherwise only where the button was turned on. */
 function ignoringShape(s: Session | null = current?.session ?? null): boolean {
-  if (s?.ignoreShape) return true;
-  if (ignoreShapeHere == null) { try { ignoreShapeHere = localStorage.getItem(IGNORE_SHAPE_KEY) === '1'; } catch { ignoreShapeHere = false; } }
-  return ignoreShapeHere;
+  return s?.ignoreShape === true || (s != null && s.id === ignoreShapeFor);
 }
 function showIgnoreShape(): void {
   const b = $button('btnIgnoreShape'), s = current?.session ?? null, on = ignoringShape(s), fixed = s?.ignoreShape === true;
@@ -711,6 +708,7 @@ async function saveWithoutShape(): Promise<void> {
 }
 
 async function openReport(id: string): Promise<void> {
+  if (id !== ignoreShapeFor) ignoreShapeFor = null; // another recording opens as it was recorded
   show('report');
   const busy = $('reportBusy'), body = $('reportBody');
   busy.hidden = false;
@@ -743,6 +741,7 @@ async function openReport(id: string): Promise<void> {
 
 /** A recording synced from another device: its stored results, the first 30 s and the event strips. */
 async function openSummaryCopy(session: Session): Promise<void> {
+  if (session.id !== ignoreShapeFor) ignoreShapeFor = null;
   const busy = $('reportBusy'), body = $('reportBody');
   const stored = parseEcgSummary(await store.loadSummaryCopy(session.id));
   if (!stored) { busy.textContent = 'This summary copy could not be read.'; return; }
@@ -1058,8 +1057,7 @@ function renderEventPrints(events: readonly ReportEvent[]): void {
 $button('btnBack').addEventListener('click', () => show('history'));
 $button('btnIgnoreShape').addEventListener('click', () => {
   const on = !ignoringShape();
-  try { localStorage.setItem(IGNORE_SHAPE_KEY, on ? '1' : ''); } catch { /* kept for this page only */ }
-  ignoreShapeHere = on;
+  ignoreShapeFor = on ? current?.session.id ?? null : null;
   if (current) void (current.copy ? openSummaryCopy(current.session) : openReport(current.session.id));
 });
 $button('btnSaveNoShape').addEventListener('click', () => void saveWithoutShape());
