@@ -44,7 +44,36 @@ export interface EcgSummary {
   eventStrips: (Strip & { t: number })[];
   analysedWith: Pick<Settings, 'age' | 'sex' | 'hrRest' | 'hrMax' | 'qtcFormula' | 'notch'>;
   sleepId?: string; // recorded together with this sleep night
+  ignoreShape?: true; // saved ignoring irregular shape
+  derivedFrom?: string;
   syncTracking?: boolean; // recorded during a synchronised tracking
+  /** The same recording worked out ignoring Irregular Shape, shown only when someone asks for it (missing in older copies). */
+  noShape?: NoShapeVersion;
+}
+
+/** Ignoring Irregular Shape: its figures (the heart-rate trend is the main one's), average beat, events and the extra strips it needs. */
+export interface NoShapeVersion {
+  metrics: Omit<SessionMetrics, 'hr'>;
+  template: number[] | null;
+  templateMeasure: BeatMeasure | null;
+  events: SummaryEvent[];
+  /** Strips of its events that the main version has none of. */
+  eventStrips: (Strip & { t: number })[];
+}
+
+/** Summaries from v1.38.0 on carry the version that ignores Irregular Shape. */
+export const SUMMARY_LEVEL = 2;
+
+/** The version ignoring Irregular Shape as a whole summary, for showing it; null if this copy has none. */
+export function withoutShape(s: EcgSummary): EcgSummary | null {
+  if (s.ignoreShape) return s;
+  const n = s.noShape;
+  if (!n) return null;
+  const keep = new Set(n.events.map((e) => e.t));
+  return {
+    ...s, metrics: { ...n.metrics, hr: s.metrics.hr }, template: n.template, templateMeasure: n.templateMeasure, events: n.events,
+    eventStrips: [...s.eventStrips, ...n.eventStrips].filter((x) => keep.has(x.t)).sort((a, b) => a.t - b.t),
+  };
 }
 
 const round1 = (v: number): number => Math.round(v * 10) / 10;
@@ -65,7 +94,7 @@ export function pickEventStrips(events: readonly SummaryEvent[]): SummaryEvent[]
 
 export function buildEcgSummary(session: Session, samples: Int16Array, settings: Settings): EcgSummary {
   const fs = session.fs;
-  const analysis = analyze(samples, { fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
+  const analysis = analyze(samples, { fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: session.ignoreShape === true });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   const events: SummaryEvent[] = [
     ...analysis.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] })),
@@ -88,7 +117,27 @@ export function buildEcgSummary(session: Session, samples: Int16Array, settings:
     eventStrips: pickEventStrips(events).map((e) => ({ t: e.t, ...cut(e.t - EVENT_STRIP_S / 2, EVENT_STRIP_S) })),
     analysedWith: { age: settings.age, sex: settings.sex, hrRest: settings.hrRest, hrMax: settings.hrMax, qtcFormula: settings.qtcFormula, notch: settings.notch },
     ...(session.sleepId ? { sleepId: session.sleepId } : {}),
+    ...(session.ignoreShape ? { ignoreShape: true as const } : {}),
+    ...(session.derivedFrom ? { derivedFrom: session.derivedFrom } : {}),
     ...(session.syncTracking ? { syncTracking: true } : {}),
+    ...(session.ignoreShape ? {} : { noShape: noShapeVersion(session, samples, settings, events, cut) }),
+  };
+}
+
+function noShapeVersion(session: Session, samples: Int16Array, settings: Settings, mainEvents: readonly SummaryEvent[], cut: (startS: number, lengthS: number) => Strip): NoShapeVersion {
+  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: true });
+  const { hr: _hr, ...metrics } = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
+  const events: SummaryEvent[] = [
+    ...analysis.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] })),
+    ...session.userEvents.map((e): SummaryEvent => ({ t: e.t, type: 'user', label: e.label || 'Marked' })),
+  ].sort((a, b) => a.t - b.t);
+  const hasStrip = new Set(pickEventStrips(mainEvents).map((e) => e.t));
+  return {
+    metrics,
+    template: analysis.template ? Array.from(analysis.template, round1) : null,
+    templateMeasure: analysis.templateMeasure,
+    events,
+    eventStrips: pickEventStrips(events).filter((e) => !hasStrip.has(e.t)).map((e) => ({ t: e.t, ...cut(e.t - EVENT_STRIP_S / 2, EVENT_STRIP_S) })),
   };
 }
 
@@ -120,15 +169,18 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
   const strip = parseStrip(v['strip']);
   if (!strip) return null;
   const metrics = restoreNumbers<SessionMetrics>({ ...m, hr: (m['hr'] as unknown[]).map(numOrNull), zones: (m['zones'] as unknown[]).map((z) => num(z) || 0) }, ['hr', 'zones', 'recovery']);
-  const events = (Array.isArray(v['events']) ? v['events'] : []).flatMap((e): SummaryEvent[] => {
-    if (!isObj(e) || typeof e['t'] !== 'number' || typeof e['label'] !== 'string' || !EVENT_TYPES.includes(e['type'] as EventType)) return [];
-    return [{ t: e['t'], type: e['type'] as EventType, label: e['label'] }];
-  });
-  const eventStrips = (Array.isArray(v['eventStrips']) ? v['eventStrips'] : []).flatMap((s): (Strip & { t: number })[] => {
-    const p = parseStrip(s);
-    return p && isObj(s) && typeof s['t'] === 'number' ? [{ ...p, t: s['t'] }] : [];
-  });
+  const events = parseEvents(v['events']);
+  const eventStrips = parseEventStrips(v['eventStrips']);
   const tm = v['templateMeasure'];
+  const ns = v['noShape'];
+  const nm = isObj(ns) && isObj(ns['metrics']) && Array.isArray(ns['metrics']['zones']) ? ns['metrics'] : null;
+  const noShape: NoShapeVersion | null = isObj(ns) && nm ? {
+    metrics: restoreNumbers<Omit<SessionMetrics, 'hr'>>({ ...nm, zones: (nm['zones'] as unknown[]).map((z) => num(z) || 0) }, ['zones', 'recovery']),
+    template: Array.isArray(ns['template']) ? (ns['template'] as unknown[]).map((x) => num(x) || 0) : null,
+    templateMeasure: isObj(ns['templateMeasure']) ? restoreNumbers<BeatMeasure>(ns['templateMeasure'], ['tEnd', 'qrs', 'qt', 'tAmp']) : null,
+    events: parseEvents(ns['events']),
+    eventStrips: parseEventStrips(ns['eventStrips']),
+  } : null;
   const aw = isObj(v['analysedWith']) ? v['analysedWith'] : {};
   return {
     v: 1,
@@ -146,8 +198,25 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
       qtcFormula: aw['qtcFormula'] === 'fridericia' ? 'fridericia' : 'bazett', notch: num(aw['notch']),
     },
     ...(typeof v['sleepId'] === 'string' ? { sleepId: v['sleepId'] } : {}),
+    ...(v['ignoreShape'] === true ? { ignoreShape: true as const } : {}),
+    ...(typeof v['derivedFrom'] === 'string' ? { derivedFrom: v['derivedFrom'] } : {}),
     ...(v['syncTracking'] === true ? { syncTracking: true } : {}),
+    ...(noShape ? { noShape } : {}),
   };
+}
+
+function parseEvents(v: unknown): SummaryEvent[] {
+  return (Array.isArray(v) ? v : []).flatMap((e): SummaryEvent[] => {
+    if (!isObj(e) || typeof e['t'] !== 'number' || typeof e['label'] !== 'string' || !EVENT_TYPES.includes(e['type'] as EventType)) return [];
+    return [{ t: e['t'], type: e['type'] as EventType, label: e['label'] }];
+  });
+}
+
+function parseEventStrips(v: unknown): (Strip & { t: number })[] {
+  return (Array.isArray(v) ? v : []).flatMap((s): (Strip & { t: number })[] => {
+    const p = parseStrip(s);
+    return p && isObj(s) && typeof s['t'] === 'number' ? [{ ...p, t: s['t'] }] : [];
+  });
 }
 
 // ---------- sleep ----------

@@ -660,3 +660,4 @@ details > summary { list-style-position: inside; }
 /* ECG history: step through the events under the strip */
 .event-nav { justify-content: center; gap: 12px; margin-top: 10px; }
 .event-nav span { min-width: 16ch; text-align: center; font-variant-numeric: tabular-nums; }
+#btnSaveNoShape { border-color: var(--accent); color: var(--accent); font-weight: 600; }

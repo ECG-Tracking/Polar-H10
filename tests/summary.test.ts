@@ -89,3 +89,20 @@ test('a sleep & ECG night keeps its link both ways through the cloud', () => {
   // nights and recordings without a link stay without one
   assert.equal(parseSleepReport(JSON.parse(JSON.stringify(buildSleepReport(simulateNight(4).data))))?.ecgId, undefined);
 });
+
+import { withoutShape } from '../src/summary';
+
+test('a summary carries the version ignoring Irregular Shape, kept apart until asked for', () => {
+  const { session, samples } = recording(3);
+  const odd = Int16Array.from(samples);
+  for (let k = 0; k < 6; k++) { const at = (20 + k * 25) * FS; for (let i = at - 3; i <= at + 3; i++) odd[i] = -(odd[i] ?? 0); }
+  const back = parseEcgSummary(JSON.parse(JSON.stringify(buildEcgSummary(session, odd, DEFAULT_SETTINGS))))!;
+  assert.ok(back.noShape, 'the version is in the cloud copy');
+  assert.ok(!back.noShape.events.some((e) => e.type === 'shape'));
+  assert.equal(back.noShape.events.filter((e) => e.type === 'user').length, 1, 'marked events stay');
+  const shown = withoutShape(back)!;
+  assert.deepEqual(shown.metrics.hr, back.metrics.hr, 'the heart-rate trend is shared');
+  assert.ok(shown.eventStrips.every((s) => shown.events.some((e) => e.t === s.t)), 'only strips of its own events');
+  assert.equal(withoutShape({ ...back, noShape: undefined } as unknown as typeof back), null, 'an older copy has none');
+  assert.equal(buildEcgSummary({ ...session, ignoreShape: true }, odd, DEFAULT_SETTINGS).noShape, undefined, 'a row saved ignoring it needs none');
+});

@@ -79,6 +79,12 @@ export interface Session {
   cloudOnly?: boolean; // a summary copy from another device: no signal on this device
   sleepId?: string; // recorded together with this sleep night
   syncTracking?: boolean; // recorded during a synchronised tracking (Polar H10 with the Watch D2)
+  /** Saved with "Save ignoring irregular shape": always analysed with Irregular Shape ignored. */
+  ignoreShape?: boolean;
+  /** The recording it was saved from (with ignoreShape). */
+  derivedFrom?: string;
+  /** The summary in the cloud (or this copy of it) has the version ignoring Irregular Shape when this is 2 (see SUMMARY_LEVEL). */
+  summaryLevel?: number;
 }
 
 interface SignalRecord { id: string; samples: Int16Array } // µV
