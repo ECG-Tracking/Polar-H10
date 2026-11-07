@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.38.0 – Ignore Irregular Shape, and save ignoring it *(GitHub)*
+
+- ECG report: a new **Ignore Irregular Shape** button at the top, next to ← Recordings. When it's on, beats flagged only for their shape count as ordinary beats in every figure (heart rate, HRV, QTc, the charts) and on the ECG strip, and aren't events. Premature beats and pauses are still events.
+- The setting is remembered on this device for every ECG report, and the report title says "Irregular Shape ignored", also when printed. Click again to go back.
+- The recordings list and trends keep the standard figures.
+- Every recording's summary in the cloud (and in uploads and backups) now also carries a version worked out ignoring Irregular Shape: its figures, average beat, events and strips. It stays hidden and is shown only while Ignore Irregular Shape is on, so summary copies on your other devices can show it too. Recordings already in the cloud get it from the device that recorded them, a few at each sync, and the other devices then fetch it once.
+- **Save ignoring irregular shape** appears next to it while Irregular Shape is ignored. It saves the recording as a new row in ECG history, marked "ignoring irregular shape", which is always analysed that way (also on your other devices). The original is unchanged. If the same recording is already saved like this, exactly the same, it says so and doesn't save it again.
+
 ## 8 Nov 2026 – v1.37.0 – Step through ECG events; connection errors aren't events *(GitHub)*
 
 - ECG history and trending: **← Previous event** and **Next event →** under the ECG strip, with which event is shown (for example "Event 3 of 12 · Premature beat at 1:23"). Clicking an event in the list moves there too.

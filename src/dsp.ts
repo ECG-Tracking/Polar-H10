@@ -361,6 +361,8 @@ export interface AnalyzeOptions {
   fs?: number;
   notch?: number;
   qtcFormula?: 'bazett' | 'fridericia';
+  /** Don't flag beats for their shape alone: they count as ordinary beats in every figure and aren't events. */
+  ignoreShape?: boolean;
 }
 
 /**
@@ -426,7 +428,7 @@ export function analyze(raw: Samples, opts: AnalyzeOptions = {}): Analysis {
       const w = beatWindow(x, b.r, fs);
       if (!w) continue;
       b.corr = corr(w.subarray(c - qrsHalf, c + qrsHalf + 1), tq);
-      if (b.corr < 0.7 && !b.flags.includes('shape')) b.flags.push('shape');
+      if (b.corr < 0.7 && !opts.ignoreShape && !b.flags.includes('shape')) b.flags.push('shape');
     }
   }
 

@@ -135,3 +135,15 @@ test('a flagged beat beside lost signal is a connection error, not an event', ()
   const spike = Float64Array.from(x); spike[100] = 9000;
   assert.equal(looksLikeConnectionError(Int32Array.from(x), spike, 0, 199, FS, 1000), true, 'a spike far above any beat');
 });
+
+test('ignoring Irregular Shape keeps those beats as ordinary beats and not events', () => {
+  const { raw } = simulate('rest', 120, 5);
+  const odd = Int32Array.from(raw);
+  const a0 = analyze(odd, { fs: FS });
+  const r = a0.beats[40]!.r;
+  for (let i = r - 3; i <= r + 3; i++) odd[i] = -(odd[i] ?? 0); // one beat turned upside down: a different shape, on time
+  const a = analyze(odd, { fs: FS }), b = analyze(odd, { fs: FS, ignoreShape: true });
+  assert.ok(a.events.some((e) => e.type === 'shape'), 'flagged normally');
+  assert.ok(!b.events.some((e) => e.type === 'shape'), 'not an event when ignored');
+  assert.ok(b.beats.filter((x) => !x.flags.length).length > a.beats.filter((x) => !x.flags.length).length, 'counted as ordinary beats');
+});

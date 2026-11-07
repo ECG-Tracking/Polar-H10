@@ -12,7 +12,7 @@ import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds,
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { renderRecovery } from './recovery';
-import { parseEcgSummary, base64ToInt16, type EcgSummary } from './summary';
+import { parseEcgSummary, withoutShape, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 import type { D2Api } from './d2/index';
@@ -559,7 +559,7 @@ async function fillTrend(s: Session): Promise<Session | null> {
   if (s.cloudOnly) metrics = parseEcgSummary(await store.loadSummaryCopy(s.id))?.metrics ?? null;
   else {
     const { samples } = await store.loadSession(s.id);
-    if (samples) metrics = sessionMetrics(analyze(samples, { fs: s.fs, notch: settings.notch, qtcFormula: settings.qtcFormula }), s.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
+    if (samples) metrics = sessionMetrics(analyze(samples, { fs: s.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: s.ignoreShape === true }), s.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   }
   if (!metrics) return null;
   const filled: Session = { ...s, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: metrics.eventCount, trend: trendValues(metrics) } };
@@ -585,7 +585,7 @@ async function renderHistory(): Promise<void> {
     const li = make('li');
     li.append(
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
       make('span', 'stats', `${stats} · ${fmtTime(s.durationS)}`),
     );
     li.appendChild(deleteButton('this recording', async () => {
@@ -663,10 +663,51 @@ $button('zoomOut').addEventListener('click', () => viewer.zoom(1.5));
 async function summarise(id: string): Promise<void> {
   const { session, samples } = await store.loadSession(id);
   if (!session || !samples || session.summary || session.cloudOnly) return;
-  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
+  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: session.ignoreShape === true });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   await store.updateSession({ ...session, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) } });
   if ($('view-history').classList.contains('active')) void renderHistory();
+}
+
+// "Ignore Irregular Shape": remembered on this device, for every ECG report
+const IGNORE_SHAPE_KEY = 'openbeat-ignore-shape';
+let ignoreShapeHere: boolean | null = null;
+/** Whether Irregular Shape is ignored: always for a row saved without it, otherwise as the button says. */
+function ignoringShape(s: Session | null = current?.session ?? null): boolean {
+  if (s?.ignoreShape) return true;
+  if (ignoreShapeHere == null) { try { ignoreShapeHere = localStorage.getItem(IGNORE_SHAPE_KEY) === '1'; } catch { ignoreShapeHere = false; } }
+  return ignoreShapeHere;
+}
+function showIgnoreShape(): void {
+  const b = $button('btnIgnoreShape'), s = current?.session ?? null, on = ignoringShape(s), fixed = s?.ignoreShape === true;
+  b.setAttribute('aria-pressed', String(on));
+  b.classList.toggle('primary', on);
+  b.disabled = fixed;
+  b.title = fixed ? 'This row was saved ignoring irregular shape, so it is always shown that way' : 'Count beats flagged only for their shape as ordinary beats, in every figure and on the ECG';
+  b.textContent = on ? 'Ignoring Irregular Shape ✓' : 'Ignore Irregular Shape';
+  const save = $button('btnSaveNoShape');
+  save.hidden = !on;
+  save.disabled = !current?.samples; // a summary copy has no ECG here to save
+  save.title = current?.samples ? 'Save this recording as a new row in ECG history, always ignoring irregular shape' : 'A summary copy from another device can’t be saved again here';
+}
+
+/** "Save ignoring irregular shape": a new row with the same ECG and marks, analysed without Irregular Shape; never twice. */
+async function saveWithoutShape(): Promise<void> {
+  const c = current;
+  if (!c?.samples) return;
+  const from = c.session.derivedFrom ?? c.session.id;
+  const same = c.session.ignoreShape ? c.session : (await store.listSessions(store.sessionUser(c.session)))
+    .find((s) => s.ignoreShape && s.derivedFrom === from && JSON.stringify(s.userEvents) === JSON.stringify(c.session.userEvents));
+  if (same) {
+    window.alert(`Not saved again: this recording is already saved ignoring irregular shape, exactly the same (the row of ${new Date(same.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} marked “ignoring irregular shape” in ECG history).`);
+    return;
+  }
+  const { synced: _s, cloudOnly: _c, sleepId: _sl, syncTracking: _st, summary: _sum, ...base } = c.session;
+  const copy: Session = { ...base, id: `x${Date.now()}`, ignoreShape: true, derivedFrom: from, summary: { meanHR: c.metrics.meanHR, hrvScore: c.metrics.hrvScore, eventCount: c.analysis.events.length, trend: trendValues(c.metrics) } };
+  await store.saveSession(copy, c.samples);
+  historyChanged();
+  account.cloud?.syncSoon();
+  window.alert('Saved as a new row in ECG history, marked “ignoring irregular shape”. The original recording is unchanged.');
 }
 
 async function openReport(id: string): Promise<void> {
@@ -678,7 +719,8 @@ async function openReport(id: string): Promise<void> {
   const { session, samples } = await store.loadSession(id);
   if (session?.cloudOnly) { await openSummaryCopy(session); return; }
   if (!session || !samples) { busy.textContent = 'Recording not found.'; return; }
-  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula });
+  const ignore = ignoringShape(session);
+  const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: ignore });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   const events: ReportEvent[] = [
     ...analysis.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] })),
@@ -686,8 +728,10 @@ async function openReport(id: string): Promise<void> {
   ].sort((a, b) => a.t - b.t);
   current = { session, samples, analysis, metrics, events, copy: null };
 
-  session.summary = { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) };
-  store.updateSession(session).catch(() => {});
+  if (ignore === (session.ignoreShape === true)) { // the recordings list and trends keep each row's own figures
+    session.summary = { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) };
+    store.updateSession(session).catch(() => {});
+  }
 
   renderReport(current);
   busy.hidden = true;
@@ -700,16 +744,21 @@ async function openReport(id: string): Promise<void> {
 /** A recording synced from another device: its stored results, the first 30 s and the event strips. */
 async function openSummaryCopy(session: Session): Promise<void> {
   const busy = $('reportBusy'), body = $('reportBody');
-  const copy = parseEcgSummary(await store.loadSummaryCopy(session.id));
-  if (!copy) { busy.textContent = 'This summary copy could not be read.'; return; }
-  const stripAnalysis = analyze(base64ToInt16(copy.strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula });
+  const stored = parseEcgSummary(await store.loadSummaryCopy(session.id));
+  if (!stored) { busy.textContent = 'This summary copy could not be read.'; return; }
+  // the version ignoring Irregular Shape is only shown when asked for
+  const noShape = ignoringShape(session) ? withoutShape(stored) : null;
+  const copy = noShape ?? stored;
+  const stripAnalysis = analyze(base64ToInt16(copy.strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula , ignoreShape: ignoringShape(session) });
   // the report's charts use the stored average beat; there are no per-beat values in a summary copy
   const analysis: Analysis = {
     ...stripAnalysis, beats: [], events: [],
     template: copy.template ? Float64Array.from(copy.template) : null, templateMeasure: copy.templateMeasure,
     templatePre: copy.templatePre, polarity: copy.polarity,
   };
-  current = { session, samples: null, analysis, metrics: copy.metrics, events: copy.events, copy };
+  // a copy's figures were worked out on the other device, so only its events and strips can leave Irregular Shape out
+  const events = ignoringShape(session) && !noShape ? copy.events.filter((e) => e.type !== 'shape') : copy.events;
+  current = { session, samples: null, analysis, metrics: copy.metrics, events, copy };
   renderReport(current);
   busy.hidden = true;
   body.hidden = false;
@@ -721,7 +770,7 @@ async function openSummaryCopy(session: Session): Promise<void> {
 function showStrip(copy: EcgSummary, event: ReportEvent | null): void {
   const strip = event ? copy.eventStrips.find((s) => Math.abs(s.t - event.t) < 0.01) : copy.strip;
   if (!strip) return;
-  const a = analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula });
+  const a = analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula , ignoreShape: ignoringShape() });
   const end = strip.start + a.x.length / copy.fs;
   const marks = copy.events.filter((e) => e.type === 'user' && e.t >= strip.start && e.t <= end).map((e) => ({ ...e, t: e.t - strip.start }));
   viewer.load(a, marks);
@@ -783,7 +832,8 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
 }
 
 function renderReport({ session, analysis, metrics: m, events }: CurrentReport): void {
-  $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' });
+  showIgnoreShape();
+  $('reportTitle').textContent = new Date(session.start).toLocaleString([], { dateStyle: 'full', timeStyle: 'short' }) + (ignoringShape() ? ' · Irregular Shape ignored' : '');
   const copy = current?.copy ?? null;
   const note = $('reportCopyNote');
   note.hidden = !copy;
@@ -791,7 +841,8 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     const aw = copy.analysedWith;
     note.textContent = `Summary copy from another device: the results, heart-rate trend, average beat, first 30 s and ${copy.eventStrips.length} event strip${copy.eventStrips.length === 1 ? '' : 's'}. `
       + 'The full ECG stays on the device that recorded it. '
-      + `Analysed with age ${aw.age}, ${aw.sex}, ${aw.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett'} QTc; changing settings here doesn’t recalculate it.`;
+      + `Analysed with age ${aw.age}, ${aw.sex}, ${aw.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett'} QTc; changing settings here doesn’t recalculate it.`
+      + (ignoringShape() && !session.ignoreShape && !copy.noShape ? ' This copy was made before the version ignoring Irregular Shape was added: Irregular Shape is left out of its events and strips, but the figures stay as before until the device that recorded it syncs again.' : '');
   }
   $('reportMeta').textContent = [
     userLabel(store.sessionUser(session)),
@@ -995,7 +1046,7 @@ function renderEventPrints(events: readonly ReportEvent[]): void {
   for (const e of chosen) {
     const strip = copy?.eventStrips.find((s) => Math.abs(s.t - e.t) < 0.01);
     if (copy && !strip) continue;
-    const signal = strip && copy ? analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula }) : analysis;
+    const signal = strip && copy ? analyze(base64ToInt16(strip.data), { fs: copy.fs, notch: copy.analysedWith.notch, qtcFormula: copy.analysedWith.qtcFormula , ignoreShape: ignoringShape() }) : analysis;
     const item = make('div', 'event-strip'), canvas = make('canvas');
     canvas.setAttribute('aria-label', `ECG at ${fmtTime(e.t)}`);
     item.append(make('p', '', `${fmtTime(e.t)} · ${e.label}`), canvas);
@@ -1005,6 +1056,13 @@ function renderEventPrints(events: readonly ReportEvent[]): void {
 }
 
 $button('btnBack').addEventListener('click', () => show('history'));
+$button('btnIgnoreShape').addEventListener('click', () => {
+  const on = !ignoringShape();
+  try { localStorage.setItem(IGNORE_SHAPE_KEY, on ? '1' : ''); } catch { /* kept for this page only */ }
+  ignoreShapeHere = on;
+  if (current) void (current.copy ? openSummaryCopy(current.session) : openReport(current.session.id));
+});
+$button('btnSaveNoShape').addEventListener('click', () => void saveWithoutShape());
 $button('btnOpenSleep').addEventListener('click', () => { const id = current?.session.sleepId; if (id) void sleepUI?.openReport(id); });
 
 $button('btnPrint').addEventListener('click', () => window.print());

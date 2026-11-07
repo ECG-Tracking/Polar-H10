@@ -176,7 +176,11 @@
     <!-- REPORT -->
     <section id="view-report" class="view">
       <div class="row between wrap no-print">
-        <button id="btnBack">← Recordings</button>
+        <div class="row wrap">
+          <button id="btnBack">← Recordings</button>
+          <button id="btnIgnoreShape" aria-pressed="false" title="Count beats flagged only for their shape as ordinary beats, in every figure and on the ECG">Ignore Irregular Shape</button>
+          <button id="btnSaveNoShape" hidden>Save ignoring irregular shape</button>
+        </div>
         <button id="btnOpenSleep" hidden>Open sleep report</button>
         <div class="row wrap">
           <button id="btnExportEdf">EDF+</button>

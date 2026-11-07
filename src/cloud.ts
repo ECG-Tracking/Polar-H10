@@ -11,7 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
-import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport } from './summary';
+import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport, SUMMARY_LEVEL } from './summary';
 import { SLEEP_METHOD } from './sleep';
 import { mergeVersions, parseTrackingRow, planCloudCopies } from './synccompare';
 import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
@@ -324,9 +324,21 @@ export class CloudSync extends EventTarget {
     const deleting = new Set(stillPending);
 
     // 3. this device's recordings
+    let upgraded = 0;
     for (const s of local) {
       if (inCloud.has(s.id)) {
         if (!s.synced) await store.updateSession({ ...s, synced: true });
+        // a summary from before v1.38.0 gets its version ignoring Irregular Shape, from the device with the ECG; a few at a time
+        if (!s.cloudOnly && (s.summaryLevel ?? 1) < SUMMARY_LEVEL && upgraded < 5) {
+          const samples = await store.loadSignal(s.id);
+          if (!samples) continue;
+          upgraded++;
+          await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+          const summary = buildEcgSummary(s, samples, store.loadSettings(store.sessionUser(s)));
+          const up = await this.client.from(ECG_TABLE).update({ summary }).eq('id', s.id);
+          if (up.error) throw new Error(up.error.message);
+          await store.updateSession({ ...s, synced: true, summaryLevel: SUMMARY_LEVEL });
+        }
         continue;
       }
       if (s.synced) {
@@ -344,8 +356,26 @@ export class CloudSync extends EventTarget {
         source: s.source, user_events: s.userEvents, summary,
       });
       if (ins.error) throw new Error(ins.error.message);
-      await store.updateSession({ ...s, synced: true });
+      await store.updateSession({ ...s, synced: true, ...(samples ? { summaryLevel: SUMMARY_LEVEL } : {}) });
       result.uploaded++;
+    }
+
+    // 3b. copies from before v1.38.0: fetched again once the device with the ECG has added the version ignoring Irregular Shape
+    const old = local.filter((s) => s.cloudOnly && !s.ignoreShape && (s.summaryLevel ?? 1) < SUMMARY_LEVEL && inCloud.has(s.id));
+    for (let i = 0; i < old.length; i += 20) {
+      const batch = old.slice(i, i + 20);
+      const has = await this.client.from(ECG_TABLE).select('id, zones:summary->noShape->metrics->zones').in('id', batch.map((b) => b.id));
+      if (has.error) throw new Error(has.error.message);
+      const ready = ((has.data as unknown[] | null) ?? []).flatMap((x) => (Array.isArray((x as Obj)['zones']) ? [String((x as Obj)['id'])] : []));
+      if (!ready.length) continue;
+      const res = await this.client.from(ECG_TABLE).select('id, summary').in('id', ready);
+      if (res.error) throw new Error(res.error.message);
+      for (const x of (res.data as unknown[] | null) ?? []) {
+        const summary = parseEcgSummary((x as Obj)['summary']);
+        const s = batch.find((b) => b.id === (x as Obj)['id']);
+        if (!summary?.noShape || !s) continue;
+        await store.saveSummaryCopy({ ...s, summaryLevel: SUMMARY_LEVEL }, summary);
+      }
     }
 
     // 4. recordings from other devices, as summary copies
@@ -362,7 +392,7 @@ export class CloudSync extends EventTarget {
         const session: Session = {
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, fs: r.fs, alias: r.alias,
           source: r.source, userEvents: r.user_events, summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: m.eventCount },
-          synced: true, cloudOnly: true, ...(summary.sleepId ? { sleepId: summary.sleepId } : {}), ...(summary.syncTracking ? { syncTracking: true } : {}),
+          synced: true, cloudOnly: true, ...(summary.noShape || summary.ignoreShape ? { summaryLevel: SUMMARY_LEVEL } : {}), ...(summary.sleepId ? { sleepId: summary.sleepId } : {}), ...(summary.syncTracking ? { syncTracking: true } : {}), ...(summary.ignoreShape ? { ignoreShape: true } : {}), ...(summary.derivedFrom ? { derivedFrom: summary.derivedFrom } : {}),
         };
         await store.saveSummaryCopy(session, summary);
         result.downloaded++;
