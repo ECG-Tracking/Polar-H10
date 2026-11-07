@@ -8,7 +8,8 @@ import { EcgFilter } from './dsp';
 import { hrFrom, rmssd, sdnn, usable, type TimedBeat } from './synccompare';
 import { initSyncReports } from './syncreports';
 import { LiveTrace } from './charts';
-import { durationSeconds, make } from './ui';
+import { make } from './ui';
+import { connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -73,7 +74,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start.'));
 
   // --- 1. Polar H10 ---
-  const polarCard = make('div', 'card');
+  const polarCard = make('div', 'card connect');
   const polarStatus = make('div', 'status');
   const polarDot = make('span', 'dot'), polarText = make('span', '', 'Polar H10: not connected');
   polarStatus.append(polarDot, polarText);
@@ -81,11 +82,14 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const btnPolarOff = make('button', '', 'Disconnect');
   btnPolarOff.hidden = true;
   const polarRow = make('div', 'row wrap');
-  polarRow.append(btnPolar, btnPolarOff);
+  const logs = connectionLog('Connection log (Polar H10 and Watch D2)');
+  const log = (s: string): void => logs.log(s);
+  const forgetPolar = forgetStrapButton(log);
+  polarRow.append(btnPolar, btnPolarOff, forgetPolar.el);
   polarCard.append(polarStatus, polarRow, make('p', 'note', 'Chrome shows a list: click your Polar H10, then Pair.'));
 
   // --- 2. Watch D2 ---
-  const watchCard = make('div', 'card');
+  const watchCard = make('div', 'card connect');
   const watchStatus = make('div', 'status');
   const watchDot = make('span', 'dot'), watchText = make('span', '', 'Watch D2: not connected');
   watchStatus.append(watchDot, watchText);
@@ -98,36 +102,37 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const btnWatchOff = make('button', '', 'Disconnect');
   btnWatchOff.hidden = true;
   const watchRow = make('div', 'row wrap');
-  watchRow.append(btnWatch, viaLabel, btnWatchOff);
-  watchCard.append(watchStatus, watchRow, make('p', 'note', 'Switch off Bluetooth on the phone the watch is connected to. On a Mac, open the D2 Bridge app first. The watch only shares live heartbeats and blood pressure with its own account: enter the watch account ID in D2 Link first (its pairing is used here too).'));
+  const btnWatchForget = make('button', '', 'Forget pairing') as HTMLButtonElement;
+  btnWatchForget.hidden = true;
+  watchRow.append(btnWatch, viaLabel, btnWatchOff, btnWatchForget);
+  const acctSlot = make('div');
+  watchCard.append(watchStatus, watchRow, make('p', 'note', 'Switch off Bluetooth on the phone the watch is connected to. On a Mac, open the D2 Bridge app first. The watch only shares live heartbeats and blood pressure with its own account: enter its watch account ID below (D2 Link’s pairing and ID are used here too).'), acctSlot);
+  /** The watch account ID box and Forget pairing come from D2 Link, which loads on its own. */
+  const showWatchParts = (): void => void deps.loadD2().then((api) => {
+    if (!acctSlot.firstChild) acctSlot.appendChild(api.accountBox(deps.account()));
+    btnWatchForget.hidden = !api.pairing.saved(deps.account());
+    btnWatchForget.disabled = watch != null;
+    btnWatchForget.title = watch ? 'Disconnect the watch first' : 'Forget the pairing with the watch: the next connection pairs again';
+  }).catch(() => undefined);
+  btnWatchForget.addEventListener('click', () => void (async () => {
+    if (!window.confirm('Forget the pairing with the watch? Next time you will pair again (and may need to confirm on the watch). Downloaded data is kept.')) return;
+    (await deps.loadD2()).pairing.forget(deps.account());
+    log('Watch D2 pairing forgotten.');
+    showWatchParts();
+  })());
 
   // --- 3. one minute ---
   const runCard = make('div', 'card controls');
-  const timer = make('div', 'timer', '1:00');
-  // how long: 1, 3 or 5 minutes, until stopped, or a chosen number of minutes
-  const dur = make('select') as HTMLSelectElement;
-  for (const [v, t] of [['60', '1 minute'], ['180', '3 minutes'], ['300', '5 minutes'], ['unlimited', 'Until I stop'], ['custom', 'Choose minutes…']] as const) {
-    const o = make('option', '', t) as HTMLOptionElement; o.value = v; dur.appendChild(o);
-  }
-  const customMin = make('input') as HTMLInputElement;
-  Object.assign(customMin, { type: 'number', min: '1', max: '240', step: '1', value: '10' });
-  customMin.setAttribute('aria-label', 'Minutes');
-  const customLabel = make('label', 'd2-days');
-  customLabel.append(customMin, ' min');
-  customLabel.hidden = true;
-  const durLabel = make('label', 'd2-days', 'Track for ');
-  durLabel.appendChild(dur);
-  const durRow = make('div', 'row wrap sync-dur');
-  durRow.append(durLabel, customLabel);
+  const timer = make('div', 'timer', '0:00');
+  // how long: as on every page that tracks
+  const track = trackFor('short', () => showDuration());
+  const durRow = track.el;
   /** The chosen length in seconds; null = until stopped. */
-  const durationS = (): number | null => durationSeconds(dur.value, customMin.value);
+  const durationS = (): number | null => track.seconds();
   const showDuration = (): void => {
-    customLabel.hidden = dur.value !== 'custom';
     const d = durationS();
     if (timerId == null) timer.textContent = d == null ? '0:00' : mmss(d);
   };
-  dur.addEventListener('change', showDuration);
-  customMin.addEventListener('input', showDuration);
   const btnStart = make('button', 'primary big', '3. Start tracking') as HTMLButtonElement;
   btnStart.disabled = true;
   const btnStop = make('button', 'big', 'Stop') as HTMLButtonElement;
@@ -180,13 +185,10 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   historyCard.append(historyBox);
   historyRoot.replaceChildren(make('h2', '', 'Synchronised Tracking History'), historyCard);
   const renderHistory = initSyncReports(historyBox, reportRoot, deps).render;
-  const logBox = make('details', 'd2-log');
-  logBox.appendChild(make('summary', '', 'Connection log (Polar H10 and Watch D2)'));
-  const logPre = make('pre', 'log');
-  logBox.appendChild(logPre);
+  logs.el.classList.add('page-log');
 
-  root.append(polarCard, watchCard, logBox, runCard, tiles, traceCard, chartCard, bpCard, summary);
-  const log = (s: string): void => { logPre.textContent += `${clock(Date.now())} ${s}\n`; logPre.scrollTop = logPre.scrollHeight; };
+  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, chartCard, bpCard, summary);
+  showWatchParts();
 
   // ---------- state ----------
   let polar: PolarH10 | null = null, watch: LiveWatch | null = null;
@@ -210,7 +212,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   const secondsIn = (): number => Math.round(((Date.now() - (t0 ?? Date.now())) / 1000) * 10) / 10;
 
-  const ready = (): void => { btnStart.disabled = t0 != null && timerId != null ? true : !(polar || watch); dur.disabled = timerId != null; customMin.disabled = timerId != null; };
+  const ready = (): void => { btnStart.disabled = t0 != null && timerId != null ? true : !(polar || watch); track.disable(timerId != null); forgetPolar.update(); showWatchParts(); };
 
   // the ECG is drawn continuously while the strap is connected, as on ECG live
   const drawLoop = (): void => { trace.draw(); drawFrame = polar ? requestAnimationFrame(drawLoop) : 0; };

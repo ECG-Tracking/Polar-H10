@@ -616,3 +616,47 @@ button.sort-head { all: unset; cursor: pointer; font: inherit; color: inherit; }
 button.sort-head:hover { color: var(--ink); }
 button.sort-head.sorted { color: var(--accent); }
 button.sort-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+
+/* ---------- One look for every page (v1.36.0) ---------- */
+/* page titles and their short introduction */
+.view > h2, .d2-home > h2 { font-size: 1.45rem; letter-spacing: -0.01em; margin: 0.2rem 0 0.35rem; }
+.view > h2 + .note, .d2-home > h2 + .note, .page-intro { margin: 0 0 1rem; font-size: 0.9rem; max-width: 70ch; }
+/* cards: a little more air and depth */
+.card { border-radius: 14px; padding: 16px 18px; box-shadow: var(--shadow); }
+.tile { border-radius: 14px; box-shadow: var(--shadow); }
+.trace { padding: 8px; }
+.card h3:first-child, .card > .sync-h:first-child { margin-top: 0; }
+/* the device cards on ECG live, Sleep monitor, D2 Link and the synchronised pages */
+.card.connect, .d2-home > .card:first-of-type { border-left: 4px solid var(--accent); }
+.status { font-weight: 600; padding: 8px 12px; margin: 0 0 12px; background: var(--raised); border-radius: 10px; width: fit-content; max-width: 100%; flex-wrap: wrap; }
+.status .muted { font-weight: 400; font-size: 0.85rem; }
+.dot { flex: none; }
+.dot.on { box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 25%, transparent); }
+.dot.busy { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent); animation: dot-pulse 1.4s ease-in-out infinite; }
+@keyframes dot-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .dot.busy { animation: none; } }
+.log.page-log { margin: 0 0 14px; }
+/* buttons and fields */
+button, .button { transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s; }
+button.primary:hover:not(:disabled) { filter: brightness(1.07); }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main select, main input[type="number"], main input[type="text"], main input[type="password"], main input[type="date"] {
+  font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px;
+}
+.d2-days select, .d2-days input { border-radius: 10px; }
+.sync-dur { justify-content: center; }
+.timer { font-size: 2rem; letter-spacing: 0.02em; }
+/* the watch account ID box */
+.d2-acct { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.d2-acct summary { color: var(--ink-2); }
+.d2-acct input[type="password"] { letter-spacing: 0.15em; }
+details > summary { list-style-position: inside; }
+.d2-help summary { padding: 2px 0; }
+@media (max-width: 760px) {
+  .card { padding: 14px; }
+  .view > h2 { font-size: 1.25rem; }
+}
+/* ECG history: step through the events under the strip */
+.event-nav { justify-content: center; gap: 12px; margin-top: 10px; }
+.event-nav span { min-width: 16ch; text-align: center; font-variant-numeric: tabular-nums; }

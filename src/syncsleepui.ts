@@ -1,8 +1,11 @@
 // Synchronised Sleep Tracking: the page that records a sleep for both devices, the history of sleeps both measured,
 // and the combined and comparison reports. The Polar H10 and D2 reports are the usual ones, opened from here.
 
-import { connectStrap, onStrap } from './devices';
-import { Hypnogram, drawDonut, fmtClock, STAGE_COLOR_VAR, STAGE_LABEL, type SleepStageKey } from './charts';
+import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
+import { connectionLog, forgetStrapButton, trackFor } from './devicekit';
+import { ECG_FS, type BatteryDetail, type EcgDetail, type PolarH10 } from './polar';
+import { EcgFilter } from './dsp';
+import { LiveTrace, Hypnogram, drawDonut, fmtClock, STAGE_COLOR_VAR, STAGE_LABEL, type SleepStageKey } from './charts';
 import { checkRange, fmtRange, sleepRanges, type Range } from './ranges';
 import { analyzeSleep, EPOCH_S, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import * as store from './store';
@@ -20,7 +23,9 @@ export interface SyncSleepDeps {
   user: () => number;
   userLabel: () => string;
   /** The recording itself runs on Sleep monitor, so both pages show the same one. */
-  sleep: { canStart: () => boolean; start: () => Promise<void>; stop: () => Promise<string | null>; isRecording: () => boolean; elapsed: () => string };
+  /** The mains-hum filter chosen in Biodata, for the live ECG. */
+  notch: () => number;
+  sleep: { canStart: () => boolean; start: (lengthS: number | null) => Promise<void>; stop: () => Promise<string | null>; isRecording: () => boolean; elapsed: () => string };
   openPolar: (id: string, back: () => void) => void;
   openPolarCopy: (copy: SleepCopy, back: () => void) => void;
   openWatch: (id: string, back: () => void, copy?: unknown) => void;
@@ -102,59 +107,115 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
   const title = make('h2', '', 'Synchronised Sleep Tracking ');
   const userTag = make('span', 'muted');
   title.appendChild(userTag);
-  const card = make('div', 'card controls');
+  const intro = make('p', 'note', 'The Polar H10 and the Watch D2 record the same sleep. Connect the strap here and start when you go to bed; the watch records by itself. Afterwards, download the watch’s sleep in D2 Link and the four reports are made automatically.');
+
+  // --- 1. Polar H10, as on Sleep monitor ---
+  const logs = connectionLog('Polar H10 connection log');
+  const polarCard = make('div', 'card connect');
   const status = make('div', 'status');
-  const dot = make('span', 'dot'), statusText = make('span', '', 'Polar H10 not connected');
-  status.append(dot, statusText);
-  const btnConnect = button('Connect Polar H10', 'primary', () => void connect());
-  const btnStart = button('Start sleep & ECG recording', 'primary big', () => void startStop());
+  const dot = make('span', 'dot'), statusText = make('span', '', 'Polar H10 not connected'), battery = make('span', 'muted', '');
+  status.append(dot, statusText, battery);
+  const btnConnect = button('1. Pair with Polar H10', 'primary', () => void connect());
+  const btnOff = button('Disconnect', '', () => void disconnectStrap().then(() => { connected = false; refresh(); }));
+  const forget = forgetStrapButton(logs.log);
+  const row = make('div', 'row wrap');
+  row.append(btnConnect, btnOff, forget.el);
+  polarCard.append(status, row, make('p', 'note', 'Chrome shows a list: click your Polar H10, then Pair.'), logs.el);
+
+  // --- 2. Watch D2: records by itself, downloaded afterwards ---
+  const watchCard = make('div', 'card connect');
+  const watchStatus = make('div', 'status');
+  watchStatus.append(make('span', 'dot'), make('span', '', 'Watch D2: records your sleep by itself'));
+  const acctSlot = make('div');
+  watchCard.append(watchStatus,
+    make('p', 'note', 'Wear the watch to bed; it needn’t stay connected. In the morning, download its sleep in D2 Link (which also has its Forget pairing).'),
+    acctSlot);
+  void deps.loadD2().then((api) => { acctSlot.replaceChildren(api.accountBox(deps.account())); }).catch(() => undefined);
+
+  // --- 3. the live ECG, as on Sleep monitor ---
+  const traceCard = make('div', 'card trace');
+  const canvas = make('canvas');
+  canvas.setAttribute('aria-label', 'Live ECG trace from the Polar H10');
+  traceCard.append(make('h3', 'sync-h', 'ECG (Polar H10)'), canvas);
+  const trace = new LiveTrace(canvas, ECG_FS);
+  let filter = new EcgFilter(ECG_FS, deps.notch());
+  let attached: PolarH10 | null = null, drawFrame = 0;
+  /** Drawn only while this page can be seen, to save the battery overnight. */
+  const drawLoop = (): void => { if (root.offsetParent) trace.draw(); drawFrame = currentStrap() ? requestAnimationFrame(drawLoop) : 0; };
+
+  // --- 4. tracking ---
+  const card = make('div', 'card controls');
+  const track = trackFor('sleep');
+  const btnStart = button('2. Start sleep & ECG recording', 'primary big', () => void startStop());
   btnStart.disabled = true;
-  const elapsed = make('p', 'muted', '');
+  const elapsed = make('div', 'timer', '0:00');
   const done = make('div', '');
+  const startRow = make('div', 'row');
+  startRow.appendChild(btnStart);
+  const links = make('div', 'row wrap');
+  links.append(
+    button('Dim screen on Sleep monitor', '', () => deps.show('sleep')),
+    button('3. Download watch sleep in D2 Link', '', () => deps.show('d2')),
+    button('Open history', '', () => deps.show('syncSleepHistory')),
+  );
+  card.append(track.el, elapsed, startRow, done, links);
+
   const steps = make('ol', 'd2-steps');
   for (const line of [
     'Put on the Polar H10 and the Watch D2, and connect the strap here.',
     'Start the recording when you go to bed. The strap records your sleep and ECG; the watch records your sleep by itself, so it needn’t stay connected.',
-    'Stop the recording when you wake up.',
+    'Stop the recording when you wake up, or choose how long to track and it stops by itself.',
     'Download the watch’s sleep in D2 Link. The combined and comparison reports are then generated automatically, and the sleep appears in Synchronised Sleep Tracking History with its four reports.',
   ]) steps.appendChild(make('li', '', line));
-  const row = make('div', 'row wrap');
-  row.append(btnConnect, btnStart);
-  const links = make('div', 'row wrap');
-  links.append(
-    button('Live ECG and Dim screen', '', () => deps.show('sleep')),
-    button('Download watch sleep in D2 Link', '', () => deps.show('d2')),
-    button('Open history', '', () => deps.show('syncSleepHistory')),
-  );
-  card.append(status, row, elapsed, done, links);
-  const how = make('div', 'card');
-  how.append(make('h3', '', 'How it works'), steps,
+  const how = make('details', 'card d2-help');
+  how.append(make('summary', '', 'How it works'), steps,
     make('p', 'note', 'Recordings that overlap for at least half of the shorter one count as one sleep, so sleep you recorded on both devices earlier is listed too. Keep the phone or computer running this page awake and in range of the strap.'));
-  root.replaceChildren(title, card, how);
+  root.replaceChildren(title, intro, polarCard, watchCard, traceCard, card, how);
 
   let connected = false;
-  onStrap((p) => { connected = p != null; refresh(); });
+  onStrap((p) => {
+    connected = p != null;
+    if (attached !== p) {
+      attached = p;
+      p.addEventListener('ecg', (e) => trace.push(Float32Array.from((e as CustomEvent<EcgDetail>).detail.samples, (v) => filter.process(v))));
+      p.addEventListener('battery', (e) => { battery.textContent = `Battery ${(e as CustomEvent<BatteryDetail>).detail.level}%`; });
+      p.addEventListener('disconnect', () => { if (!deps.sleep.isRecording()) { connected = false; trace.clear(); battery.textContent = ''; refresh(); } });
+    }
+    filter = new EcgFilter(ECG_FS, deps.notch());
+    trace.clear();
+    drawFrame ||= requestAnimationFrame(drawLoop);
+    refresh();
+  });
 
   function refresh(): void {
     userTag.textContent = `· ${deps.userLabel()}`;
     const recording = deps.sleep.isRecording();
-    connected ||= deps.sleep.canStart();
-    statusText.textContent = recording ? 'Recording sleep and ECG' : deps.sleep.canStart() ? 'Polar H10 connected' : connected ? 'Polar H10 connected, but its movement data isn’t available' : 'Polar H10 not connected';
-    dot.className = `dot ${recording || deps.sleep.canStart() ? 'on' : ''}`;
-    btnConnect.hidden = recording || deps.sleep.canStart();
+    const strap = currentStrap();
+    connected = strap?.connected === true || deps.sleep.canStart();
+    statusText.textContent = recording ? 'Recording sleep and ECG' : deps.sleep.canStart() ? `${strap?.name ?? 'Polar H10'} – heart beats, movement${strap?.ecgOk ? ' and ECG' : ''}` : connected ? 'Polar H10 connected, but its movement data isn’t available' : 'Polar H10 not connected';
+    dot.className = `dot ${recording || deps.sleep.canStart() ? 'on' : connected ? 'busy' : ''}`;
+    btnConnect.hidden = connected;
+    btnOff.hidden = !connected || recording;
     btnStart.disabled = !recording && !deps.sleep.canStart();
-    btnStart.textContent = recording ? 'Stop – I’m awake' : 'Start sleep & ECG recording';
+    btnStart.textContent = recording ? 'Stop – I’m awake' : '2. Start sleep & ECG recording';
     btnStart.classList.toggle('recording', recording);
-    elapsed.textContent = recording ? `Recording for ${deps.sleep.elapsed()}` : '';
+    track.disable(recording);
+    elapsed.textContent = recording ? deps.sleep.elapsed() : '0:00';
+    forget.update();
   }
   setInterval(() => { if (root.offsetParent) refresh(); }, 2000);
 
   async function connect(): Promise<void> {
+    logs.clear();
     statusText.textContent = 'Connecting…';
+    dot.className = 'dot busy';
     try {
-      await connectStrap(() => undefined);
+      await connectStrap(logs.log);
     } catch (err) {
-      statusText.textContent = errorName(err) === 'NotFoundError' ? 'Polar H10 not connected' : `Could not connect: ${errorMessage(err)}`;
+      const cancelled = errorName(err) === 'NotFoundError';
+      logs.log(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorMessage(err)}`);
+      statusText.textContent = cancelled ? 'Polar H10 not connected' : `Could not connect: ${errorMessage(err)}`;
+      dot.className = 'dot';
       return;
     }
     refresh();
@@ -162,7 +223,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   async function startStop(): Promise<void> {
     done.replaceChildren();
-    if (!deps.sleep.isRecording()) { await deps.sleep.start(); refresh(); return; }
+    if (!deps.sleep.isRecording()) { await deps.sleep.start(track.seconds()); refresh(); return; }
     const id = await deps.sleep.stop();
     refresh();
     done.append(make('p', '', id
@@ -274,6 +335,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'combine' ? `Generated again ${dateTime(r.generatedAt)}, because the combined stages now come from the Polar H10, with the watch filling its gaps`
     : r.changed === 'labels' ? `Generated again ${dateTime(r.generatedAt)}, because you changed how this sleep is counted`
     : r.changed === 'method' ? `Generated again ${dateTime(r.generatedAt)}, because the Polar H10 sleep stages are now worked out better`
     : `Generated again ${dateTime(r.generatedAt)}, because ${r.changed === 'polar' ? 'the Polar H10 recording' : r.changed === 'watch' ? 'the watch’s sleep' : 'both recordings'} changed`);

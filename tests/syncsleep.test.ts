@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, stagesStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
+import { COMBINE_RULE, buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, stagesStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
 import { SLEEP_METHOD, type Stage } from '../src/sleep';
 
@@ -38,10 +38,10 @@ test('both recordings are put on one clock, minute by minute', () => {
   assert.deepEqual(t.watch, [null, 'light', 'deep', 'awake']);
 });
 
-test('combining: agreement stands, deep or REM beats light, deep against REM follows the strap', () => {
-  const p: Minute[] = ['deep', 'light', 'deep', 'rem', null, 'light'];
-  const w: Minute[] = ['deep', 'rem', 'light', 'deep', 'light', null];
-  assert.deepEqual(combine(p, w), ['deep', 'rem', 'deep', 'rem', 'light', 'light']);
+test('combining: the strap’s stage stands, and the watch fills its gaps', () => {
+  const p: Minute[] = ['deep', 'light', 'deep', 'rem', null, 'light', 'asleep'];
+  const w: Minute[] = ['deep', 'rem', 'light', 'deep', 'light', null, 'rem'];
+  assert.deepEqual(combine(p, w), ['deep', 'light', 'deep', 'rem', 'light', 'light', 'rem']);
 });
 
 test('combining: a brief stir is sleep, a sustained one is awake, on either device', () => {
@@ -189,7 +189,7 @@ test('sleep with an uncertain stage still counts as sleep, and no stage is inven
 
 test('changing night or nap, or a late start, makes new reports', () => {
   const polar = { id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null } as SleepSession;
-  const saved = { method: SLEEP_METHOD, polarStamp: polarStamp(polar), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
+  const saved = { method: SLEEP_METHOD, combineRule: COMBINE_RULE, polarStamp: polarStamp(polar), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
   const p: SleepPair = { id: 'x', polar, watch: {} as WatchSleep, start: 0, nap: false };
   assert.equal(whatChanged(saved, p), null);
   assert.equal(whatChanged(saved, { ...p, polar: { ...polar, context: 'nap' } }), 'labels');
@@ -199,10 +199,11 @@ test('changing night or nap, or a late start, makes new reports', () => {
 test('a new report from another device with the same totals but different stages makes new reports', () => {
   const copy = (stages: string) => ({ id: 'n', user: 1, start: 0, durationS: 60, source: 'polar', summary: null, cloudOnly: true, report: { stages, method: 3 } }) as unknown as SleepSession;
   const stages = ['light', 'rem', 'deep', 'awake'] as Stage[];
-  const saved = { method: 3, stagesStamp: stagesStamp(stages), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
+  const saved = { method: 3, combineRule: COMBINE_RULE, stagesStamp: stagesStamp(stages), watchStamp: watchStamp({} as WatchSleep) } as unknown as Parameters<typeof whatChanged>[0];
   const p = (polar: SleepSession): SleepPair => ({ id: 'x', polar, watch: {} as WatchSleep, start: 0, nap: false });
   assert.equal(whatChanged(saved, p(copy('lrda'))), null, 'the same stages, whether worked out here or read from the cloud');
   assert.equal(whatChanged(saved, p(copy('lrla'))), 'polar');
+  assert.equal(whatChanged({ ...saved!, combineRule: 1 }, p(copy('lrda'))), 'combine', 'reports combined the old way are made again');
 });
 
 test('reports made from an older cloud copy keep that copy’s rule version', () => {

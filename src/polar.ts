@@ -24,7 +24,8 @@ const PMD_ERRORS: Readonly<Record<number, string>> = {
 export const ECG_FS = 130;
 export const ACC_FS = 25;
 
-export interface EcgDetail { samples: Int32Array } // µV
+/** µV. After lost packets, `samples` starts with `gap` zero samples ("no signal"), so the ECG keeps its true timing. */
+export interface EcgDetail { samples: Int32Array; gap?: number }
 export interface AccDetail { samples: Int16Array } // x, y, z interleaved, mG
 export interface HrDetail { hr: number; rr: number[] } // rr in ms
 export interface BatteryDetail { level: number }
@@ -60,6 +61,8 @@ export class PolarH10 extends EventTarget {
   private wanted: Required<StreamOptions> = { ecg: true, acc: false };
   private control: BluetoothRemoteGATTCharacteristic | null = null;
   private ecgPackets = 0;
+  /** The strap's time of the last ECG sample received (ns), to notice lost packets. */
+  private lastEcgNs: bigint | null = null;
   private accPackets = 0;
   private reply: ((r: ControlReply | null) => void) | null = null;
 
@@ -265,9 +268,12 @@ export class PolarH10 extends EventTarget {
   private onEcg(dv: DataView): void {
     this.ecgPackets++;
     const n = Math.floor((dv.byteLength - 10) / 3);
-    const samples = new Int32Array(n);
-    for (let k = 0, o = 10; k < n; k++, o += 3) samples[k] = readSigned(dv, o, 3);
-    this.dispatchEvent(new CustomEvent<EcgDetail>('ecg', { detail: { samples } }));
+    const ns = dv.getBigUint64(1, true); // the time of the packet's last sample
+    const gap = this.lastEcgNs == null ? 0 : lostSamples(Number(ns - this.lastEcgNs) / 1e9, n, ECG_FS);
+    this.lastEcgNs = ns;
+    const samples = new Int32Array(gap + n); // the lost stretch stays as zeros: a flat line, marked as no signal
+    for (let k = 0, o = 10; k < n; k++, o += 3) samples[gap + k] = readSigned(dv, o, 3);
+    this.dispatchEvent(new CustomEvent<EcgDetail>('ecg', { detail: gap ? { samples, gap } : { samples } }));
   }
 
   private onAcc(dv: DataView, bytes: number): void {
@@ -277,6 +283,19 @@ export class PolarH10 extends EventTarget {
     for (let k = 0, o = 10; k < n * 3; k++, o += bytes) samples[k] = Math.max(-32768, Math.min(32767, readSigned(dv, o, bytes)));
     this.dispatchEvent(new CustomEvent<AccDetail>('acc', { detail: { samples } }));
   }
+}
+
+/** Longest stretch of lost ECG kept as a flat line; a longer outage is shortened to this. */
+export const MAX_GAP_S = 120;
+
+/**
+ * Samples lost before a packet of `n` samples that arrived `dtS` after the previous one (by the strap's own clock).
+ * Small differences are clock jitter; a lost packet is about 73 samples.
+ */
+export function lostSamples(dtS: number, n: number, fs: number): number {
+  if (!Number.isFinite(dtS) || dtS <= 0) return 0;
+  const missing = Math.round(dtS * fs) - n;
+  return missing >= Math.round(0.1 * fs) ? Math.min(missing, MAX_GAP_S * fs) : 0;
 }
 
 /** Little-endian signed integer of 1–3 bytes. */

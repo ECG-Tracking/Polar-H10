@@ -458,7 +458,7 @@ export class EcgViewer extends EventTarget {
     for (const b of a.beats) {
       if (b.t < this.t0 - 1 || b.t > this.t0 + this.span + 1) continue;
       const bx = X(b.t * fs);
-      const flagged = b.flags.length > 0;
+      const flagged = b.flags.some((f) => f !== 'artifact'); // a likely connection error isn't marked as an event
       ctx.fillStyle = flagged ? critical : muted;
       if (b.rr && showDetail) ctx.fillText(`${Math.round(b.rr)}`, bx, 4);
       if (flagged) {

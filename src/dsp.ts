@@ -320,13 +320,15 @@ function corr(a: Float64Array, b: Float64Array): number {
   return saa && sbb ? sab / Math.sqrt(saa * sbb) : 0;
 }
 
-export type BeatFlag = 'premature' | 'pause' | 'shape';
+/** 'artifact': most likely a connection error (lost signal, a flat line, clipping or a spike), so never an event. */
+export type BeatFlag = 'premature' | 'pause' | 'shape' | 'artifact';
 export type EventType = BeatFlag | 'user';
 
 export const EVENT_LABELS: Readonly<Record<EventType, string>> = {
   premature: 'Premature beat',
   pause: 'Pause',
   shape: 'Irregular shape',
+  artifact: 'Connection error',
   user: 'Marked',
 };
 
@@ -347,6 +349,8 @@ export interface Analysis {
   x: Float64Array; // filtered signal
   beats: Beat[];
   events: DetectedEvent[];
+  /** Beats that would have been events but were most likely connection errors (not in `events`). */
+  artifacts: number;
   template: Float64Array | null; // median beat, TEMPLATE_PRE s before R to TEMPLATE_POST s after
   templateMeasure: BeatMeasure | null; // sample indices relative to the template
   polarity: Polarity;
@@ -357,6 +361,24 @@ export interface AnalyzeOptions {
   fs?: number;
   notch?: number;
   qtcFormula?: 'bazett' | 'fridericia';
+}
+
+/**
+ * Whether raw samples `from`–`to` show a connection problem rather than the heart: a flat line (no signal; lost packets
+ * are kept as zeros), clipping at the limits of a saved recording, or a spike far larger than any heartbeat.
+ */
+export function looksLikeConnectionError(raw: Samples, x: ArrayLike<number>, from: number, to: number, fs: number, rAmp: number): boolean {
+  const flatRun = Math.round(0.2 * fs); // real ECG never stays exactly level this long
+  let same = 0, clipped = 0, peak = 0;
+  for (let i = Math.max(1, from); i <= Math.min(raw.length - 1, to); i++) {
+    const v = raw[i] ?? 0;
+    same = v === raw[i - 1] ? same + 1 : 0;
+    if (same >= flatRun) return true;
+    clipped = v >= 32767 || v <= -32768 ? clipped + 1 : 0;
+    if (clipped >= 3) return true;
+    peak = Math.max(peak, Math.abs(x[i] ?? 0));
+  }
+  return rAmp > 0 && peak > 5 * rAmp;
 }
 
 /** Analyse a recording of µV samples. */
@@ -408,6 +430,16 @@ export function analyze(raw: Samples, opts: AnalyzeOptions = {}): Analysis {
     }
   }
 
+  // a flagged beat next to lost signal, a flat line, clipping or a spike is most likely a connection error, not an event
+  const rAmp = median(beats.filter((b) => !b.flags.length).map((b) => Math.abs(at(x, b.r))).filter(finite));
+  let artifacts = 0;
+  beats.forEach((b, k) => {
+    if (!b.flags.length) return;
+    const from = beats[k - 1]?.r ?? Math.max(0, b.r - Math.round(1.5 * fs));
+    const to = beats[k + 1]?.r ?? Math.min(raw.length - 1, b.r + Math.round(1.5 * fs));
+    if (looksLikeConnectionError(raw, x, from, to, fs, rAmp)) { b.flags = ['artifact']; artifacts++; }
+  });
+
   // per-beat measurements
   const qtc = opts.qtcFormula === 'fridericia'
     ? (qt: number, rr: number): number => qt / Math.cbrt(rr)
@@ -422,7 +454,7 @@ export function analyze(raw: Samples, opts: AnalyzeOptions = {}): Analysis {
   });
 
   const events: DetectedEvent[] = [];
-  for (const b of beats) for (const f of b.flags) events.push({ t: b.t, type: f });
+  for (const b of beats) for (const f of b.flags) if (f !== 'artifact') events.push({ t: b.t, type: f });
   // a premature beat usually also fails the shape test; report it once
   const dedup = events.filter((e, i) => !(e.type === 'shape' && events[i - 1]?.t === e.t));
 
@@ -443,7 +475,7 @@ export function analyze(raw: Samples, opts: AnalyzeOptions = {}): Analysis {
     templateMeasure = tm;
   }
 
-  return { fs, x, beats, events: dedup, template, templateMeasure, polarity, templatePre: TEMPLATE_PRE };
+  return { fs, x, beats, events: dedup, artifacts, template, templateMeasure, polarity, templatePre: TEMPLATE_PRE };
 }
 
 // ---------- Metrics ----------
