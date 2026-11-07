@@ -32,8 +32,8 @@ export interface SleepDeps {
 }
 
 const MIN_SAVE_S = 10 * 60;
-const PART_MS = 2 * 60000; // how often a running recording is saved
-const LIVE_PART_MS = 6 * 60000; // a recording saved this recently may still be running in another tab
+const PART_MS = 60 * 60000; // how often a running recording is saved
+const LIVE_PART_MS = 70 * 60000; // a recording saved this recently may still be running in another tab
 
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;

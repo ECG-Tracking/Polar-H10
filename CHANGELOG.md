@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 7 Nov 2026 – v1.35.1 – Sleep recordings saved every hour *(GitHub)*
+Why: saving once an hour is enough for this use.
+- A running sleep recording is now saved every hour instead of every 2 minutes, and when the page closes if the browser allows it.
+
 ## 7 Nov 2026 – v1.35.0 – Sleep recordings can't be lost *(GitHub)*
 Why: a recording was held in memory until Stop, so a closed page or crash lost the whole night.
 - A running sleep recording, with its ECG, is saved on the device every 2 minutes.
