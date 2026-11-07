@@ -4,6 +4,22 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.37.0 – Step through ECG events; connection errors aren't events *(GitHub)*
+
+- ECG history and trending: **← Previous event** and **Next event →** under the ECG strip, with which event is shown (for example "Event 3 of 12 · Premature beat at 1:23"). Clicking an event in the list moves there too.
+- A beat that would have been flagged next to lost signal, a flat line, clipping or a spike far bigger than any heartbeat is now treated as a likely connection error. It isn't listed, counted or marked as an event (or used for HRV), and the Events heading says how many were left out.
+- When Bluetooth packets from the Polar H10 are lost, the gap is now kept as a flat line of the right length (up to 2 minutes), using the strap's own clock. The ECG keeps its true timing, and the gap can't look like a premature beat.
+- Event counts in the recordings list are updated when each recording is opened.
+
+## 8 Nov 2026 – v1.36.0 – One look for the device pages; the strap decides combined sleep stages *(GitHub)*
+
+- ECG live, Sleep monitor, D2 Link, Synchronised Tracking and Synchronised Sleep Tracking now share the same parts: a device card with its status, **Forget pairing** for each device that can connect, and the connection log shown as on ECG live.
+- The live ECG shows on every page that monitors the Polar H10 (now also Synchronised Sleep Tracking). D2 Link has none.
+- **Track for** choices on every page that tracks: 1, 3, 5 or 10 minutes, until you stop, or a chosen number of minutes; on the sleep pages 6, 7, 8 or 9 hours, until you stop, or a chosen number of hours. The recording then stops by itself.
+- **Watch account ID (optional)** is on D2 Link, Synchronised Tracking and Synchronised Sleep Tracking, and is the same on all three. It is hidden like a password, and **View** shows it. It is used only to link with the watch: it stays on this device and isn't in any report, PDF, backup or cloud copy.
+- Combined sleep reports take each minute's stage from the Polar H10, and the watch fills only the minutes the strap has no reading or no stage for. Earlier reports are made again with a new version.
+- A cleaner look throughout: page titles with a short introduction, softer cards, a marked device card, clearer status lights and the same field and button style everywhere.
+
 ## 7 Nov 2026 – v1.35.1 – Sleep recordings saved every hour *(GitHub)*
 Why: saving once an hour is enough for this use.
 - A running sleep recording is now saved every hour instead of every 2 minutes, and when the page closes if the browser allows it.

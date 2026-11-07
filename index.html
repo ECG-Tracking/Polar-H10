@@ -103,6 +103,8 @@
   <main>
     <!-- LIVE -->
     <section id="view-live" class="view active">
+      <h2>ECG live</h2>
+      <p class="note page-intro">Live ECG from the Polar H10, at the standard 25 mm/s and 10 mm/mV. Connect the strap, choose how long to track, then start.</p>
       <div class="card connect">
         <label class="user-pick">
           <span>User</span>
@@ -119,6 +121,7 @@
           <button id="btnDemoRest">Demo: rest</button>
           <button id="btnDemoWorkout">Demo: workout</button>
           <button id="btnDisconnect" hidden>Disconnect</button>
+          <span id="forgetLiveSlot" class="slot"></span>
         </div>
         <p class="note" id="pairHint">Chrome will show a list. Click your Polar H10, then click <b>Pair</b>, even if it already says “Paired”.</p>
         <p class="note" id="btNote" hidden></p>
@@ -139,11 +142,12 @@
 
       <div class="card controls">
         <div class="row wrap sync-dur">
-          <label class="d2-days">Record for
+          <label class="d2-days">Track for
             <select id="recDuration">
               <option value="60">1 minute</option>
               <option value="180">3 minutes</option>
               <option value="300">5 minutes</option>
+              <option value="600">10 minutes</option>
               <option value="unlimited" selected>Until I stop</option>
               <option value="custom">Choose minutes…</option>
             </select>
@@ -214,7 +218,12 @@
             <button id="zoomIn" aria-label="Zoom in">+</button>
             <span class="muted" id="viewerTime">0:00</span>
           </div>
-          <p class="note">Numbers above beats are RR intervals (ms). Red triangles are detected events. Blue ticks mark QRS onset, J point and T end when zoomed in.</p>
+          <div class="row wrap event-nav no-print">
+            <button id="btnPrevEvent" disabled>← Previous event</button>
+            <span class="muted" id="eventNavText" aria-live="polite">No events</span>
+            <button id="btnNextEvent" disabled>Next event →</button>
+          </div>
+          <p class="note">Numbers above beats are RR intervals (ms). Red triangles are detected events; beats most likely caused by a connection error (lost signal, a flat line or a spike) aren’t counted as events. Blue ticks mark QRS onset, J point and T end when zoomed in.</p>
         </div>
 
         <h3>Events <span class="muted" id="eventCount"></span></h3>
@@ -231,6 +240,8 @@
 
     <!-- SLEEP MONITOR -->
     <section id="view-sleep" class="view">
+      <h2>Sleep monitor</h2>
+      <p class="note page-intro">Records your sleep and ECG overnight with the Polar H10. Connect the strap, choose how long to track, and start when you go to bed.</p>
       <p class="card" id="sleepRecovered" hidden></p>
       <div class="card connect">
         <div class="user-pick">
@@ -247,6 +258,7 @@
           <button class="primary" id="btnSleepConnect">Connect Polar H10</button>
           <button id="btnSleepDemo">Demo night</button>
           <button id="btnSleepDisconnect" hidden>Disconnect</button>
+          <span id="forgetSleepSlot" class="slot"></span>
         </div>
         <p class="note" id="sleepPairHint">Chrome will show a list. Click your Polar H10, then click <b>Pair</b>, even if it already says “Paired”.</p>
         <p class="note" id="sleepNote" hidden></p>
@@ -265,6 +277,7 @@
       </div>
 
       <div class="card controls">
+        <div id="sleepTrackSlot"></div>
         <div class="row">
           <button class="primary big" id="btnSleepStart" disabled>Start sleep &amp; ECG recording</button>
           <button class="big" id="btnSleepDim" disabled>Dim screen</button>

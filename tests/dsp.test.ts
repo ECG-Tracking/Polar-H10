@@ -109,3 +109,29 @@ test('the live ECG scale is the clinical one: one small square is 0.04 s across 
   assert.ok(ECG_SCALE_NOTE.includes('1 mV tall and 0.2 s wide'));
   assert.equal((CAL_MARGIN - 4) % (0.2 * PX_PER_S), 0); // the mark sits on the large squares
 });
+
+import { looksLikeConnectionError } from '../src/dsp';
+import { lostSamples, MAX_GAP_S } from '../src/polar';
+
+test('lost ECG packets are noticed from the strap’s clock, jitter is not', () => {
+  assert.equal(lostSamples(73 / 130, 73, 130), 0);
+  assert.equal(lostSamples(74 / 130, 73, 130), 0, 'a sample of jitter');
+  assert.equal(lostSamples(146 / 130, 73, 130), 73, 'one lost packet');
+  assert.equal(lostSamples(3600, 73, 130), MAX_GAP_S * 130, 'a long outage is shortened');
+  assert.equal(lostSamples(-1, 73, 130), 0);
+});
+
+test('a flagged beat beside lost signal is a connection error, not an event', () => {
+  const { raw } = simulate('rest', 60, 3);
+  const clean = analyze(raw, { fs: FS });
+  const cut = Int32Array.from(raw);
+  cut.fill(0, 30 * FS, 32 * FS); // two seconds lost, kept as a flat line
+  const a = analyze(cut, { fs: FS });
+  assert.ok(a.artifacts >= 1, `artifacts ${a.artifacts}`);
+  assert.ok(!a.events.some((e) => e.t > 29.5 && e.t < 33.5), 'no event at the gap');
+  assert.ok(a.events.length <= clean.events.length + 1);
+  const x = new Float64Array(200).map((_, i) => Math.sin(i / 5) * 1000);
+  assert.equal(looksLikeConnectionError(Int32Array.from(x), x, 0, 199, FS, 1000), false, 'a living signal');
+  const spike = Float64Array.from(x); spike[100] = 9000;
+  assert.equal(looksLikeConnectionError(Int32Array.from(x), spike, 0, 199, FS, 1000), true, 'a spike far above any beat');
+});

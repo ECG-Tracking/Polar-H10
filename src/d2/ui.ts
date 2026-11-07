@@ -18,6 +18,7 @@ import { CEILING_H, MIN_NIGHTS_TO_FIT, explainScore, fitScoreModel, type ScoreMo
 import type { Profile } from './setup';
 import { activityRecords, readingRecords, stressRecords, totalsRecord, workoutRecords, nightContent, nilText, onlyChanged, recordContent } from './records';
 import * as store from './store';
+import { accountBox } from './accountbox';
 import type { D2Night } from './store';
 import { addDays, dateOf } from './trends';
 import { renderTrends, type Period } from './trendsui';
@@ -221,37 +222,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const actions = el('div', 'row wrap');
   actions.append(goButtons, daysLabel, viaLabel, btnDemo, btnDisconnect, btnForget);
   // the account the watch belongs to (optional): the watch may keep health data back from a phone without it
-  const acct = el('details', 'd2-acct');
-  acct.appendChild(el('summary', '', 'Watch account ID (optional)'));
-  const acctInput = el('input');
-  Object.assign(acctInput, { type: 'text', inputMode: 'numeric', autocomplete: 'off', spellcheck: false, placeholder: '17 digits', maxLength: 30 });
-  acctInput.setAttribute('aria-label', 'Watch account ID');
-  const acctSave = button('Save');
-  const acctNote = el('p', 'note');
-  const acctRow = el('div', 'row wrap');
-  acctRow.append(acctInput, acctSave);
-  acct.append(
-    el('p', 'note', 'The watch may only share stress, workouts and measurements with its own account. If you use it with its phone app, enter that account’s ID (a 17-digit number, not a password). One way to find it: sign in to the cloud website of the watch’s phone app in Chrome on a computer, press F12, open Application → Cookies → that website, and copy the value of “userId”. It is kept on this device only and sent only to the watch, with “Download all data”.'),
-    acctRow, acctNote,
-  );
-  const showAcct = (): void => {
-    const id = store.loadWatchAccount();
-    acctInput.value = id;
-    acctNote.textContent = id ? 'Saved on this device.' : 'Not set: the account step is skipped.';
-  };
-  acctSave.addEventListener('click', () => {
-    const id = acctInput.value.replace(/\s/g, '');
-    if (id && !/^\d{5,30}$/.test(id)) { acctNote.textContent = 'The ID is digits only (usually 17).'; return; }
-    store.saveWatchAccount(id);
-    showAcct();
-  });
-  showAcct();
+  const acct = accountBox(deps.account);
   const progress = el('p', 'note');
-  const logBox = el('details', 'd2-log');
-  logBox.appendChild(el('summary', '', 'Connection log'));
+  // the connection log as on ECG live: shown once there is something in it
   const logPre = el('pre', 'log');
-  logBox.appendChild(logPre);
-  card.append(status, noSerial, actions, dateRow, acct, progress, logBox);
+  logPre.setAttribute('aria-label', 'Connection log');
+  logPre.hidden = true;
+  card.append(status, noSerial, actions, dateRow, progress, logPre, acct);
 
   const help = el('details', 'card d2-help');
   help.appendChild(el('summary', '', 'Before you start (first time)'));
@@ -344,6 +321,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   histHome.append(...(deps.historyRoot ? [histTitle] : []), listHead, syncRow, tabs, empty, list, trendsBox, dataBox, graphsBox);
 
   const log = (line: string): void => {
+    logPre.hidden = false;
     logPre.textContent += `${clock(Date.now())} ${line}\n`;
     logPre.scrollTop = logPre.scrollHeight;
   };

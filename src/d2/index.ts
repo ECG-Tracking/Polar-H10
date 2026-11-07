@@ -8,6 +8,7 @@ import { d2Storage, trackingData, exportD2, importD2, importD2Bin, localD2Ids, m
 import { connectLive, type LiveOptions, type LiveWatch } from './live';
 import { deletedNightIds, listRecovery, nightCopy, purgeRecovery, restoreRecovery } from './recovery';
 import { mount, type D2Deps } from './ui';
+import { accountBox, pairing } from './accountbox';
 import { onWatch, type OpenWatch } from './watch';
 
 /** What d2link.js offers the app: the D2 Link page, and the watch live for synchronised tracking. */
@@ -21,6 +22,9 @@ export interface D2Api {
   /** D2 Link's deleted items (the app's Recovery centre page). */
   recovery: { list: typeof listRecovery; restore: typeof restoreRecovery; purge: typeof purgeRecovery; nightIds: typeof deletedNightIds };
   nightCopy: typeof nightCopy;
+  /** The Watch account ID box (hidden like a password), and the watch's saved pairing. */
+  accountBox: typeof accountBox;
+  pairing: typeof pairing;
   /** Backup, restore and sync on request (the app's Sync & backups page). */
   backup: { exportD2: typeof exportD2; importD2: typeof importD2; importD2Bin: typeof importD2Bin; localD2Ids: typeof localD2Ids; markD2Unsynced: typeof markD2Unsynced; syncD2: typeof syncD2; storedBloodPressure: typeof storedBloodPressure; d2Storage: typeof d2Storage; trackingData: typeof trackingData };
 }
@@ -29,4 +33,4 @@ declare global {
   interface Window { OpenBeatD2?: D2Api }
 }
 
-window.OpenBeatD2 = { mount, pairingSleep, nightCopy, connectLive, onWatch, recovery: { list: listRecovery, restore: restoreRecovery, purge: purgeRecovery, nightIds: deletedNightIds }, backup: { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, syncD2, storedBloodPressure, d2Storage, trackingData } };
+window.OpenBeatD2 = { mount, pairingSleep, nightCopy, accountBox, pairing, connectLive, onWatch, recovery: { list: listRecovery, restore: restoreRecovery, purge: purgeRecovery, nightIds: deletedNightIds }, backup: { exportD2, importD2, importD2Bin, localD2Ids, markD2Unsynced, syncD2, storedBloodPressure, d2Storage, trackingData } };

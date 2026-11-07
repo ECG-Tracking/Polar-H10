@@ -9,6 +9,7 @@ import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_C
 import { checkRange, fmtRange, sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
 import type { Session, SleepSession, UserNumber } from './store';
+import { forgetStrapButton, trackFor } from './devicekit';
 import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
@@ -41,7 +42,7 @@ export function initSleep(deps: SleepDeps): {
   openCopy: (session: SleepSession, report: SleepReport, from: () => void) => Promise<void>;
   isRecording: () => boolean;
   /** For Synchronised Sleep Tracking, which records through this page. */
-  recording: { canStart: () => boolean; start: () => Promise<void>; stop: () => Promise<string | null>; elapsed: () => string };
+  recording: { canStart: () => boolean; start: (lengthS: number | null) => Promise<void>; stop: () => Promise<string | null>; elapsed: () => string };
   refreshUser: () => void;
 } {
   let polar: PolarH10 | null = null;
@@ -72,6 +73,13 @@ export function initSleep(deps: SleepDeps): {
   function refreshUser(): void {
     $('sleepUser').textContent = deps.userLabel(recorder ? recUser : deps.user());
   }
+
+  // Forget pairing and "Track for", as on every page that connects to the strap
+  $('forgetSleepSlot').replaceWith(forgetStrapButton(log).el);
+  const track = trackFor('sleep');
+  $('sleepTrackSlot').replaceWith(track.el);
+  /** Seconds after which the recording stops by itself (null = when you stop it), and whether its report opens then. */
+  let stopAfter: number | null = null, showWhenDone = true;
 
   // ---------- live ECG, as on ECG live ----------
 
@@ -189,13 +197,15 @@ export function initSleep(deps: SleepDeps): {
     try { wakeLock = 'wakeLock' in navigator ? await navigator.wakeLock.request('screen') : null; } catch { /* not supported */ }
   }
 
-  async function startRecording(): Promise<void> {
+  async function startRecording(lengthS: number | null = track.seconds(), show = true): Promise<void> {
     ecg = { chunks: [], n: 0 };
     recorder = new SleepRecorder(ACC_FS);
+    stopAfter = lengthS; showWhenDone = show;
+    track.disable(true);
     recUser = deps.user();
     gaps = 0;
     $('sleepGaps').textContent = 'no gaps';
-    $('sleepSince').textContent = `since ${fmtClock(recorder.start)}`;
+    $('sleepSince').textContent = `since ${fmtClock(recorder.start)}${lengthS ? ` · stops at ${fmtClock(recorder.start + lengthS * 1000)}` : ''}`;
     await requestWakeLock();
     partSeq = 0; ecgSent = 0;
     store.setSleepRecording(true);
@@ -246,6 +256,7 @@ export function initSleep(deps: SleepDeps): {
   function updateLive(): void {
     const r = recorder;
     if (!r) return;
+    if (stopAfter != null && r.elapsedS >= stopAfter) { void stopRecording(showWhenDone); return; }
     $('sleepElapsed').textContent = fmtTime(r.elapsedS);
     $('sleepDimClock').textContent = fmtTime(r.elapsedS);
     $('sleepBeats').textContent = String(r.beats);
@@ -262,6 +273,8 @@ export function initSleep(deps: SleepDeps): {
     const nightEcg = ecg;
     recorder = null;
     ecg = null;
+    stopAfter = null;
+    track.disable(false);
     if (tick) clearInterval(tick);
     tick = null;
     if (partTimer) clearInterval(partTimer);
@@ -732,7 +745,7 @@ export function initSleep(deps: SleepDeps): {
     isRecording: () => recorder !== null,
     recording: {
       canStart: () => polar?.connected === true && polar.accOk === true,
-      start: startRecording,
+      start: (lengthS) => startRecording(lengthS, false),
       stop: () => stopRecording(false),
       elapsed: () => (recorder ? fmtTime(recorder.elapsedS) : ''),
     },

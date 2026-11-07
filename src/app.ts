@@ -7,6 +7,7 @@ import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
+import { forgetStrapButton } from './devicekit';
 import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
@@ -140,10 +141,10 @@ async function ecgDuring(from: number, to: number): Promise<{ id: string; label:
 let syncSleepUI: ReturnType<typeof initSyncSleep> | null = null;
 function openSyncSleep(): ReturnType<typeof initSyncSleep> {
   syncSleepUI ??= initSyncSleep($('syncSleepRoot'), $('syncSleepHistoryRoot'), $('syncSleepReportRoot'), {
-    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser),
+    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, userLabel: () => userLabel(currentUser), notch: () => settings.notch,
     sleep: {
       canStart: () => sleepUI?.recording.canStart() ?? false,
-      start: async () => { await sleepUI?.recording.start(); },
+      start: async (lengthS) => { await sleepUI?.recording.start(lengthS); },
       stop: async () => (await sleepUI?.recording.stop()) ?? null,
       isRecording: () => sleepUI?.isRecording() ?? false,
       elapsed: () => sleepUI?.recording.elapsed() ?? '',
@@ -288,6 +289,7 @@ function btLog(line: string): void {
 }
 
 $button('btnConnect').addEventListener('click', () => void connectPolar());
+$('forgetLiveSlot').replaceWith(forgetStrapButton(btLog).el);
 
 /** What ECG live does with the shared strap: shows its ECG (unless a demo is running; then when the demo stops). */
 let liveStrap: PolarH10 | null = null;
@@ -928,21 +930,49 @@ function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number, is
   });
 }
 
+/** The events Previous and Next step through (those that can be shown), and the one shown last (-1 = none yet). */
+let navEvents: ReportEvent[] = [];
+let navIndex = -1;
+
+/** Shows event `i` on the ECG strip. */
+function goToEvent(i: number, scroll = false): void {
+  const e = navEvents[i];
+  if (!e) return;
+  navIndex = i;
+  const copy = current?.copy ?? null;
+  if (copy) showStrip(copy, e);
+  else { viewer.span = Math.min(viewer.span, 6); viewer.center(e.t); }
+  updateEventNav();
+  if (scroll) $canvas('viewerCanvas').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function updateEventNav(): void {
+  const n = navEvents.length, e = navEvents[navIndex];
+  $button('btnPrevEvent').disabled = navIndex <= 0;
+  $button('btnNextEvent').disabled = navIndex >= n - 1;
+  $('eventNavText').textContent = !n ? 'No events' : e ? `Event ${navIndex + 1} of ${n} · ${e.label} at ${fmtTime(e.t)}` : `${n} event${n > 1 ? 's' : ''}`;
+}
+
+$button('btnPrevEvent').addEventListener('click', () => goToEvent(navIndex - 1));
+$button('btnNextEvent').addEventListener('click', () => goToEvent(navIndex + 1));
+
 function renderEvents(events: readonly ReportEvent[]): void {
-  $('eventCount').textContent = `(${events.length})`;
+  const artifacts = current?.analysis?.artifacts ?? 0;
+  $('eventCount').textContent = `(${events.length})${artifacts ? ` · ${artifacts} likely connection error${artifacts > 1 ? 's' : ''} not counted` : ''}`;
   const list = $('eventList');
   list.replaceChildren();
+  const copy = current?.copy ?? null;
+  const hasStrip = (e: ReportEvent): boolean => !copy || copy.eventStrips.some((s) => Math.abs(s.t - e.t) < 0.01);
+  navEvents = events.filter(hasStrip);
+  navIndex = -1;
+  updateEventNav();
   for (const e of events.slice(0, 500)) {
     const li = make('li');
     li.append(make('span', '', fmtTime(e.t)), make('span', `badge ${e.type}`, e.label));
-    const copy = current?.copy ?? null;
-    const hasStrip = !copy || copy.eventStrips.some((s) => Math.abs(s.t - e.t) < 0.01);
-    if (!hasStrip) { li.classList.add('no-strip'); li.append(make('span', 'muted', 'no strip in summary copy')); }
+    if (!hasStrip(e)) { li.classList.add('no-strip'); li.append(make('span', 'muted', 'no strip in summary copy')); }
     li.addEventListener('click', () => {
-      if (!hasStrip) return;
-      if (copy) showStrip(copy, e);
-      else { viewer.span = Math.min(viewer.span, 6); viewer.center(e.t); }
-      $canvas('viewerCanvas').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const i = navEvents.indexOf(e);
+      if (i >= 0) goToEvent(i, true);
     });
     list.appendChild(li);
   }
