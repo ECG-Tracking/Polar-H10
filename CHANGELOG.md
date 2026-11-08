@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.5 – Two-ECG view: each event once in Previous / Next *(GitHub)*
+
+- The two-ECG view's event navigation listed the same premature beat twice, once from each device (their marks fall a few tens of ms apart on the two leads), so 6 events showed as 13.
+- It now follows the same rule as the counts: only events both devices saw at the same heartbeat are listed, stepped through with Previous and Next, and marked with red triangles, one entry per heartbeat (a premature beat with the pause right after it is one event). An event seen by only one device is left out.
+
 ## 8 Nov 2026 – v1.41.4 – Combined boxes laid out as the H10 ECG report; no Training section *(GitHub)*
 
 - The two-reading boxes (Combined report and the two-ECG report) now follow the Polar H10 ECG report:
