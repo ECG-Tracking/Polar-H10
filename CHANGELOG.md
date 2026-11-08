@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.3 – Two readings in every box, with normal ranges; watch events only where the strap agrees *(GitHub)*
+
+- **Boxes:** the Combined report (in "ECG where both recorded") and the two-ECG report now show every box of the Polar H10 ECG report, each with two readings: the strap's and the watch's for the same moments. The boxes are mean heart rate, HRV score, RMSSD, SDNN, pNN50, pNN200, Poincaré SD1/SD2, events, QRS, QT, QTc, T wave positive, T-wave amplitude, T/R ratio, J point, ST at J+60 ms, R and S amplitude, 2–8 Hz energy and effort.
+- **Normal ranges:** each box has the same range as the H10 report (by age and sex; resting ranges not applied during exercise). A reading outside it is marked ▲ or ▼.
+- **Events:** a watch event where the strap shows a normal beat no longer counts. In both reports, events count for either device only where both saw one at the same heartbeat. The Combined report lists how many were left out on each side.
+
 ## 8 Nov 2026 – v1.41.2 – Combined report: each premature beat counted once *(GitHub)*
 
 - The Combined report counted events twice when there were watch strips: once in "ECG waves (Polar H10 only)" (every strap event of the tracking) and again in "ECG where both recorded" (those both devices saw). Events are now counted once, in "ECG where both recorded": only those the watch's strips confirm.
