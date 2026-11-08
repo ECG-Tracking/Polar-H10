@@ -675,3 +675,10 @@ details > summary { list-style-position: inside; }
 .pair-tiles .value { font-size: 1.3rem; }
 .sessions li.pair-row .pair-stats { grid-column: 1 / span 2; grid-row: 2; }
 .pair-duration { font-weight: 600; margin: 0 0 10px; }
+/* two readings per box: the strap's and the watch's */
+.pair-metrics { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); margin-bottom: 12px; }
+.pair-metrics .pair-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.pair-metrics .pair-who { font-size: 0.72rem; color: var(--muted); min-width: 5.2em; }
+.pair-metrics .v { font-size: 1.15rem; }
+.pair-metrics .pair-line .flag { margin: 0; }
+.pair-metrics .pair-line.out .v { color: var(--abnormal, var(--warn)); }

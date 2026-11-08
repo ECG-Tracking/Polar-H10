@@ -3,7 +3,8 @@
 
 import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { EcgViewer, type ReportEvent } from './charts';
-import { agreedEvents, beatAgreement, joinStrips, matchStrips, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
+import { referenceRanges, checkRange, fmtRange, type ReferenceRanges } from './ranges';
+import { agreedEvents, beatAgreement, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
 import * as store from './store';
 import type { SyncBp, SyncTrackingEntry } from './store';
@@ -76,30 +77,69 @@ const ecgFigures = (m: SessionMetrics): [string, number, number][] => [
   ['Events', m.eventCount, 0],
 ];
 
-/** The ECG report's boxes, each with the strap's reading and the watch's for the same moments. */
-function pairTiles(p: SessionMetrics | null, w: SessionMetrics | null): HTMLElement {
-  const box = make('div', 'tiles pair-tiles');
-  const one = (label: string, unit: string, f: (m: SessionMetrics) => number, digits = 0): void => {
-    const tile = make('div', 'tile');
-    const line = (who: string, m: SessionMetrics | null): HTMLElement => {
-      const row = make('div', 'pair-line');
-      const v = m ? f(m) : NaN;
-      row.append(make('span', 'pair-who', who), make('span', 'value', Number.isFinite(v) ? fmt(v, digits) : '--'), make('small', '', unit));
-      return row;
-    };
-    tile.append(make('div', 'label', label), line('Polar H10', p), line('Watch D2', w));
-    box.appendChild(tile);
+/**
+ * The H10 ECG report's boxes, each with two readings: the strap's and the watch's for the same moments, with the same
+ * normal ranges. Events count only where both devices saw one at the same heartbeat.
+ */
+function pairBoxes(p: SessionMetrics, w: SessionMetrics, events: { polar: number; watch: number }, user: number): HTMLElement {
+  const s = store.loadSettings(user as store.UserNumber);
+  const R = referenceRanges(s);
+  const [, , z2, z3, z4, z5] = p.zones;
+  const exercise = (z2 + z3 + z4 + z5) / (p.zones.reduce((a, b) => a + b, 0) || 1) > 0.3;
+  const qtcName = s.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
+  const box = make('div', 'metrics pair-metrics');
+  const tile = (k: string, unit: string, f: (m: SessionMetrics) => number, hint = '', key?: keyof ReferenceRanges, digits = 0, text?: (m: SessionMetrics) => string): void => {
+    const el = make('div', 'metric');
+    el.appendChild(make('div', 'k', k));
+    const range = key && !(exercise && R[key].rest) ? R[key] : undefined;
+    for (const [who, m] of [['Polar H10', p], ['Watch D2', w]] as const) {
+      const v = f(m), line = make('div', 'pair-line');
+      const shown = text ? text(m) : Number.isFinite(v) ? fmt(v, digits) : '--';
+      const val = make('span', 'v', shown);
+      if (unit && shown !== '--') val.appendChild(make('small', '', unit));
+      line.append(make('span', 'pair-who', who), val);
+      const status = range ? checkRange(range, v) : null;
+      if (status) { line.classList.add('out'); line.appendChild(make('span', 'flag', status === 'high' ? `▲ ${range?.highLabel ?? 'Above range'}` : `▼ ${range?.lowLabel ?? 'Below range'}`)); }
+      el.appendChild(line);
+    }
+    if (hint) el.appendChild(make('div', 'h', hint));
+    if (range) el.appendChild(make('div', 'ref', `Ref ${fmtRange(range)}${unit ? ` ${unit}` : ''}${range.note ? ` · ${range.note}` : ''}`));
+    else if (key && exercise) el.appendChild(make('div', 'ref', 'Resting range not applied (exercise)'));
+    box.appendChild(el);
   };
-  one('Heart rate', 'bpm', (m) => m.meanHR);
-  one('RMSSD', 'ms', (m) => m.rmssd, 1);
-  one('SDNN', 'ms', (m) => m.sdnn, 1);
-  one('QRS', 'ms', (m) => m.qrs);
-  one('QT', 'ms', (m) => m.qt);
-  one('QTc', 'ms', (m) => m.qtc);
-  one('R wave', 'µV', (m) => m.rAmp);
-  one('T wave', 'µV', (m) => m.tAmp);
-  one('Events', '', (m) => m.eventCount);
+  tile('Mean heart rate', 'bpm', (m) => m.meanHR, 'from normal beats', 'meanHR');
+  tile('HRV score', '', (m) => m.hrvScore, '15 × ln(RMSSD)', 'hrvScore');
+  tile('RMSSD', 'ms', (m) => m.rmssd, '', 'rmssd');
+  tile('SDNN', 'ms', (m) => m.sdnn, '', 'sdnn');
+  tile('pNN50', '%', (m) => m.pnn50, 'successive Δ > 50 ms', 'pnn50', 1);
+  tile('pNN200', '%', (m) => m.pnn200, 'successive Δ > 200 ms', 'pnn200', 1);
+  tile('Poincaré SD1 / SD2', 'ms', () => NaN, '', undefined, 0, (m) => `${fmt(m.sd1)} / ${fmt(m.sd2)}`);
+  tile('Events', '', (m) => (m === p ? events.polar : events.watch), 'only where both devices saw it');
+  tile('QRS duration', 'ms', (m) => m.qrs, 'median beat', 'qrs');
+  tile('QT', 'ms', (m) => m.qt, 'median beat');
+  tile('QTc', 'ms', (m) => m.qtc, `${qtcName}, median beat`, 'qtc');
+  tile('T wave positive', '%', (m) => m.tPositive, '', 'tPositive');
+  tile('T-wave amplitude', 'µV', (m) => m.tAmp, 'median, vs PR baseline', 'tAmp');
+  tile('T/R ratio', '', (m) => m.trRatio, 'T size ÷ R wave size, median', 'trRatio', 2);
+  tile('J point', 'µV', (m) => m.jPoint, 'vs PR baseline', 'jPoint');
+  tile('ST at J+60 ms', 'µV', (m) => m.st60, '', 'st60');
+  tile('R amplitude', 'µV', (m) => m.rAmp, 'tallest upward wave; no reference range');
+  tile('S amplitude', 'µV', (m) => Math.abs(m.sAmp), 'depth of the deepest downward wave; no reference range');
+  tile('2–8 Hz energy', '%', (m) => m.hf, 'can include noise; no reference range', undefined, 1);
+  tile('Effort (TRIMP)', '', (m) => m.trimp, 'Banister, uses rest/max HR', undefined, 1);
   return box;
+}
+
+/** Events that count: the strap's confirmed by the watch, and the watch's confirmed by the strap (a normal beat on the strap means no event). */
+function bothEvents(set: StripSet): { polar: number; watch: number } {
+  const polar = agreedEvents(set).filter((e) => e.agreed).length;
+  const pt = set.polarA.events.map((e) => e.t);
+  let watch = 0, last = -Infinity;
+  for (const e of set.watchA.events) {
+    if (e.t - last <= ONE_EVENT_S) continue;
+    if (pt.some((t) => Math.abs(t - e.t) <= SAME_BEAT_MS / 1000)) { watch++; last = e.t; }
+  }
+  return { polar, watch };
 }
 
 /** How long the spliced ECG is: the strips' time together, without the joins. */
@@ -366,14 +406,18 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const meanRr = ok.length ? ok.reduce((x, y) => x + y, 0) / ok.length : NaN;
     const rmssd = diffs.length ? Math.sqrt(diffs.reduce((x, y) => x + y * y, 0) / diffs.length) : NaN;
     const m = st.polarM;
+    const counted = bothEvents(set);
+    const watchOnly = set.watchA.events.length - counted.watch;
     return [card('ECG where both recorded',
       make('p', 'pair-duration', splicedText(set.strips)),
+      ...(st.watchM ? [pairBoxes(m, st.watchM, counted, g.e.user)] : []),
       make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. Heart rate and HRV use the heartbeats both devices found, timed by the strap; the waves are the strap’s. An event the strap marks counts only if the watch’s strip shows an event at the same heartbeat.'),
       table(['Figure', 'Combined'], [
         ['Heartbeats both found', String(set.pairs.length)],
         ['Average heart rate (bpm)', n(60000 / meanRr)], ['RMSSD (ms)', n(rmssd, 1)],
         ['QRS duration (ms)', n(m.qrs)], ['QT (ms)', n(m.qt)], ['QTc (ms)', n(m.qtc)],
         ['Events both agree on', String(both.length)], ['Strap events the watch didn’t confirm (not counted)', String(strapOnly.length)],
+        ['Watch events where the strap shows a normal beat (not counted)', String(Math.max(0, watchOnly))],
       ]),
       ...(ev.length ? [table(['Time', 'Event', 'Counted'], ev.map((x) => [clockAt(set.strips, x.t), EVENT_LABELS[x.type], x.agreed ? 'Yes: both' : 'No: strap only']))] : []))];
   }
@@ -436,7 +480,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         ...heading('ECG: watch strips and Polar H10', g),
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events; on the strap’s ECG, “(both)” means the watch saw it too.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}`),
-        pairTiles(st.polarM, st.watchM), w.box, p.box, bar, evBar,
+        ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),
         ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
       ],
