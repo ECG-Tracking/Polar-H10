@@ -63,7 +63,7 @@ export function updateForgetButtons(): void { for (const fn of forgetAll) fn(); 
 export type TrackKind = 'short' | 'sleep';
 
 const CHOICES: Record<TrackKind, readonly (readonly [string, string])[]> = {
-  short: [['60', '1 minute'], ['180', '3 minutes'], ['300', '5 minutes'], ['600', '10 minutes'], ['unlimited', 'Until I stop'], ['custom', 'Choose minutes…']],
+  short: [['60', '1 minute'], ['180', '3 minutes'], ['300', '5 minutes'], ['360', '6 minutes'], ['420', '7 minutes'], ['600', '10 minutes'], ['unlimited', 'Until I stop'], ['custom', 'Choose minutes…']],
   sleep: [['unlimited', 'Until I stop'], ['21600', '6 hours'], ['25200', '7 hours'], ['28800', '8 hours'], ['32400', '9 hours'], ['custom', 'Choose hours…']],
 };
 

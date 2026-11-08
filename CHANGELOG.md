@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.8 – 6 and 7 minutes; damaged watch strips left out *(GitHub)*
+
+- "Track for" on ECG live and Synchronised Tracking adds **6 minutes** and **7 minutes**.
+- Watch strips cut off by v1.39.0's scale error that the watch no longer holds (so they couldn't be repaired) are left out of the two-ECG report's analysis, which says how many. In ECG history they're labelled "saved before v1.41.0, may be damaged".
+
 ## 8 Nov 2026 – v1.41.7 – Synchronised Tracking History: Polar H10 report and ECG only *(GitHub)*
 
 - Synchronised Tracking History and its reports no longer offer the D2, Combined and Comparison reports. Each tracking has its **Polar H10 report** and its **ECG**: with the watch's strips, both ECGs together with the comparison and combined figures.
