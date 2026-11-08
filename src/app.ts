@@ -629,8 +629,8 @@ async function renderHistory(): Promise<void> {
   }
   $('historyUser').textContent = `· ${userLabel(currentUser)}`;
   list.replaceChildren();
-  $('emptyHistory').hidden = sessions.length > 0;
-  trends.show(sessions);
+  $('emptyHistory').hidden = sessions.some((s) => s.source !== 'watch');
+  trends.show(sessions.filter((s) => s.source !== 'watch')); // 30-second watch strips have their own section
   // synchronised trackings with watch ECG strips: one box with both readings, opening both ECGs together
   const pairs = store.loadSyncHistory().filter((e) => e.user === currentUser && e.ecgId).flatMap((e) => {
     const end = e.start + e.durationS * 1000;
@@ -638,6 +638,11 @@ async function renderHistory(): Promise<void> {
     const polar = sessions.find((s) => s.id === e.ecgId);
     return strips.length && polar ? [{ e, strips, polar }] : [];
   });
+  const stripList = $('watchStripList');
+  stripList.replaceChildren();
+  const stripCount = sessions.filter((s) => s.source === 'watch').length;
+  $('watchStripsSection').hidden = stripCount === 0;
+  $('watchStripCount').textContent = stripCount ? `(${stripCount})` : '';
   const rows: ({ kind: 'one'; s: Session } | { kind: 'pair'; p: (typeof pairs)[number] })[] = [
     ...sessions.map((s) => ({ kind: 'one' as const, s })), ...pairs.map((p) => ({ kind: 'pair' as const, p })),
   ].sort((a, b) => (b.kind === 'one' ? b.s.start : b.p.e.start + 1) - (a.kind === 'one' ? a.s.start : a.p.e.start + 1));
@@ -687,7 +692,7 @@ async function renderHistory(): Promise<void> {
       void renderHistory();
     }, 'Delete this recording? You can get it back from the Recovery centre. It is also removed from your other devices.'));
     li.addEventListener('click', () => void openReport(s.id));
-    list.appendChild(li);
+    (s.source === 'watch' ? stripList : list).appendChild(li); // watch strips go in their own section below
   }
 }
 
