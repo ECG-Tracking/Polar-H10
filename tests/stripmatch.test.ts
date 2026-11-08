@@ -64,3 +64,11 @@ test('only events with no other within 5 s are clear enough to line up on', () =
   const ev = loneEvents([{ t: 0, type: 'premature' }, { t: 3000, type: 'pause' }, { t: 20000, type: 'premature' }]);
   assert.deepEqual(ev.map((e) => e.t), [20000]);
 });
+
+test('the same ECG saved twice is used once, so its events aren’t counted twice', () => {
+  const once = matchStrips([strip('a', 10, 0)], T0, polar, FS)!;
+  const twice = matchStrips([strip('a', 10, 0), { ...strip('a2', 10, 0), start: T0 + 11_000 }], T0, polar, FS)!;
+  assert.equal(twice.strips.length, 1);
+  assert.deepEqual(twice.skipped, ['a2']);
+  assert.equal(agreedEvents(twice).length, agreedEvents(once).length);
+});

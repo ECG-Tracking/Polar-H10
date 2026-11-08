@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.2 – Combined report: each premature beat counted once *(GitHub)*
+
+- The Combined report counted events twice when there were watch strips: once in "ECG waves (Polar H10 only)" (every strap event of the tracking) and again in "ECG where both recorded" (those both devices saw). Events are now counted once, in "ECG where both recorded": only those the watch's strips confirm.
+- Safeguards: the same watch ECG saved twice (its start a second apart) is used once, and a premature beat with the pause or odd shape right after it (within 1.2 s) counts as one event.
+
 ## 8 Nov 2026 – v1.41.1 – Two-ECG box laid out properly, combined duration, and heartbeats found after a burst *(GitHub)*
 
 - The box for a synchronised tracking's two ECGs now shows its two readings in full width under the date, instead of squeezed into a narrow column.

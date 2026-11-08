@@ -453,7 +453,9 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       card('Heart rate', hrChart([{ name: 'Combined', color: POLAR_COLOR, points: combineHr(g.trace.polarHr, g.trace.watchHr) }], g.e.durationS)),
       card('Beats and HRV', table(['Figure', 'Combined'], rows.length ? rows : [['No beats saved', '--']])),
       bpCard(g.v.bps),
-      ...(g.v.ecg ? [card('ECG waves (Polar H10 only)', table(['Figure', 'Polar H10'], ecgRows(g.v.ecg)))] : []),
+      // with watch strips, events are counted once: only those both devices saw, in "ECG where both recorded" below
+      ...(g.v.ecg ? [card('ECG waves (Polar H10 only)', table(['Figure', 'Polar H10'], g.strips?.set ? ecgRows(g.v.ecg).filter((r) => r[0] !== 'Events') : ecgRows(g.v.ecg)),
+        ...(g.strips?.set ? [make('p', 'note', 'Events are counted once, below: only those the watch’s strips confirm.')] : []))] : []),
       ...stripCombined(g),
     ];
   }
