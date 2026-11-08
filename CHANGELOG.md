@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.18 – "Combined ECG", without repeats *(GitHub)*
+
+- Synchronised Tracking: the ECG button and report are now called **Combined ECG**.
+- At the bottom of the Combined ECG report, the section repeating the top (combined duration, values outside the range, and every box) is removed. What's left there is only what the top doesn't show: the heartbeats both devices found and the list of events, with which were counted.
+
 ## 8 Nov 2026 – v1.41.17 – Combined ECG shows its combined duration *(GitHub)*
 
 - A synchronised tracking's box in ECG history, and its two-ECG report, now give the combined duration of the spliced watch strips (for example "Duration 4:30") instead of the Polar H10's whole recording (7:01). Synchronised Tracking History keeps the tracking's own duration.
