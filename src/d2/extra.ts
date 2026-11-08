@@ -297,6 +297,42 @@ export function parseStressFile(b: Uint8Array): StressRecord[] {
   return out.sort((a, b2) => a.end - b2.end);
 }
 
+// ---------- ECG recordings (file ecg_analysis_data.bin) ----------
+
+export interface EcgRecording {
+  start: number; end: number; // ms since 1970
+  avgHr: number;
+  /** The watch's codes for its arrhythmia result and the symptoms the user chose. */
+  arrhythmia: number; symptoms: number;
+  appVersion: string;
+  /** The ECG as the watch stores it (32-bit floats). */
+  samples: number[];
+}
+
+/** Version 0 files: a 32-byte header and a package name, then recordings (56-byte header + samples). */
+export function parseEcgFile(b: Uint8Array, now = Date.now()): EcgRecording[] {
+  if (b.length < 32) return [];
+  const dv = new DataView(b.buffer, b.byteOffset, b.length);
+  if (dv.getUint16(6) !== 0) return [];
+  let o = 32 + (b[8] ?? 0);
+  const out: EcgRecording[] = [];
+  while (b.length - o >= 56) {
+    const start = dv.getUint32(o) * 1000, end = dv.getUint32(o + 4) * 1000;
+    let len = dv.getUint32(o + 8);
+    if (len > 2400000) len = 0;
+    if (start <= 0 || end < start || end > now) break; // damaged or not a recording: stop, as Gadgetbridge does
+    const appVersion = fromUtf8(b.slice(o + 12, o + 44)).replace(/\0/g, '').trim();
+    const arrhythmia = dv.getUint32(o + 44), avgHr = dv.getUint16(o + 48), symptoms = dv.getUint32(o + 52);
+    o += 56;
+    if (b.length - o < len) break;
+    const samples: number[] = [];
+    for (let i = 0; i + 4 <= len; i += 4) { const v = dv.getFloat32(o + i); samples.push(Number.isFinite(v) ? v : 0); }
+    o += len;
+    out.push({ start, end, avgHr, arrhythmia, symptoms, appVersion, samples });
+  }
+  return out;
+}
+
 // ---------- workouts ----------
 
 export const WORKOUT_TYPES: Readonly<Record<number, string>> = {

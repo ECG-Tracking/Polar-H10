@@ -4,7 +4,7 @@
 // Ported from Gadgetbridge's heartbeat (RRI) test (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
-import { downloadReadings } from './extra';
+import { downloadReadings, parseEcgFile, type EcgRecording } from './extra';
 import type { Log } from './link';
 import type { InPacket } from './packet';
 import { readingRecords } from './records';
@@ -36,6 +36,11 @@ export interface LiveWatch {
   /** Starts the heartbeat test; `onBeats` gets each group of beats as it arrives. */
   startHeartbeats(onBeats: (beats: Beat[]) => void): Promise<void>;
   stopHeartbeats(): Promise<void>;
+  /**
+   * ECG recordings taken on the watch (its 30-second ECG, a fingertip on the button) that started at or after `sinceMs`,
+   * oldest first. Downloaded as the watch's ECG file; the watch can't stream its ECG while measuring.
+   */
+  ecgSince(sinceMs: number): Promise<EcgRecording[]>;
   /** Blood pressure readings taken on the watch since `sinceMs`, newest last (also saved with D2 Link's data). */
   bloodPressureSince(sinceMs: number): Promise<BloodPressure[]>;
   close(): Promise<void>;
@@ -82,6 +87,10 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
       onBeats = null;
       link.listeners.delete(listen);
       await link.send({ service: HR_TEST, command: 0x01, tlv: new Tlv().putByte(0x01, 4) }).catch(() => undefined);
+    },
+    async ecgSince(sinceMs) {
+      const file = await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start: Math.floor(sinceMs / 1000) - 5, end: Math.ceil(Date.now() / 1000) + 5, what: 'ECG' });
+      return parseEcgFile(file).filter((r) => r.start >= sinceMs && r.samples.length > 0).sort((a, b) => a.start - b.start);
     },
     async bloodPressureSince(sinceMs) {
       const rs = (await downloadReadings(link, sinceMs, o.log, [10002])).filter((r) => r.start >= sinceMs);

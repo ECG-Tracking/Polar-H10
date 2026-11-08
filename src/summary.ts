@@ -45,6 +45,7 @@ export interface EcgSummary {
   analysedWith: Pick<Settings, 'age' | 'sex' | 'hrRest' | 'hrMax' | 'qtcFormula' | 'notch'>;
   sleepId?: string; // recorded together with this sleep night
   ignoreShape?: true; // saved ignoring irregular shape
+  fromWatch?: true; // a 30-second ECG from the Watch D2 (the cloud table's source column says import)
   derivedFrom?: string;
   syncTracking?: boolean; // recorded during a synchronised tracking
   /** The same recording worked out ignoring Irregular Shape, shown only when someone asks for it (missing in older copies). */
@@ -118,6 +119,7 @@ export function buildEcgSummary(session: Session, samples: Int16Array, settings:
     analysedWith: { age: settings.age, sex: settings.sex, hrRest: settings.hrRest, hrMax: settings.hrMax, qtcFormula: settings.qtcFormula, notch: settings.notch },
     ...(session.sleepId ? { sleepId: session.sleepId } : {}),
     ...(session.ignoreShape ? { ignoreShape: true as const } : {}),
+    ...(session.source === 'watch' ? { fromWatch: true as const } : {}),
     ...(session.derivedFrom ? { derivedFrom: session.derivedFrom } : {}),
     ...(session.syncTracking ? { syncTracking: true } : {}),
     ...(session.ignoreShape ? {} : { noShape: noShapeVersion(session, samples, settings, events, cut) }),
@@ -199,6 +201,7 @@ export function parseEcgSummary(v: unknown): EcgSummary | null {
     },
     ...(typeof v['sleepId'] === 'string' ? { sleepId: v['sleepId'] } : {}),
     ...(v['ignoreShape'] === true ? { ignoreShape: true as const } : {}),
+    ...(v['fromWatch'] === true ? { fromWatch: true as const } : {}),
     ...(typeof v['derivedFrom'] === 'string' ? { derivedFrom: v['derivedFrom'] } : {}),
     ...(v['syncTracking'] === true ? { syncTracking: true } : {}),
     ...(noShape ? { noShape } : {}),

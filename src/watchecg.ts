@@ -1,0 +1,172 @@
+// ECG from the Watch D2, for ECG live and Synchronised Tracking. The watch can't stream its ECG: it records 30 seconds while
+// a fingertip touches its button, then keeps the recording. While this runs, the app asks the watch every few seconds for
+// new recordings, plays each one on screen like a Polar strip, analyses it and saves it in ECG history. The person starts
+// the next 30-second ECG on the watch, again and again, until they press Stop.
+
+import { LiveTrace } from './charts';
+import { EcgFilter, analyze, sessionMetrics } from './dsp';
+import { historyChanged } from './account';
+import * as store from './store';
+import type { Session, UserNumber } from './store';
+import { make, fmt } from './ui';
+import { errorMessage } from './util';
+import type { LiveWatch } from './d2/live'; // type only: D2 Link's code stays in d2link.js
+
+export const STRIP_FS = 130; // as the Polar H10, so every report, chart and export works the same
+const POLL_MS = 5000;
+const RATES = [125, 128, 250, 256, 300, 500, 512, 1000];
+
+export interface WatchRecording { start: number; end: number; avgHr: number; samples: readonly number[] }
+
+/** The watch's recording as µV at STRIP_FS: its rate worked out from the length, its unit from the size of the waves. */
+export function toStrip(r: WatchRecording): { uv: Int16Array; sourceFs: number } {
+  const n = r.samples.length, seconds = (r.end - r.start) / 1000;
+  const raw = seconds > 0 ? n / seconds : 500;
+  const near = RATES.reduce((a, b) => (Math.abs(b - raw) < Math.abs(a - raw) ? b : a));
+  const sourceFs = Math.abs(near - raw) / near < 0.1 ? near : raw;
+  const sorted = Array.from(r.samples, Math.abs).sort((a, b) => a - b);
+  const p99 = sorted[Math.floor(0.99 * (sorted.length - 1))] ?? 0;
+  const scale = p99 < 20 ? 1000 : 1; // millivolts (a heartbeat is about 1 mV), otherwise already microvolts
+  const out = new Int16Array(Math.max(0, Math.floor((n / sourceFs) * STRIP_FS)));
+  const half = sourceFs / STRIP_FS / 2;
+  for (let i = 0; i < out.length; i++) {
+    // the average around each new sample keeps out what the lower rate can't show
+    const c = (i * sourceFs) / STRIP_FS, a = Math.max(0, Math.floor(c - half)), b = Math.min(n - 1, Math.ceil(c + half));
+    let s = 0;
+    for (let k = a; k <= b; k++) s += r.samples[k] ?? 0;
+    out[i] = Math.max(-32768, Math.min(32767, Math.round((s / (b - a + 1)) * scale)));
+  }
+  return { uv: out, sourceFs };
+}
+
+export interface WatchEcgDeps {
+  /** The connected watch, or null. */
+  watch: () => LiveWatch | null;
+  user: () => number;
+  settings: () => Pick<store.Settings, 'alias' | 'notch' | 'qtcFormula' | 'hrRest' | 'hrMax' | 'sex'>;
+  log: (line: string) => void;
+  /** Saved during a synchronised tracking. */
+  syncTracking?: boolean;
+  openReport: (id: string) => void;
+}
+
+/** The "ECG from the Watch D2" card: instructions, Start and Stop, the strip on screen, its results and the saved strips. */
+export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void } {
+  const card = make('div', 'card watch-ecg');
+  const steps = make('ol', 'd2-steps');
+  for (const line of [
+    'Connect the watch, then press Start watch ECG.',
+    'On the watch, open the ECG app. Rest your arms, and keep a fingertip of the other hand on the watch’s lower button for the 30 seconds it records.',
+    'When the watch finishes, this page downloads the recording within seconds, shows it here, analyses it and saves it in ECG history.',
+    'Start the next ECG on the watch straight away, again and again, until you press Stop. The watch can’t record continuously, so it is one 30-second strip at a time.',
+  ]) steps.appendChild(make('li', '', line));
+  const btnStart = make('button', 'primary', 'Start watch ECG') as HTMLButtonElement;
+  const btnStop = make('button', '', 'Stop') as HTMLButtonElement;
+  btnStop.hidden = true;
+  const row = make('div', 'row wrap');
+  row.append(btnStart, btnStop);
+  const status = make('p', 'note', 'Not started.');
+  const canvas = make('canvas');
+  canvas.setAttribute('aria-label', 'ECG from the Watch D2');
+  const traceBox = make('div', 'trace');
+  traceBox.appendChild(canvas);
+  const results = make('p', 'watch-ecg-results');
+  const list = make('ul', 'watch-ecg-list');
+  card.append(make('h3', 'sync-h', 'ECG from the Watch D2 (30-second strips)'), steps, row, status, traceBox, results, list);
+
+  const trace = new LiveTrace(canvas, STRIP_FS);
+  let filter = new EcgFilter(STRIP_FS, deps.settings().notch);
+  let queue: Float32Array[] = [], playing: ReturnType<typeof setInterval> | null = null, frame = 0;
+  let running = false, timer: ReturnType<typeof setTimeout> | null = null, since = 0, strips = 0;
+  const seen = new Set<number>();
+
+  /** Plays the strips at their real speed, one after the other, as the Polar ECG is shown. */
+  const play = (): void => {
+    if (playing) return;
+    const step = Math.round(STRIP_FS / 10);
+    playing = setInterval(() => {
+      const next = queue[0];
+      if (!next) { if (playing) clearInterval(playing); playing = null; return; }
+      trace.push(next.subarray(0, step));
+      queue[0] = next.subarray(step);
+      if (!queue[0]?.length) queue.shift();
+    }, 100);
+    const draw = (): void => { if (card.offsetParent) trace.draw(); frame = playing || running ? requestAnimationFrame(draw) : 0; };
+    frame ||= requestAnimationFrame(draw);
+  };
+
+  const update = (): void => {
+    const w = deps.watch();
+    btnStart.hidden = running;
+    btnStop.hidden = !running;
+    btnStart.disabled = !w;
+    btnStart.title = w ? '' : 'Connect the watch first';
+    if (!running) status.textContent = w ? (strips ? `${strips} strip${strips > 1 ? 's' : ''} saved. Press Start watch ECG to take more.` : 'Ready: press Start watch ECG.') : 'Connect the watch first.';
+  };
+
+  async function save(r: WatchRecording): Promise<void> {
+    const id = `w${r.start}`;
+    if ((await store.loadSession(id)).session) return; // already saved (on the other page)
+    const { uv, sourceFs } = toStrip(r);
+    if (uv.length < STRIP_FS * 5) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
+    const s = deps.settings();
+    const a = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula });
+    const m = sessionMetrics(a, uv.length / STRIP_FS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
+    const session: Session = {
+      id, user: deps.user() as UserNumber, start: r.start, durationS: uv.length / STRIP_FS, fs: STRIP_FS, alias: s.alias, source: 'watch',
+      userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
+      ...(deps.syncTracking ? { syncTracking: true } : {}),
+    };
+    await store.saveSession(session, uv);
+    historyChanged();
+    strips++;
+    queue.push(Float32Array.from(uv, (v) => filter.process(v)));
+    play();
+    const r0 = (v: number): string => (Number.isFinite(v) ? fmt(v) : '--');
+    results.textContent = `Strip ${strips} · ${clock(r.start)}: heart rate ${r0(m.meanHR)} bpm (watch ${r.avgHr || '--'}) · RMSSD ${r0(m.rmssd)} ms · QRS ${r0(m.qrs)} ms · QT ${r0(m.qt)} ms · QTc ${r0(m.qtc)} ms · ${a.events.length} event${a.events.length === 1 ? '' : 's'}`;
+    const li = make('li');
+    const open = make('button', 'sync-open', 'Open report') as HTMLButtonElement;
+    open.addEventListener('click', () => deps.openReport(id));
+    li.append(make('span', '', `${clock(r.start)} · ${Math.round(session.durationS)} s · ${r0(m.meanHR)} bpm`), open);
+    list.prepend(li);
+    deps.log(`Watch ECG from ${clock(r.start)} saved (${Math.round(sourceFs)} Hz on the watch).`);
+  }
+
+  async function poll(): Promise<void> {
+    timer = null;
+    if (!running) return;
+    const w = deps.watch();
+    if (!w) { status.textContent = 'The watch disconnected: reconnect it to carry on.'; }
+    else {
+      try {
+        const found = (await w.ecgSince(since)).filter((r) => !seen.has(r.start));
+        for (const r of found) { seen.add(r.start); await save(r); }
+        status.textContent = `Waiting for the next ECG on the watch (fingertip on its lower button for 30 s)…${strips ? ` ${strips} strip${strips > 1 ? 's' : ''} so far.` : ''}`;
+      } catch (err) {
+        status.textContent = `Couldn’t read the watch’s ECG: ${errorMessage(err)}. Trying again…`;
+      }
+    }
+    if (running) timer = setTimeout(() => void poll(), POLL_MS);
+  }
+
+  btnStart.addEventListener('click', () => {
+    running = true;
+    since = Date.now() - 60_000; // an ECG finished just before Start counts too
+    filter = new EcgFilter(STRIP_FS, deps.settings().notch);
+    update();
+    status.textContent = 'Start an ECG on the watch now: fingertip on its lower button for 30 seconds.';
+    deps.log('Watch ECG started: checking the watch for new ECG recordings every 5 seconds.');
+    void poll();
+  });
+  const stop = (): void => {
+    running = false;
+    if (timer) clearTimeout(timer);
+    timer = null;
+    update();
+  };
+  btnStop.addEventListener('click', () => { stop(); deps.log('Watch ECG stopped.'); });
+  queueMicrotask(update); // the page that made this card may not have its watch ready yet
+  return { el: card, stop, update };
+}
+
+const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
