@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.16 – "From …" styled as the line below *(GitHub)*
+
+- "· From Synchronised Tracking" and the like now have the same font weight, size and colour as the second line of each row.
+
 ## 8 Nov 2026 – v1.41.15 – Account button shows "1:M" *(GitHub)*
 
 - The account button at the top shows the user number and alias, for example "1:M", instead of just "1". It updates when you change user or alias.

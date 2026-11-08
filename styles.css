@@ -689,3 +689,5 @@ details > summary { list-style-position: inside; }
 .sessions .when .from { font-weight: 400; }
 /* the account button shows "1:M": a pill that grows with the alias */
 .acct-avatar { width: auto; min-width: 28px; padding: 0 8px; border-radius: 14px; white-space: nowrap; }
+/* "· From …" looks exactly like the line below it */
+.sessions .when .from { font-weight: 400; color: var(--ink-2); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
