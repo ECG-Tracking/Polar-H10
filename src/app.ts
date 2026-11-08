@@ -663,15 +663,22 @@ async function renderHistory(): Promise<void> {
       continue;
     }
     const s = row.s;
-    const sum = s.summary;
-    const stats = sum
-      ? `HR ${Math.round(sum.meanHR) || '--'} bpm · HRV ${Number.isFinite(sum.hrvScore) ? Math.round(sum.hrvScore) : '--'} · ${sum.eventCount} events`
-      : 'Open to analyse';
+    // the same two lines as a synchronised tracking: where it came from, then what was recorded and how long
+    const from = s.syncTracking ? 'From Synchronised Tracking' : s.sleepId ? 'From Sleep monitor' : s.source === 'watch' ? 'From the Watch D2 ECG app'
+      : s.source === 'import' ? 'Imported EDF file' : s.source === 'demo' ? 'Demo' : s.ignoreShape ? 'Saved ignoring irregular shape' : 'From ECG live';
+    const what = [
+      s.source === 'watch' ? 'Watch D2' : s.source === 'demo' ? 'Demo signal' : s.source === 'import' ? 'EDF file' : 'Polar H10',
+      s.sleepId ? 'With sleep' : '',
+      s.ignoreShape ? 'Ignoring irregular shape' : '',
+      s.cloudOnly ? 'Summary copy' : '',
+      s.source === 'watch' && !s.watchFs && !s.cloudOnly ? 'Saved before v1.41.0, may be damaged' : '',
+      `Duration ${fmtTime(s.durationS)}`,
+    ].filter(Boolean).join(' · ');
     const li = make('li');
     li.append(
-      make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : s.source === 'watch' ? (s.watchFs || s.cloudOnly ? 'Watch D2 ECG' : 'Watch D2 ECG · saved before v1.41.0, may be damaged') : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
-      make('span', 'stats', `${stats} · ${fmtTime(s.durationS)}`),
+      make('span', 'when', `${new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${from}`),
+      make('span', 'dur', s.alias), // the alias it was recorded under, on the right
+      make('span', 'stats', what),
     );
     li.appendChild(deleteButton('this recording', async () => {
       await store.deleteSession(s.id);

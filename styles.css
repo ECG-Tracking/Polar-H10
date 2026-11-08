@@ -684,3 +684,5 @@ details > summary { list-style-position: inside; }
 .pair-metrics .pair-line.out .v { color: var(--abnormal, var(--warn)); }
 .watch-strips { margin-top: 22px; }
 .watch-strips h3 { margin-top: 0; }
+/* ECG history: every row's two lines (where it came from; what was recorded and how long) under each other */
+#sessionList > li > .stats, #watchStripList > li > .stats { grid-column: 1 / span 2; grid-row: 2; }
