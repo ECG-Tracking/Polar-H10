@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.11 – Watch heart rate only from fresh beats *(GitHub)*
+
+- **Fix:** Synchronised Tracking kept showing, and saving, the watch's last heart rate after the watch stopped sending beats. In the 10:21 tracking on 8 Nov the watch sent none (its ECG measurements interrupt the heartbeat test), yet 125 bpm was recorded for 7 minutes. The watch's heart rate now counts only beats from the last 10 seconds and shows "--" otherwise. A tracking where the watch sent no beats saves no watch heart rate.
+- History lines say "Watch D2" when the watch sent beats or when its ECG strips were taken during the tracking, but not for an old stale heart rate on its own.
+- Checked: the blood pressure readings at 16:11–16:54 belong to the 3 Nov 16:43 tracking (within an hour of its start), so they were right. The 10:21 tracking has none.
+
 ## 8 Nov 2026 – v1.41.10 – One simple line for each tracking *(GitHub)*
 
 - Synchronised Tracking History, and each tracking's box in ECG history and trending, now use the same short format. The first line is the date and time, then "From Synchronised Tracking". The second says what was recorded and how long: "Polar H10 · Watch D2 · BP recorded · Duration 7:01".
