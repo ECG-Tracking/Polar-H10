@@ -187,6 +187,16 @@ const splicedText = (strips: readonly MatchedStrip[]): string => {
   return `Combined duration ${mmss(s)} (${strips.length} strip${strips.length === 1 ? '' : 's'} spliced together)`;
 };
 
+/** A tracking's second line, the same everywhere it is listed: what was recorded, and how long. */
+export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, watch: boolean): string {
+  return [
+    polar || e.polar || e.ecgId ? 'Polar H10' : null,
+    watch || e.watch ? 'Watch D2' : null,
+    bp || e.bps?.length || e.bp ? 'BP recorded' : null,
+    `Duration ${mmss(e.durationS)}`,
+  ].filter(Boolean).join(' · ');
+}
+
 /** Clock time of a moment in the joined ECGs. */
 function clockAt(strips: readonly MatchedStrip[], t: number): string {
   const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
@@ -649,7 +659,6 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     for (const e of entries) {
       const versions = (await store.loadSyncTrace(e.id).catch(() => undefined))?.reports ?? [];
       const ecgId = e.ecgId;
-      const when = `${dateTime(e.start)} · ${mmss(e.durationS)}`, tag = ecgId ? 'with ECG' : 'no ECG';
       const remove = deleteButton('this tracking', () => {
         void (async () => {
           if (ecgId && window.confirm('Also delete its ECG from ECG history and trending? (Cancel keeps the ECG.)')) { await store.deleteSession(ecgId); historyChanged(); }
@@ -662,23 +671,17 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         const actions = make('div', 'row wrap sync-sleep-actions');
         actions.appendChild(remove);
-        li.append(make('span', 'when', when), make('span', 'dur', tag), make('span', 'muted sync-sleep-made', 'Generating the reports…'), actions);
+        li.append(make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking`), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
         list.appendChild(li);
         continue;
       }
       // one row per version, newest first, each with its Polar H10 report and the two-ECG report
       for (let i = versions.length; i >= 1; i--) {
         const v = versions[i - 1]!;
-        const hr = (f: TrackVersion['p'], s: SyncTrackingEntry['polar']): number | null => f?.meanHr ?? s?.hr ?? null;
-        const rm = (f: TrackVersion['p'], s: SyncTrackingEntry['polar']): number | null => f?.rmssd ?? s?.rmssd ?? null;
-        const ph = hr(v.p, e.polar), wh = hr(v.w, e.watch);
-        const side = (name: string, s: SyncTrackingEntry['polar'], f: TrackVersion['p']): string => (s || f ? `${name} ${n(hr(f, s))} bpm, RMSSD ${n(rm(f, s))} ms` : `${name} not connected`);
         const li = make('li', 'sync-sleep-row');
         li.append(
-          make('span', 'when', `${when}${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
-          make('span', 'dur', tag),
-          make('span', 'stats', `${side('Polar H10', e.polar, v.p)} · ${side('Watch D2', e.watch, v.w)}${ph == null || wh == null ? '' : ` · ${signed(wh - ph, 1)} bpm`}`),
-          make('span', 'muted sync-sleep-made', `${v.bps.length ? `Blood pressure ${v.bps.map((b) => `${n(b.systolic)}/${n(b.diastolic)} at ${clock(b.at)}`).join(', ')}` : 'No blood pressure reading'} · ${madeText(v)}`),
+          make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
+          make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w)),
         );
         const actions = make('div', 'row wrap sync-sleep-actions');
         for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
