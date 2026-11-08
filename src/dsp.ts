@@ -688,7 +688,7 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     sAmp: median(pick((m) => m.sAmp)),
     hf: bandEnergyShare(x, fs),
     eventCount: analysis.events.length,
-    eventPct: beats.length ? (100 * beats.filter((b) => b.flags.length).length) / beats.length : 0,
+    eventPct: beats.length ? (100 * beats.filter((b) => b.flags.some((f) => f !== 'artifact')).length) / beats.length : 0, // a likely connection error isn't an event
     hr,
     ...trainingStats(hr, profile),
   };

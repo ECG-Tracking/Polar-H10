@@ -18,15 +18,27 @@ const RATES = [125, 128, 250, 256, 300, 500, 512, 1000];
 
 export interface WatchRecording { start: number; end: number; avgHr: number; samples: readonly number[] }
 
+/**
+ * The factor to µV. The watch doesn't say its unit, so it is the power of ten that makes the largest waves (99th
+ * percentile around the middle) about 1 mV, as heartbeats are: mV, µV and nV all come out right (v1.39.0 assumed µV
+ * for anything over 20, and its strips were cut off at the 16-bit limit).
+ */
+export function unitScale(samples: readonly number[]): number {
+  if (!samples.length) return 1;
+  const mid = [...samples].sort((a, b) => a - b)[samples.length >> 1] ?? 0;
+  const dev = Array.from(samples, (v) => Math.abs(v - mid)).sort((a, b) => a - b);
+  const p99 = dev[Math.floor(0.99 * (dev.length - 1))] ?? 0;
+  if (!(p99 > 0)) return 1;
+  return 1000 ** Math.round(Math.log10(1000 / p99) / 3); // steps of 1000: mV → ×1000, µV → ×1, nV → ×0.001
+}
+
 /** The watch's recording as µV at STRIP_FS: its rate worked out from the length, its unit from the size of the waves. */
 export function toStrip(r: WatchRecording): { uv: Int16Array; sourceFs: number } {
   const n = r.samples.length, seconds = (r.end - r.start) / 1000;
   const raw = seconds > 0 ? n / seconds : 500;
   const near = RATES.reduce((a, b) => (Math.abs(b - raw) < Math.abs(a - raw) ? b : a));
   const sourceFs = Math.abs(near - raw) / near < 0.1 ? near : raw;
-  const sorted = Array.from(r.samples, Math.abs).sort((a, b) => a - b);
-  const p99 = sorted[Math.floor(0.99 * (sorted.length - 1))] ?? 0;
-  const scale = p99 < 20 ? 1000 : 1; // millivolts (a heartbeat is about 1 mV), otherwise already microvolts
+  const scale = unitScale(r.samples);
   const out = new Int16Array(Math.max(0, Math.floor((n / sourceFs) * STRIP_FS)));
   const half = sourceFs / STRIP_FS / 2;
   for (let i = 0; i < out.length; i++) {
@@ -37,6 +49,13 @@ export function toStrip(r: WatchRecording): { uv: Int16Array; sourceFs: number }
     out[i] = Math.max(-32768, Math.min(32767, Math.round((s / (b - a + 1)) * scale)));
   }
   return { uv: out, sourceFs };
+}
+
+/** A strip with over 1 % of its samples at the 16-bit limit was cut off (the scale error in v1.39.0). */
+export function isCutOff(uv: Int16Array): boolean {
+  let n = 0;
+  for (const v of uv) if (v >= 32767 || v <= -32768) n++;
+  return n > uv.length / 100;
 }
 
 export interface WatchEcgDeps {
@@ -64,7 +83,9 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   const btnStop = make('button', '', 'Stop') as HTMLButtonElement;
   btnStop.hidden = true;
   const row = make('div', 'row wrap');
-  row.append(btnStart, btnStop);
+  const btnAgain = make('button', '', 'Download today’s watch ECGs again') as HTMLButtonElement;
+  btnAgain.title = 'Fetch every ECG taken on the watch today: new ones are added, and strips saved by v1.39.0 (cut off by a scale error) are replaced';
+  row.append(btnStart, btnStop, btnAgain);
   const status = make('p', 'note', 'Not started.');
   const canvas = make('canvas');
   canvas.setAttribute('aria-label', 'ECG from the Watch D2');
@@ -100,13 +121,15 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     btnStart.hidden = running;
     btnStop.hidden = !running;
     btnStart.disabled = !w;
+    btnAgain.disabled = !w;
     btnStart.title = w ? '' : 'Connect the watch first';
     if (!running) status.textContent = w ? (strips ? `${strips} strip${strips > 1 ? 's' : ''} saved. Press Start watch ECG to take more.` : 'Ready: press Start watch ECG.') : 'Connect the watch first.';
   };
 
   async function save(r: WatchRecording): Promise<void> {
     const id = `w${r.start}`;
-    if ((await store.loadSession(id)).session) return; // already saved (on the other page)
+    const old = await store.loadSession(id);
+    if (old.session && !(old.samples && isCutOff(old.samples))) return; // already saved (on the other page); a cut-off one from v1.39.0 is replaced
     const { uv, sourceFs } = toStrip(r);
     if (uv.length < STRIP_FS * 5) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
     const s = deps.settings();
@@ -149,6 +172,21 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (running) timer = setTimeout(() => void poll(), POLL_MS);
   }
 
+  btnAgain.addEventListener('click', () => void (async () => {
+    const w = deps.watch();
+    if (!w) { status.textContent = 'Connect the watch first.'; return; }
+    btnAgain.disabled = true;
+    status.textContent = 'Fetching today’s ECGs from the watch…';
+    try {
+      const day = new Date(); day.setHours(0, 0, 0, 0);
+      const before = strips;
+      for (const r of await w.ecgSince(day.getTime())) { seen.add(r.start); await save(r); }
+      status.textContent = `${strips - before} strip${strips - before === 1 ? '' : 's'} added or repaired from today’s ECGs on the watch.`;
+    } catch (err) {
+      status.textContent = `Couldn’t read the watch’s ECG: ${errorMessage(err)}.`;
+    }
+    btnAgain.disabled = false;
+  })());
   btnStart.addEventListener('click', () => {
     running = true;
     since = Date.now() - 60_000; // an ECG finished just before Start counts too
