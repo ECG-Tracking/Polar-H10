@@ -144,14 +144,21 @@ export function detectQRS(x: Float64Array, fs: number): QrsDetection {
   if (!cands.length) return { peaks: [], polarity: 1 };
 
   const learnWin = mwi.subarray(0, Math.min(n, 2 * fs));
-  let spki = 0.25 * learnWin.reduce((m, v) => Math.max(m, v), 0);
-  let npki = 0.5 * mean(Array.from(learnWin));
+  // a spike at the start (a finger meeting the watch's button, the strap settling) mustn't set the threshold: it is
+  // capped at a few times a typical tall peak of the first 10 s
+  const early = cands.filter((i) => i < 10 * fs).map((i) => at(mwi, i)).sort((a, b) => a - b);
+  const typical = early[Math.floor(early.length * 0.7)] ?? Infinity;
+  const cap = 4 * typical;
+  let spki = 0.25 * Math.min(cap, learnWin.reduce((m, v) => Math.max(m, v), 0));
+  let npki = 0.5 * mean(Array.from(learnWin, (v) => Math.min(v, cap)));
   const refractory = 0.2 * fs;
   const qrs: number[] = [];
   let rrAvg = fs; // ~60 bpm start
   let lastIdx = -Infinity;
   let skipped: number[] = [];
   for (const p of cands) {
+    // no beat for 3 s: the threshold was set too high (after a spike), so it comes down until beats are found again
+    if (p - Math.max(lastIdx, 0) > 3 * fs && qrs.length < 2) { spki *= 0.5; npki *= 0.5; }
     const thr1 = npki + 0.25 * (spki - npki);
     const v = at(mwi, p);
     if (v > thr1 && p - lastIdx > refractory) {
@@ -383,9 +390,37 @@ export function looksLikeConnectionError(raw: Samples, x: ArrayLike<number>, fro
   return rAmp > 0 && peak > 5 * rAmp;
 }
 
+/**
+ * A burst at the very start or end (up to 3 s, over 8 times the size of the rest: a finger meeting the watch's button,
+ * the strap settling) is replaced by a flat line, which counts as no signal: left as it is, it would set the beat
+ * detection's sensitivity and hide every real heartbeat.
+ */
+export function quietSettling(raw: Samples, fs: number): Samples {
+  const secs = Math.floor(raw.length / fs);
+  if (secs < 6) return raw;
+  const ranges: number[] = [];
+  for (let s = 0; s < secs; s++) {
+    let lo = Infinity, hi = -Infinity;
+    for (let i = s * fs; i < (s + 1) * fs; i++) { const v = raw[i] ?? 0; if (v < lo) lo = v; if (v > hi) hi = v; }
+    ranges.push(hi - lo);
+  }
+  const med = median(ranges);
+  if (!(med > 0)) return raw;
+  let a = 0, b = secs;
+  while (a < 3 && (ranges[a] ?? 0) > 8 * med) a++;
+  while (b > secs - 3 && (ranges[b - 1] ?? 0) > 8 * med) b--;
+  if (a === 0 && b === secs) return raw;
+  const out = Float64Array.from({ length: raw.length }, (_, i) => raw[i] ?? 0);
+  const start = a * fs, end = b === secs ? raw.length : b * fs;
+  out.fill(out[start] ?? 0, 0, start);
+  out.fill(out[end - 1] ?? 0, end);
+  return out;
+}
+
 /** Analyse a recording of µV samples. */
-export function analyze(raw: Samples, opts: AnalyzeOptions = {}): Analysis {
+export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
   const fs = opts.fs || 130;
+  const raw = quietSettling(input, fs);
   const x = filtfilt(raw, fs, opts.notch ?? 50);
   const { peaks, polarity } = detectQRS(x, fs);
   const beats: Beat[] = peaks.map((p, k) => {

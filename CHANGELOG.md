@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.1 – Two-ECG box laid out properly, combined duration, and heartbeats found after a burst *(GitHub)*
+
+- The box for a synchronised tracking's two ECGs now shows its two readings in full width under the date, instead of squeezed into a narrow column.
+- The combined duration of the spliced strips is shown: in the ECG history box (the strips' time within the tracking), at the top of the two-ECG report (with any strips left out), in the comparison and combined reports' strip sections, and in the D2 report.
+- Heartbeats are found after a burst at the start or end of a recording (up to 3 s, over 8 times the size of the rest, such as a finger meeting the watch's button). The burst is now treated as no signal. Before, it set the beat detection's threshold so high that a strip could show no heart rate at all (two strips on 8 Nov: now 33 and 34 beats). Strips already saved with a blank heart rate are worked out again when ECG history opens.
+- The Watch D2 line averages only the strips with heartbeats, so one strip without them no longer turns the watch's heart rate and HRV into "--".
+
 ## 8 Nov 2026 – v1.41.0 – Watch and strap ECGs lined up beat for beat; both in ECG history *(GitHub)*
 
 - **Events now line up.** Three things caused events a few beats apart:
