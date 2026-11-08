@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.12 – Every ECG history row in the same two lines *(GitHub)*
+
+- Every recording in ECG history and trending uses the format of the synchronised tracking boxes:
+  - **First line:** the date and time, then where it came from: From ECG live, From Synchronised Tracking, From Sleep monitor, From the Watch D2 ECG app, Imported EDF file, Demo, or Saved ignoring irregular shape.
+  - **Second line:** what was recorded and how long, for example "Polar H10 · With sleep · Duration 5:08:48".
+- Heart rate, HRV and the event count are no longer in the list: they are in each report. The alias a recording was made under stays on the right.
+
 ## 8 Nov 2026 – v1.41.11 – Watch heart rate only from fresh beats *(GitHub)*
 
 - **Fix:** Synchronised Tracking kept showing, and saving, the watch's last heart rate after the watch stopped sending beats. In the 10:21 tracking on 8 Nov the watch sent none (its ECG measurements interrupt the heartbeat test), yet 125 bpm was recorded for 7 minutes. The watch's heart rate now counts only beats from the last 10 seconds and shows "--" otherwise. A tracking where the watch sent no beats saves no watch heart rate.
