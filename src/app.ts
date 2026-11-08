@@ -621,6 +621,12 @@ async function renderHistory(): Promise<void> {
   const list = $('sessionList');
   let sessions: Session[] = [];
   try { sessions = await store.listSessions(currentUser); } catch { /* storage blocked */ }
+  // watch strips saved before v1.41.1 whose heart rate came out blank (a burst at the start hid the beats): worked out again
+  const blank = sessions.filter((s) => s.source === 'watch' && !s.cloudOnly && s.summary && !Number.isFinite(s.summary.meanHR));
+  if (blank.length) {
+    for (const s of blank) { await store.updateSession({ ...s, summary: null }); await summarise(s.id); }
+    try { sessions = await store.listSessions(currentUser); } catch { /* storage blocked */ }
+  }
   $('historyUser').textContent = `· ${userLabel(currentUser)}`;
   list.replaceChildren();
   $('emptyHistory').hidden = sessions.length > 0;
@@ -638,7 +644,12 @@ async function renderHistory(): Promise<void> {
   const line = (who: string, list: readonly Session[]): string => {
     const sums = list.flatMap((s) => (s.summary ? [{ s: s.summary, w: s.durationS }] : []));
     if (!sums.length) return `${who}: open to analyse`;
-    const w = sums.reduce((a, x) => a + x.w, 0), avg = (f: (x: NonNullable<Session['summary']>) => number): number => sums.reduce((a, x) => a + f(x.s) * x.w, 0) / w;
+    // a strip without heartbeats has no heart rate: it is left out of the average rather than blanking it
+    const avg = (f: (x: NonNullable<Session['summary']>) => number): number => {
+      const ok = sums.filter((x) => Number.isFinite(f(x.s)));
+      const w = ok.reduce((a, x) => a + x.w, 0);
+      return w ? ok.reduce((a, x) => a + f(x.s) * x.w, 0) / w : NaN;
+    };
     return `${who}: HR ${Math.round(avg((x) => x.meanHR)) || '--'} bpm · HRV ${Number.isFinite(avg((x) => x.hrvScore)) ? Math.round(avg((x) => x.hrvScore)) : '--'} · ${sums.reduce((a, x) => a + x.s.eventCount, 0)} events`;
   };
   for (const row of rows) {
@@ -649,7 +660,7 @@ async function renderHistory(): Promise<void> {
       stats.append(make('span', '', line('Polar H10', [polar])), make('span', '', line(`Watch D2, ${strips.length} strip${strips.length > 1 ? 's' : ''}`, strips)));
       li.append(
         make('span', 'when', new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-        make('span', 'dur', 'Polar H10 + Watch D2 · both ECGs together'),
+        make('span', 'dur', `Polar H10 + Watch D2 · both ECGs together · combined ${fmtTime(strips.reduce((a, s) => a + Math.max(0, Math.min(s.start + s.durationS * 1000, e.start + e.durationS * 1000) - Math.max(s.start, e.start)), 0) / 1000)}`),
         stats,
       );
       li.addEventListener('click', () => {

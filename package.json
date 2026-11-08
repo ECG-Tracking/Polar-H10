@@ -1,6 +1,6 @@
 {
   "name": "openbeat-ecg",
-  "version": "1.41.0",
+  "version": "1.41.1",
   "releaseDate": "2026-11-08",
   "private": true,
   "description": "OpenBeat ECG — TypeScript source. `npm run build` bundles src/ into app.js, which index.html loads.",

@@ -673,3 +673,5 @@ details > summary { list-style-position: inside; }
 .pair-tiles .pair-line { display: flex; align-items: baseline; gap: 6px; }
 .pair-tiles .pair-who { font-size: 0.75rem; color: var(--muted); min-width: 5.5em; }
 .pair-tiles .value { font-size: 1.3rem; }
+.sessions li.pair-row .pair-stats { grid-column: 1 / span 2; grid-row: 2; }
+.pair-duration { font-weight: 600; margin: 0 0 10px; }

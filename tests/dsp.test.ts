@@ -147,3 +147,13 @@ test('ignoring Irregular Shape keeps those beats as ordinary beats and not event
   assert.ok(!b.events.some((e) => e.type === 'shape'), 'not an event when ignored');
   assert.ok(b.beats.filter((x) => !x.flags.length).length > a.beats.filter((x) => !x.flags.length).length, 'counted as ordinary beats');
 });
+
+test('a burst as the finger meets the watch doesn’t hide the heartbeats after it', () => {
+  const { raw } = simulate('rest', 30, 4);
+  const clean = analyze(raw, { fs: FS });
+  const burst = Int32Array.from(raw);
+  for (let i = 0; i < FS; i++) burst[i] = Math.round(12000 * Math.sin(i / 3));
+  const a = analyze(burst, { fs: FS });
+  assert.ok(a.beats.length >= clean.beats.length - 2, `${a.beats.length} of ${clean.beats.length} beats`);
+  assert.ok(!a.events.some((e) => e.t < 1.5), 'the burst is no event');
+});

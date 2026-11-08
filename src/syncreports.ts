@@ -102,6 +102,12 @@ function pairTiles(p: SessionMetrics | null, w: SessionMetrics | null): HTMLElem
   return box;
 }
 
+/** How long the spliced ECG is: the strips' time together, without the joins. */
+const splicedText = (strips: readonly MatchedStrip[]): string => {
+  const s = strips.reduce((a, x) => a + x.durationS, 0);
+  return `Combined duration ${mmss(s)} (${strips.length} strip${strips.length === 1 ? '' : 's'} spliced together)`;
+};
+
 /** Clock time of a moment in the joined ECGs. */
 function clockAt(strips: readonly MatchedStrip[], t: number): string {
   const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
@@ -313,7 +319,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       list.appendChild(li);
     }
     const total = st.joined.strips.reduce((a, s) => a + s.durationS, 0);
-    return [card(`ECG strips from the watch (${st.joined.strips.length}, ${n(total)} s in all)`,
+    return [card(`ECG strips from the watch (${st.joined.strips.length}, combined duration ${mmss(total)})`,
       table(['Figure', 'Watch D2 strips'], ecgFigures(st.joinedM).map(([k, v, d]) => [k, n(v, d)])),
       make('p', 'note', 'Every strip taken during the tracking, analysed together as one recording; the joins between strips are left out of every figure.'),
       list)];
@@ -332,6 +338,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       return [k, n(p, d), n(w, d), Number.isFinite(diff) ? signed(diff, Math.max(1, d)) : '--', Number.isFinite(diff) && p ? `${signed((100 * diff) / p, 1)} %` : '--'];
     });
     return [card('ECG strips: watch against Polar H10, beat for beat',
+      make('p', 'pair-duration', splicedText(set.strips)),
       make('p', 'note', `Only the moments the watch recorded: the strap’s ECG is cut to match each of the ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} and pieced together the same way.`),
       table(['Measure', 'Value'], [
         ['Watch beats that are also strap beats (%)', n(a.watchMatchedPct, 1)],
@@ -360,6 +367,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const rmssd = diffs.length ? Math.sqrt(diffs.reduce((x, y) => x + y * y, 0) / diffs.length) : NaN;
     const m = st.polarM;
     return [card('ECG where both recorded',
+      make('p', 'pair-duration', splicedText(set.strips)),
       make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. Heart rate and HRV use the heartbeats both devices found, timed by the strap; the waves are the strap’s. An event the strap marks counts only if the watch’s strip shows an event at the same heartbeat.'),
       table(['Figure', 'Combined'], [
         ['Heartbeats both found', String(set.pairs.length)],
@@ -427,6 +435,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       body: [
         ...heading('ECG: watch strips and Polar H10', g),
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events; on the strap’s ECG, “(both)” means the watch saw it too.`),
+        make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}`),
         pairTiles(st.polarM, st.watchM), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),
         ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
