@@ -683,7 +683,7 @@ async function renderHistory(): Promise<void> {
     const li = make('li');
     li.append(
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : s.source === 'watch' ? 'Watch D2 ECG' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : s.source === 'watch' ? (s.watchFs || s.cloudOnly ? 'Watch D2 ECG' : 'Watch D2 ECG · saved before v1.41.0, may be damaged') : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
       make('span', 'stats', `${stats} · ${fmtTime(s.durationS)}`),
     );
     li.appendChild(deleteButton('this recording', async () => {

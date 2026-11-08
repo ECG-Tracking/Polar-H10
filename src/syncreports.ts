@@ -40,6 +40,8 @@ interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; la
 
 /** The watch's 30-second ECG strips taken during a tracking, joined, and lined up with the strap's ECG when it has one. */
 interface Strips {
+  /** Strips left out because v1.39.0 cut them off and they couldn't be fetched again. */
+  damaged: number;
   joined: NonNullable<ReturnType<typeof joinStrips>>;
   joinedM: SessionMetrics;
   set: StripSet | null;
@@ -57,7 +59,14 @@ async function gatherStrips(e: SyncTrackingEntry): Promise<Strips | null> {
   const s = store.loadSettings(e.user);
   const opts = { notch: s.notch, qtcFormula: s.qtcFormula };
   const ins: StripIn[] = [];
-  for (const x of sessions) { const { samples } = await store.loadSession(x.id); if (samples) ins.push({ id: x.id, start: x.start, samples, fs: x.fs }); }
+  let damaged = 0;
+  for (const x of sessions) {
+    const { samples } = await store.loadSession(x.id);
+    // a strip from v1.39.0 cut off by its scale error (the watch no longer had it to repair) would skew the wave figures
+    if (samples && !x.watchFs && cutOff(samples)) { damaged++; continue; }
+    if (samples) ins.push({ id: x.id, start: x.start, samples, fs: x.fs });
+  }
+  if (!ins.length) return null;
   const joined = joinStrips(ins, STRIP_FS, opts);
   if (!joined) return null;
   let set: StripSet | null = null;
@@ -67,7 +76,14 @@ async function gatherStrips(e: SyncTrackingEntry): Promise<Strips | null> {
   }
   const profile = { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex };
   const metrics = (a: Analysis): SessionMetrics => sessionMetrics(a, a.x.length / a.fs, profile);
-  return { joined, joinedM: metrics(joined.watchA), set, watchM: set ? metrics(set.watchA) : null, polarM: set ? metrics(set.polarA) : null };
+  return { damaged, joined, joinedM: metrics(joined.watchA), set, watchM: set ? metrics(set.watchA) : null, polarM: set ? metrics(set.polarA) : null };
+}
+
+/** Over 1 % of samples at the 16-bit limit: cut off. */
+function cutOff(uv: Int16Array): boolean {
+  let n = 0;
+  for (const v of uv) if (v >= 32767 || v <= -32768) n++;
+  return n > uv.length / 100;
 }
 
 /** Figures from an ECG, as the Polar H10 report shows them: [name, value, decimals]. */
@@ -518,7 +534,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       body: [
         ...heading('ECG: watch strips and Polar H10', g),
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
-        make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}`),
+        make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
         ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),
         ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
