@@ -13,7 +13,7 @@ import {
   combineHr, compareRows, makeVersion, trackingSuggestions, whatChanged,
   type CompareRow, type HrPoint, type SyncTrace, type TimedBeat, type TrackVersion,
 } from './synccompare';
-import { deleteButton, fmt, make, renderOutliers, type Outlier } from './ui';
+import { deleteButton, fmt, make, renderOutliers, whenLine, type Outlier } from './ui';
 import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 import type { TrackingWatchData } from './d2/backup';
@@ -680,7 +680,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         const actions = make('div', 'row wrap sync-sleep-actions');
         actions.appendChild(remove);
-        li.append(make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking`), make('span', 'dur', userTag(e.user)), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
+        li.append(whenLine(dateTime(e.start), 'From Synchronised Tracking'), make('span', 'dur', userTag(e.user)), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
         list.appendChild(li);
         continue;
       }
@@ -689,7 +689,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const v = versions[i - 1]!;
         const li = make('li', 'sync-sleep-row');
         li.append(
-          make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
+          whenLine(dateTime(e.start), `From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
           make('span', 'dur', userTag(e.user)),
           make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w || hadStrips(e))),
         );

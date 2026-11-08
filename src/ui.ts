@@ -24,6 +24,13 @@ export function make<K extends keyof HTMLElementTagNameMap>(tag: K, className = 
 export const fmt = (v: number | null | undefined, d = 0): string => (v == null || !Number.isFinite(v) ? '--' : v.toFixed(d));
 
 /** "6 h 49 min" */
+/** A row's first line: the date and time in bold, then where it came from in normal weight. */
+export function whenLine(date: string, from: string): HTMLSpanElement {
+  const el = make('span', 'when', date);
+  el.appendChild(make('span', 'from', ` · ${from}`));
+  return el;
+}
+
 export function fmtHM(minutes: number): string {
   if (!Number.isFinite(minutes)) return '--';
   const m = Math.round(minutes);
