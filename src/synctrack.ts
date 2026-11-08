@@ -213,6 +213,9 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   // the latest beats of each device, shown live whether or not tracking is running
   const LIVE_BEATS = 30;
   let polarLive: number[] = [], watchLive: number[] = [];
+  /** When the watch last sent a beat: its heart rate only counts while beats keep coming (a stale one was once kept for minutes). */
+  let watchBeatAt = 0;
+  const WATCH_FRESH_MS = 10000;
   const keepLast = (a: number[], add: readonly number[]): number[] => [...a, ...add].slice(-LIVE_BEATS);
 
   const secondsIn = (): number => Math.round(((Date.now() - (t0 ?? Date.now())) / 1000) * 10) / 10;
@@ -305,6 +308,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       tWatchRr.value.textContent = String(b.rri);
       if (b.sqi === 0) { if (timerId != null) watchPoor++; continue; }
       watchLive = keepLast(watchLive, [b.rri]);
+      watchBeatAt = Date.now();
       if (timerId != null) { watchRr.push(b.rri); watchBeats.push([secondsIn(), b.rri]); }
     }
   };
@@ -336,7 +340,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   function tick(): void {
     void keepWatchTest();
     const tracking = timerId != null && t0 != null;
-    const wHr = hrFrom(watchLive);
+    const fresh = Date.now() - watchBeatAt < WATCH_FRESH_MS;
+    const wHr = fresh ? hrFrom(watchLive) : null;
     tPolarHr.value.textContent = r0(polar ? polarHrNow : null);
     tPolarHrv.value.textContent = r0(polar ? rmssd(tracking ? polarRr : polarLive) : null);
     tPolarHrv.sub.textContent = tracking ? `${usable(polarRr).length} beats tracked` : polar ? 'last 30 beats' : '';
@@ -443,7 +448,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     const entry: SyncTrackingEntry = {
       id: `t${start}`, user: deps.user() as UserNumber, start, durationS: Math.round((Date.now() - start) / 1000),
       polar: polarSeries.length || polarRr.length ? { hr: ph, rmssd: rmssd(polarRr), sdnn: sdnn(polarRr), beats: usable(polarRr).length } : null,
-      watch: watchSeries.length || watchRr.length ? { hr: wh, rmssd: rmssd(watchRr), sdnn: sdnn(watchRr), beats: usable(watchRr).length } : null,
+      watch: watchRr.length ? { hr: watchSeries.length ? wh : null, rmssd: rmssd(watchRr), sdnn: sdnn(watchRr), beats: usable(watchRr).length } : null,
       bp: null, ecgId: null,
     };
     const rows: [string, string, string][] = [

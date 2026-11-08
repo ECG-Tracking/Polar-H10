@@ -191,7 +191,7 @@ const splicedText = (strips: readonly MatchedStrip[]): string => {
 export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, watch: boolean): string {
   return [
     polar || e.polar || e.ecgId ? 'Polar H10' : null,
-    watch || e.watch ? 'Watch D2' : null,
+    watch || (e.watch && e.watch.beats > 0) ? 'Watch D2' : null, // a watch that sent no beats (an old stale heart rate) isn't listed
     bp || e.bps?.length || e.bp ? 'BP recorded' : null,
     `Duration ${mmss(e.durationS)}`,
   ].filter(Boolean).join(' · ');
@@ -656,6 +656,9 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const entries = store.loadSyncHistory().filter((e) => e.user === deps.user());
     if (!entries.length) { box.replaceChildren(make('p', 'muted', 'No synchronised tracking yet on this device.')); return; }
     const list = make('ul', 'sessions');
+    // the watch counts as recorded when it sent beats or when its ECG strips were taken during the tracking
+    const strips = (await store.listSessions(deps.user() as store.UserNumber).catch(() => [])).filter((s) => s.source === 'watch');
+    const hadStrips = (e: SyncTrackingEntry): boolean => strips.some((s) => s.start < e.start + e.durationS * 1000 && s.start + s.durationS * 1000 > e.start);
     for (const e of entries) {
       const versions = (await store.loadSyncTrace(e.id).catch(() => undefined))?.reports ?? [];
       const ecgId = e.ecgId;
@@ -681,7 +684,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         li.append(
           make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
-          make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w)),
+          make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w || hadStrips(e))),
         );
         const actions = make('div', 'row wrap sync-sleep-actions');
         for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
