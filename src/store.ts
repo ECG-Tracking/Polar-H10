@@ -72,7 +72,7 @@ export interface Session {
   durationS: number;
   fs: number;
   alias: string;
-  source: 'polar' | 'demo' | 'import';
+  source: 'polar' | 'demo' | 'import' | 'watch'; // 'watch': a 30-second ECG from the Watch D2
   userEvents: UserEvent[];
   summary: SessionSummary | null;
   synced?: boolean; // its summary is in the account's cloud copy

@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.39.0 – ECG from the Watch D2, 30 seconds at a time *(GitHub)*
+
+- ECG live and Synchronised Tracking have a new **ECG from the Watch D2** card. ECG live also gets its own Watch D2 connection (optional), with the watch account ID box.
+- How it works: connect the watch and press **Start watch ECG**. Then take an ECG on the watch: open its ECG app and keep a fingertip of the other hand on the watch's lower button for 30 seconds. Within seconds of it finishing, the app downloads the recording, plays it on screen like a Polar strip, analyses it (heart rate, RMSSD, QRS, QT, QTc and events) and saves it in ECG history as "Watch D2 ECG". Take the next ECG on the watch straight away, again and again, until you press **Stop**.
+- The watch can't stream its ECG or record continuously, because it needs your fingertip on the button, so it is always one 30-second strip at a time. The app checks the watch for new recordings every 5 seconds.
+- Strips are converted to the same scale and rate as the Polar H10 (µV, 130 samples a second), so reports, prints, exports and trends work the same. Each strip has an Open report button. Strips from Synchronised Tracking are marked as such.
+- In the cloud, watch ECG rows are stored as imported recordings with a marker, so your other devices still show them as Watch D2 ECG.
+
 ## 8 Nov 2026 – v1.38.1 – Ignore Irregular Shape for one recording at a time *(GitHub)*
 
 - Ignore Irregular Shape now applies only to the recording it was turned on for. Opening another saved ECG recording shows its original version. Rows saved ignoring irregular shape are still always shown that way.

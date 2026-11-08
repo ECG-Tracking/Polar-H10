@@ -44,7 +44,7 @@ export function parseRow(v: unknown): EcgRow | null {
   const id = r['id'], alias = r['alias'], source = r['source'], events = r['user_events'];
   const userNo = finiteNum(r, 'user_no'), started = finiteNum(r, 'started_at'), dur = finiteNum(r, 'duration_s'), fs = finiteNum(r, 'fs');
   if (typeof id !== 'string' || userNo === null || started === null || dur === null || fs === null) return null;
-  if (source !== 'polar' && source !== 'demo' && source !== 'import') return null;
+  if (source !== 'polar' && source !== 'demo' && source !== 'import' && source !== 'watch') return null;
   const userEvents = Array.isArray(events)
     ? events.flatMap((e): UserEvent[] => {
       const o = e as Obj;
@@ -353,7 +353,7 @@ export class CloudSync extends EventTarget {
       if (summary == null) continue;
       const ins = await this.client.from(ECG_TABLE).upsert({
         id: s.id, user_no: store.sessionUser(s), started_at: s.start, duration_s: s.durationS, fs: s.fs, alias: s.alias,
-        source: s.source, user_events: s.userEvents, summary,
+        source: s.source === 'watch' ? 'import' : s.source, user_events: s.userEvents, summary, // the table only knows polar, demo and import
       });
       if (ins.error) throw new Error(ins.error.message);
       await store.updateSession({ ...s, synced: true, ...(samples ? { summaryLevel: SUMMARY_LEVEL } : {}) });
@@ -391,7 +391,7 @@ export class CloudSync extends EventTarget {
         const m = summary.metrics;
         const session: Session = {
           id: r.id, user: userOf(r.user_no), start: r.started_at, durationS: r.duration_s, fs: r.fs, alias: r.alias,
-          source: r.source, userEvents: r.user_events, summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: m.eventCount },
+          source: summary.fromWatch ? 'watch' : r.source, userEvents: r.user_events, summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: m.eventCount },
           synced: true, cloudOnly: true, ...(summary.noShape || summary.ignoreShape ? { summaryLevel: SUMMARY_LEVEL } : {}), ...(summary.sleepId ? { sleepId: summary.sleepId } : {}), ...(summary.syncTracking ? { syncTracking: true } : {}), ...(summary.ignoreShape ? { ignoreShape: true } : {}), ...(summary.derivedFrom ? { derivedFrom: summary.derivedFrom } : {}),
         };
         await store.saveSummaryCopy(session, summary);

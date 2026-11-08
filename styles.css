@@ -661,3 +661,7 @@ details > summary { list-style-position: inside; }
 .event-nav { justify-content: center; gap: 12px; margin-top: 10px; }
 .event-nav span { min-width: 16ch; text-align: center; font-variant-numeric: tabular-nums; }
 #btnSaveNoShape { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+/* ECG from the Watch D2 */
+.watch-ecg-results { font-weight: 600; font-variant-numeric: tabular-nums; margin: 10px 0 0; }
+.watch-ecg-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
+.watch-ecg-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; background: var(--raised); border-radius: 8px; }

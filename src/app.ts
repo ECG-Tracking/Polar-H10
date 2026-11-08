@@ -7,7 +7,9 @@ import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
-import { forgetStrapButton } from './devicekit';
+import { connectionLog, forgetStrapButton } from './devicekit';
+import { watchEcgCard } from './watchecg';
+import type { LiveWatch } from './d2/live';
 import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
@@ -104,12 +106,58 @@ let backupsReady = false;
 let locateUI: ReturnType<typeof initLocate> | null = null;
 function openSync(): void {
   syncUI ??= initSyncTracking($('syncRoot'), $('syncHistoryRoot'), $('syncReportRoot'), {
-    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile,
+    loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, notch: () => settings.notch, profile: biodataProfile, settings: () => settings,
     openEcg: (id) => void openReport(id),
     summarise,
     show,
     updateReports,
   });
+}
+
+// ---------- ECG live: 30-second ECG strips from the Watch D2 ----------
+
+let liveWatch: LiveWatch | null = null;
+{
+  const wLog = connectionLog('Watch D2 connection log');
+  const wCard = make('div', 'card connect');
+  const wStatus = make('div', 'status');
+  const wDot = make('span', 'dot'), wText = make('span', '', 'Watch D2: not connected');
+  wStatus.append(wDot, wText);
+  const via = make('select') as HTMLSelectElement;
+  for (const [v, label] of [['bluetooth', 'Chrome Bluetooth'], ['mac', 'D2 Bridge app (Mac)']] as const) { const o = make('option', '', label) as HTMLOptionElement; o.value = v; via.appendChild(o); }
+  try { const v = localStorage.getItem('d2link-via'); via.value = v === 'mac' || (v == null && /Mac/i.test(navigator.platform)) ? 'mac' : 'bluetooth'; } catch { /* default */ }
+  const viaLabel = make('label', 'd2-days', 'Connect via ');
+  viaLabel.appendChild(via);
+  const btnW = make('button', '', 'Connect Watch D2') as HTMLButtonElement;
+  const btnWOff = make('button', '', 'Disconnect watch') as HTMLButtonElement;
+  btnWOff.hidden = true;
+  const wRow = make('div', 'row wrap');
+  wRow.append(btnW, viaLabel, btnWOff);
+  const acctSlot = make('div');
+  wCard.append(make('h3', 'sync-h', 'Watch D2 (optional)'), wStatus, wRow,
+    make('p', 'note', 'For 30-second ECG strips taken on the watch. Switch off Bluetooth on the phone the watch is connected to; on a Mac, open the D2 Bridge app first.'),
+    wLog.el, acctSlot);
+  const watchEcg = watchEcgCard({ watch: () => liveWatch, user: () => currentUser, settings: () => settings, log: wLog.log, openReport: (id) => void openReport(id) });
+  $('view-live').append(wCard, watchEcg.el);
+  void loadD2().then((api) => acctSlot.appendChild(api.accountBox(account.account?.id ?? 'local'))).catch(() => undefined);
+  btnW.addEventListener('click', () => void (async () => {
+    wDot.className = 'dot busy'; wText.textContent = 'Watch D2: connecting… (confirm on the watch if it asks)';
+    btnW.disabled = true;
+    try {
+      const api = await loadD2();
+      const w = await api.connectLive({ account: account.account?.id ?? 'local', user: currentUser, via: via.value === 'mac' ? 'mac' : 'bluetooth', profile: biodataProfile(), log: wLog.log });
+      w.onClose = () => { liveWatch = null; wDot.className = 'dot'; wText.textContent = 'Watch D2: disconnected'; btnW.hidden = false; btnWOff.hidden = true; watchEcg.update(); };
+      liveWatch = w;
+      wDot.className = 'dot on'; wText.textContent = `${w.name}: connected${w.battery != null ? ` · battery ${w.battery}%` : ''}`;
+      btnW.hidden = true; btnWOff.hidden = false;
+    } catch (err) {
+      wDot.className = 'dot'; wText.textContent = `Watch D2: ${errorMessage(err)}`;
+      wLog.log(`Error: ${errorMessage(err)}`);
+    }
+    btnW.disabled = false;
+    watchEcg.update();
+  })());
+  btnWOff.addEventListener('click', () => { watchEcg.stop(); void liveWatch?.close(); });
 }
 
 let reportsRunning: Promise<boolean> | null = null, reportsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -585,7 +633,7 @@ async function renderHistory(): Promise<void> {
     const li = make('li');
     li.append(
       make('span', 'when', new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
+      make('span', 'dur', [s.alias, s.source === 'demo' ? 'demo' : s.source === 'import' ? 'imported' : s.source === 'watch' ? 'Watch D2 ECG' : '', s.sleepId ? 'with sleep' : '', s.syncTracking ? 'from synchronised tracking' : '', s.ignoreShape ? 'ignoring irregular shape' : '', s.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ')),
       make('span', 'stats', `${stats} · ${fmtTime(s.durationS)}`),
     );
     li.appendChild(deleteButton('this recording', async () => {
@@ -850,7 +898,7 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
     `${m.beatCount} beats`,
     // the user label already shows the current alias; only mention one recorded under a different alias
     session.alias && !userLabel(store.sessionUser(session)).endsWith(`· ${session.alias}`) && `Alias ${session.alias}`,
-    session.source === 'demo' ? 'Demo signal' : session.source === 'import' ? 'Imported EDF' : 'Polar H10',
+    session.source === 'demo' ? 'Demo signal' : session.source === 'import' ? 'Imported EDF' : session.source === 'watch' ? 'Watch D2 (30-second ECG)' : 'Polar H10',
     session.sleepId ? 'Recorded with sleep monitor' : '',
     m.nnCount < 30 ? 'Short or noisy recording: HRV values are unreliable' : '',
   ].filter(Boolean).join(' · ');
