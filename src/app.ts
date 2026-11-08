@@ -654,7 +654,9 @@ async function renderHistory(): Promise<void> {
       li.append(
         whenLine(new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), 'From Synchronised Tracking'),
         make('span', 'dur', `${store.sessionUser(polar)}${polar.alias ? `:${polar.alias}` : ''}`),
-        make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0)),
+        // the combined duration of the spliced strips (within the tracking), not the strap's
+        make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0,
+          strips.reduce((a, s) => a + Math.max(0, Math.min(s.start + s.durationS * 1000, e.start + e.durationS * 1000) - Math.max(s.start, e.start)), 0) / 1000)),
       );
       li.addEventListener('click', () => {
         openSync();

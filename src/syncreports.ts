@@ -194,12 +194,13 @@ export function userTag(user: number): string {
 }
 
 /** A tracking's second line, the same everywhere it is listed: what was recorded, and how long. */
-export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, watch: boolean): string {
+/** `durationS`: the combined duration of the spliced strips, where both ECGs are shown together; otherwise the tracking's. */
+export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, watch: boolean, durationS = e.durationS): string {
   return [
     polar || e.polar || e.ecgId ? 'Polar H10' : null,
     watch || (e.watch && e.watch.beats > 0) ? 'Watch D2' : null, // a watch that sent no beats (an old stale heart rate) isn't listed
     bp || e.bps?.length || e.bp ? 'BP recorded' : null,
-    `Duration ${mmss(e.durationS)}`,
+    `Duration ${mmss(durationS)}`,
   ].filter(Boolean).join(' · ');
 }
 
@@ -359,8 +360,8 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     return bar;
   }
 
-  const heading = (title: string, g: Gathered): HTMLElement[] => [
-    make('h2', '', title), make('p', 'muted', `${dateTime(g.e.start)} · Duration ${mmss(g.e.durationS)}`),
+  const heading = (title: string, g: Gathered, durationS = g.e.durationS): HTMLElement[] => [
+    make('h2', '', title), make('p', 'muted', `${dateTime(g.e.start)} · Duration ${mmss(durationS)}`),
     ...(g.latest ? [] : [make('p', 'note', `Saved version of this report: ${madeText(g.v)}.`)]),
   ];
 
@@ -548,7 +549,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
     return {
       body: [
-        ...heading('ECG: watch strips and Polar H10', g),
+        ...heading('ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
         ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), w.box, p.box, bar, evBar,
