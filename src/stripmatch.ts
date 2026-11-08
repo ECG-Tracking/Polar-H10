@@ -150,6 +150,9 @@ export function matchStrips(strips: readonly StripIn[], polarStart: number, pola
     if (a.beats.length < Math.max(5, expected / 2) || matched < a.beats.length * 0.6) { skipped.push(s.id); continue; }
     const samples = stretchSamples(s.samples, fit.stretch); // the watch's own timing put right
     const start = s.start + offsetMs;
+    // the same ECG saved twice (its start a second apart) would put the same heartbeats, and events, in twice
+    const last = pieces[pieces.length - 1]?.strip;
+    if (last && start < last.start + last.durationS * 1000 - 1000) { skipped.push(s.id); continue; }
     // only the part the strap recorded too
     const from = Math.max(0, Math.round(((polarStart - start) / 1000) * fs));
     const to = Math.min(samples.length, Math.round(((polarEnd - start) / 1000) * fs));
@@ -240,8 +243,21 @@ export interface AgreedEvent { t: number; type: BeatFlag; agreed: boolean }
 /** The strap's events in the joined ECG, each marked agreed when the watch also has an event at that heartbeat. */
 export function agreedEvents(set: StripSet): AgreedEvent[] {
   const watchEvents = set.watchA.events.map((e) => e.t);
-  return set.polarA.events.map((e) => ({ t: e.t, type: e.type, agreed: watchEvents.some((t) => Math.abs(t - e.t) <= SAME_BEAT_MS / 1000) }));
+  const out: AgreedEvent[] = [];
+  for (const e of set.polarA.events) {
+    // a premature beat and the pause or odd shape right after it are one event, not two
+    const prev = out[out.length - 1];
+    if (prev && e.t - prev.t <= ONE_EVENT_S) {
+      prev.agreed ||= watchEvents.some((t) => Math.abs(t - e.t) <= SAME_BEAT_MS / 1000);
+      continue;
+    }
+    out.push({ t: e.t, type: e.type, agreed: watchEvents.some((t) => Math.abs(t - e.t) <= SAME_BEAT_MS / 1000) });
+  }
+  return out;
 }
+
+/** Events closer than this (s) are one: a premature beat and its following pause. */
+export const ONE_EVENT_S = 1.2;
 
 /** The watch's strips joined on their own (no strap ECG to line them up with), for the D2 report. */
 export function joinStrips(strips: readonly StripIn[], fs: number, opts: Opts = {}): { watch: Int16Array; watchA: Analysis; strips: MatchedStrip[] } | null {
