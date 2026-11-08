@@ -33,11 +33,11 @@ export function unitScale(samples: readonly number[]): number {
 }
 
 /** The watch's recording as µV at STRIP_FS: its rate worked out from the length, its unit from the size of the waves. */
-export function toStrip(r: WatchRecording): { uv: Int16Array; sourceFs: number } {
+export function toStrip(r: WatchRecording, rate?: number): { uv: Int16Array; sourceFs: number } {
   const n = r.samples.length, seconds = (r.end - r.start) / 1000;
   const raw = seconds > 0 ? n / seconds : 500;
   const near = RATES.reduce((a, b) => (Math.abs(b - raw) < Math.abs(a - raw) ? b : a));
-  const sourceFs = Math.abs(near - raw) / near < 0.1 ? near : raw;
+  const sourceFs = rate ?? (Math.abs(near - raw) / near < 0.1 ? near : raw);
   const scale = unitScale(r.samples);
   const out = new Int16Array(Math.max(0, Math.floor((n / sourceFs) * STRIP_FS)));
   const half = sourceFs / STRIP_FS / 2;
@@ -56,6 +56,21 @@ export function isCutOff(uv: Int16Array): boolean {
   let n = 0;
   for (const v of uv) if (v >= 32767 || v <= -32768) n++;
   return n > uv.length / 100;
+}
+
+/**
+ * The rate that fits: the watch's file gives whole seconds only, and its strips come at 500 or 512 samples a second (seen
+ * against the Polar H10: some strips 2.5 % too short at 500). The one whose heart rate is nearest the watch's own wins.
+ */
+export function bestRate(r: WatchRecording, s: { notch: number; qtcFormula: 'bazett' | 'fridericia' }): { uv: Int16Array; sourceFs: number } {
+  const first = toStrip(r);
+  if (!(r.avgHr > 0) || (first.sourceFs !== 500 && first.sourceFs !== 512)) return first;
+  const other = toStrip(r, first.sourceFs === 500 ? 512 : 500);
+  const hr = (uv: Int16Array): number => {
+    const beats = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula }).beats.flatMap((b) => (b.rr && !b.flags.length ? [b.rr] : []));
+    return beats.length ? 60000 / (beats.reduce((a, b) => a + b, 0) / beats.length) : NaN;
+  };
+  return Math.abs(hr(other.uv) - r.avgHr) < Math.abs(hr(first.uv) - r.avgHr) ? other : first;
 }
 
 export interface WatchEcgDeps {
@@ -129,15 +144,16 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   async function save(r: WatchRecording): Promise<void> {
     const id = `w${r.start}`;
     const old = await store.loadSession(id);
-    if (old.session && !(old.samples && isCutOff(old.samples))) return; // already saved (on the other page); a cut-off one from v1.39.0 is replaced
-    const { uv, sourceFs } = toStrip(r);
+    // already saved (on the other page); one from before v1.41.0 (cut off, or its rate not checked) is replaced
+    if (old.session && old.session.watchFs && !(old.samples && isCutOff(old.samples))) return;
+    const { uv, sourceFs } = bestRate(r, deps.settings());
     if (uv.length < STRIP_FS * 5) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
     const s = deps.settings();
     const a = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula });
     const m = sessionMetrics(a, uv.length / STRIP_FS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
     const session: Session = {
       id, user: deps.user() as UserNumber, start: r.start, durationS: uv.length / STRIP_FS, fs: STRIP_FS, alias: s.alias, source: 'watch',
-      userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
+      watchFs: sourceFs, userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
       ...(deps.syncTracking ? { syncTracking: true } : {}),
     };
     await store.saveSession(session, uv);

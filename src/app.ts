@@ -625,7 +625,41 @@ async function renderHistory(): Promise<void> {
   list.replaceChildren();
   $('emptyHistory').hidden = sessions.length > 0;
   trends.show(sessions);
-  for (const s of sessions) {
+  // synchronised trackings with watch ECG strips: one box with both readings, opening both ECGs together
+  const pairs = store.loadSyncHistory().filter((e) => e.user === currentUser && e.ecgId).flatMap((e) => {
+    const end = e.start + e.durationS * 1000;
+    const strips = sessions.filter((s) => s.source === 'watch' && s.start < end && s.start + s.durationS * 1000 > e.start);
+    const polar = sessions.find((s) => s.id === e.ecgId);
+    return strips.length && polar ? [{ e, strips, polar }] : [];
+  });
+  const rows: ({ kind: 'one'; s: Session } | { kind: 'pair'; p: (typeof pairs)[number] })[] = [
+    ...sessions.map((s) => ({ kind: 'one' as const, s })), ...pairs.map((p) => ({ kind: 'pair' as const, p })),
+  ].sort((a, b) => (b.kind === 'one' ? b.s.start : b.p.e.start + 1) - (a.kind === 'one' ? a.s.start : a.p.e.start + 1));
+  const line = (who: string, list: readonly Session[]): string => {
+    const sums = list.flatMap((s) => (s.summary ? [{ s: s.summary, w: s.durationS }] : []));
+    if (!sums.length) return `${who}: open to analyse`;
+    const w = sums.reduce((a, x) => a + x.w, 0), avg = (f: (x: NonNullable<Session['summary']>) => number): number => sums.reduce((a, x) => a + f(x.s) * x.w, 0) / w;
+    return `${who}: HR ${Math.round(avg((x) => x.meanHR)) || '--'} bpm · HRV ${Number.isFinite(avg((x) => x.hrvScore)) ? Math.round(avg((x) => x.hrvScore)) : '--'} · ${sums.reduce((a, x) => a + x.s.eventCount, 0)} events`;
+  };
+  for (const row of rows) {
+    if (row.kind === 'pair') {
+      const { e, strips, polar } = row.p;
+      const li = make('li', 'pair-row');
+      const stats = make('span', 'stats pair-stats');
+      stats.append(make('span', '', line('Polar H10', [polar])), make('span', '', line(`Watch D2, ${strips.length} strip${strips.length > 1 ? 's' : ''}`, strips)));
+      li.append(
+        make('span', 'when', new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
+        make('span', 'dur', 'Polar H10 + Watch D2 · both ECGs together'),
+        stats,
+      );
+      li.addEventListener('click', () => {
+        openSync();
+        syncUI?.openPair(e.id, { label: 'ECG history and trending', go: () => show('history') });
+      });
+      list.appendChild(li);
+      continue;
+    }
+    const s = row.s;
     const sum = s.summary;
     const stats = sum
       ? `HR ${Math.round(sum.meanHR) || '--'} bpm · HRV ${Number.isFinite(sum.hrvScore) ? Math.round(sum.hrvScore) : '--'} · ${sum.eventCount} events`
