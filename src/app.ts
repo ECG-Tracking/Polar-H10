@@ -19,6 +19,7 @@ import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
+import { trackingLine } from './syncreports';
 import { updateTrackingReports } from './syncreports';
 import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
@@ -646,27 +647,13 @@ async function renderHistory(): Promise<void> {
   const rows: ({ kind: 'one'; s: Session } | { kind: 'pair'; p: (typeof pairs)[number] })[] = [
     ...sessions.map((s) => ({ kind: 'one' as const, s })), ...pairs.map((p) => ({ kind: 'pair' as const, p })),
   ].sort((a, b) => (b.kind === 'one' ? b.s.start : b.p.e.start + 1) - (a.kind === 'one' ? a.s.start : a.p.e.start + 1));
-  const line = (who: string, list: readonly Session[]): string => {
-    const sums = list.flatMap((s) => (s.summary ? [{ s: s.summary, w: s.durationS }] : []));
-    if (!sums.length) return `${who}: open to analyse`;
-    // a strip without heartbeats has no heart rate: it is left out of the average rather than blanking it
-    const avg = (f: (x: NonNullable<Session['summary']>) => number): number => {
-      const ok = sums.filter((x) => Number.isFinite(f(x.s)));
-      const w = ok.reduce((a, x) => a + x.w, 0);
-      return w ? ok.reduce((a, x) => a + f(x.s) * x.w, 0) / w : NaN;
-    };
-    return `${who}: HR ${Math.round(avg((x) => x.meanHR)) || '--'} bpm · HRV ${Number.isFinite(avg((x) => x.hrvScore)) ? Math.round(avg((x) => x.hrvScore)) : '--'} · ${sums.reduce((a, x) => a + x.s.eventCount, 0)} events`;
-  };
   for (const row of rows) {
     if (row.kind === 'pair') {
       const { e, strips, polar } = row.p;
       const li = make('li', 'pair-row');
-      const stats = make('span', 'stats pair-stats');
-      stats.append(make('span', '', line('Polar H10', [polar])), make('span', '', line(`Watch D2, ${strips.length} strip${strips.length > 1 ? 's' : ''}`, strips)));
       li.append(
-        make('span', 'when', new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })),
-        make('span', 'dur', `Polar H10 + Watch D2 · both ECGs together · combined ${fmtTime(strips.reduce((a, s) => a + Math.max(0, Math.min(s.start + s.durationS * 1000, e.start + e.durationS * 1000) - Math.max(s.start, e.start)), 0) / 1000)}`),
-        stats,
+        make('span', 'when', `${new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · From Synchronised Tracking`),
+        make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0)),
       );
       li.addEventListener('click', () => {
         openSync();

@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.10 – One simple line for each tracking *(GitHub)*
+
+- Synchronised Tracking History, and each tracking's box in ECG history and trending, now use the same short format. The first line is the date and time, then "From Synchronised Tracking". The second says what was recorded and how long: "Polar H10 · Watch D2 · BP recorded · Duration 7:01".
+- The heart rates, RMSSD, blood pressure values and the "Generated…" note are no longer in the list: they are in the reports. A version number still shows where a tracking has more than one.
+
 ## 8 Nov 2026 – v1.41.9 – No more repair of old watch strips at Start *(GitHub)*
 
 - Start watch ECG no longer fetches strips saved before v1.41.0 from the watch to repair them. All that could be repaired have been. The five left (08:17–08:21 on 8 Nov) are no longer on the watch: they stay labelled "may be damaged" and are left out of the two-ECG analysis.
