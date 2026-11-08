@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.7 – Synchronised Tracking History: Polar H10 report and ECG only *(GitHub)*
+
+- Synchronised Tracking History and its reports no longer offer the D2, Combined and Comparison reports. Each tracking has its **Polar H10 report** and its **ECG**: with the watch's strips, both ECGs together with the comparison and combined figures.
+- The **Download today's watch ECGs again** button is removed. Watch strips saved before v1.41.0 are now repaired automatically: the first time you press Start watch ECG, the app fetches them again from the watch and replaces them. Nothing new is added that way.
+
 ## 8 Nov 2026 – v1.41.6 – Watch D2 ECG strips in their own section *(GitHub)*
 
 - ECG history and trending: the watch's 30-second ECG strips are now listed in their own section, **Watch D2 ECG strips**, below the other recordings, with how many there are. They open, delete and sync as before.
