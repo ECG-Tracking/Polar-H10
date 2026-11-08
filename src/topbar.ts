@@ -2,6 +2,7 @@
 // and the Account menu (who is signed in, layout, theme, log out, reset this account's data).
 
 import { make } from './ui';
+import { loadSettings, type UserNumber } from './store';
 
 export type Theme = 'auto' | 'light' | 'dark';
 export type Layout = 'desktop' | 'mobile';
@@ -122,7 +123,9 @@ export function initTopbar(deps: TopbarDeps): void {
   btn.setAttribute('aria-haspopup', 'true');
   btn.setAttribute('aria-expanded', 'false');
   btn.title = 'Account, layout, theme and log out';
-  const avatar = make('span', 'acct-avatar', String(deps.user()));
+  /** The user number and alias, as on every row: "1:M". */
+  const tag = (): string => { const u = deps.user(); const alias = loadSettings(u as UserNumber).alias; return `${u}${alias ? `:${alias}` : ''}`; };
+  const avatar = make('span', 'acct-avatar', tag());
   avatar.setAttribute('aria-hidden', 'true');
   btn.append(avatar, make('span', 'acct-menu-label', 'Account'));
   btn.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>');
@@ -172,7 +175,7 @@ export function initTopbar(deps: TopbarDeps): void {
     if (!src) return;
     src.value = userSel.value;
     src.dispatchEvent(new Event('change', { bubbles: true }));
-    setTimeout(() => { fillUsers(); avatar.textContent = String(deps.user()); }, 0); // shows what the app accepted
+    setTimeout(() => { fillUsers(); avatar.textContent = tag(); }, 0); // shows what the app accepted
   });
   const foot = make('div', 'acct-foot');
   const logOut = make('button', 'small acct-logout', 'Log Out');
@@ -192,12 +195,12 @@ export function initTopbar(deps: TopbarDeps): void {
   foot.append(logOut, reset);
   panel.append(who, userGroup, layout, theme, foot);
   wrap.append(btn, panel);
-  const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) { avatar.textContent = String(deps.user()); fillUsers(); } };
+  const setOpen = (o: boolean): void => { panel.hidden = !o; btn.setAttribute('aria-expanded', String(o)); if (o) { avatar.textContent = tag(); fillUsers(); } };
   btn.addEventListener('click', () => setOpen(panel.hidden));
   document.addEventListener('mousedown', (e) => { if (!panel.hidden && !wrap.contains(e.target as Node)) setOpen(false); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !panel.hidden) { setOpen(false); btn.focus(); } });
   // the badge follows the user chosen in ECG live or Settings
-  document.addEventListener('change', (e) => { if ((e.target as HTMLElement).id?.toLowerCase().includes('userselect')) setTimeout(() => { avatar.textContent = String(deps.user()); }, 0); });
+  document.addEventListener('change', (e) => { const el = e.target as HTMLInputElement; if (el.id?.toLowerCase().includes('userselect') || el.name === 'alias') setTimeout(() => { avatar.textContent = tag(); }, 0); });
 
   bar.append(searchBtn, wrap);
 }
