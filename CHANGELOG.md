@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.17 – Combined ECG shows its combined duration *(GitHub)*
+
+- A synchronised tracking's box in ECG history, and its two-ECG report, now give the combined duration of the spliced watch strips (for example "Duration 4:30") instead of the Polar H10's whole recording (7:01). Synchronised Tracking History keeps the tracking's own duration.
+
 ## 8 Nov 2026 – v1.41.16 – "From …" styled as the line below *(GitHub)*
 
 - "· From Synchronised Tracking" and the like now have the same font weight, size and colour as the second line of each row.
