@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.4 – Combined boxes laid out as the H10 ECG report; no Training section *(GitHub)*
+
+- The two-reading boxes (Combined report and the two-ECG report) now follow the Polar H10 ECG report:
+  - **Summary first:** the values outside the reference range are listed at the top, each naming the device.
+  - **Groups:** then "Rhythm and HRV" and "ECG waves".
+  - **Highlighting:** a box with a reading outside its range is highlighted, with ▲ or ▼ for each device that is out.
+  - **Events:** the count and % of beats, with the ≤ 1 % range.
+- The Training section (effort, HR recovery, highest HR and heart-rate zones) is removed from the Polar H10 ECG report and from the combined boxes.
+
 ## 8 Nov 2026 – v1.41.3 – Two readings in every box, with normal ranges; watch events only where the strap agrees *(GitHub)*
 
 - **Boxes:** the Combined report (in "ECG where both recorded") and the two-ECG report now show every box of the Polar H10 ECG report, each with two readings: the strap's and the watch's for the same moments. The boxes are mean heart rate, HRV score, RMSSD, SDNN, pNN50, pNN200, Poincaré SD1/SD2, events, QRS, QT, QTc, T wave positive, T-wave amplitude, T/R ratio, J point, ST at J+60 ms, R and S amplitude, 2–8 Hz energy and effort.
