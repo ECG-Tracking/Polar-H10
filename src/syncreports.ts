@@ -354,7 +354,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
       right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
     }
-    right.appendChild(button('ECG', kind === 'ecg' ? 'primary' : '', () => void openReport(e.id, 'ecg', at)));
+    right.appendChild(button('Combined ECG', kind === 'ecg' ? 'primary' : '', () => void openReport(e.id, 'ecg', at)));
     right.appendChild(button('Print / PDF', '', () => window.print()));
     bar.appendChild(right);
     return bar;
@@ -455,23 +455,12 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const st = g.strips, set = st?.set;
     if (!st || !set || !st.polarM) return [];
     const ev = agreedEvents(set), both = ev.filter((x) => x.agreed), strapOnly = ev.filter((x) => !x.agreed);
-    const rr = set.pairs.map((x) => x.polarRr);
-    const ok = rr.filter((x): x is number => x != null);
-    const diffs: number[] = [];
-    for (let i = 1; i < rr.length; i++) { const a = rr[i - 1], b = rr[i]; if (a != null && b != null) diffs.push(b - a); }
-    const meanRr = ok.length ? ok.reduce((x, y) => x + y, 0) / ok.length : NaN;
-    const rmssd = diffs.length ? Math.sqrt(diffs.reduce((x, y) => x + y * y, 0) / diffs.length) : NaN;
-    const m = st.polarM;
-    const counted = bothEvents(set);
-    const watchOnly = set.watchA.events.length - counted.watch;
-    return [card('ECG where both recorded',
-      make('p', 'pair-duration', splicedText(set.strips)),
-      ...(st.watchM ? [pairBoxes(m, st.watchM, counted, g.e.user)] : []),
-      make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. Heart rate and HRV use the heartbeats both devices found, timed by the strap; the waves are the strap’s. An event the strap marks counts only if the watch’s strip shows an event at the same heartbeat.'),
+    const watchOnly = set.watchA.events.length - bothEvents(set).watch;
+    // the figures are in the boxes at the top; here only what they don't show: which beats and events both saw
+    return [card('Heartbeats and events both devices saw',
+      make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. An event counts only if both devices show one at the same heartbeat.'),
       table(['Figure', 'Combined'], [
         ['Heartbeats both found', String(set.pairs.length)],
-        ['Average heart rate (bpm)', n(60000 / meanRr)], ['RMSSD (ms)', n(rmssd, 1)],
-        ['QRS duration (ms)', n(m.qrs)], ['QT (ms)', n(m.qt)], ['QTc (ms)', n(m.qtc)],
         ['Events both agree on', String(both.length)], ['Strap events the watch didn’t confirm (not counted)', String(strapOnly.length)],
         ['Watch events where the strap shows a normal beat (not counted)', String(Math.max(0, watchOnly))],
       ]),
@@ -483,7 +472,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const st = g.strips, set = st?.set;
     const ecgId = g.e.ecgId;
     if (!st || !set) {
-      return { body: [...heading('ECG: watch strips and Polar H10', g), make('p', 'muted', st ? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.' : 'No ECG strips were taken on the watch during this tracking.'),
+      return { body: [...heading('Combined ECG: watch strips and Polar H10', g), make('p', 'muted', st ? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.' : 'No ECG strips were taken on the watch during this tracking.'),
         ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
     }
     const agreed = agreedEvents(set);
@@ -549,7 +538,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
     return {
       body: [
-        ...heading('ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
+        ...heading('Combined ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
         ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), w.box, p.box, bar, evBar,
@@ -698,13 +687,13 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
           actions.appendChild(button(label, 'small', () => { backTo = null; void openReport(e.id, k, v.generatedAt); }));
         }
-        actions.appendChild(button('ECG', 'small', () => { backTo = null; void openReport(e.id, 'ecg', v.generatedAt); }));
+        actions.appendChild(button('Combined ECG', 'small', () => { backTo = null; void openReport(e.id, 'ecg', v.generatedAt); }));
         if (i === versions.length) actions.appendChild(remove); // the tracking goes, with all its versions
         li.appendChild(actions);
         list.appendChild(li);
       }
     }
-    box.replaceChildren(make('p', 'note', 'Each tracking has its Polar H10 report and its ECG: with the watch’s 30-second strips, both ECGs together, compared beat for beat. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
+    box.replaceChildren(make('p', 'note', 'Each tracking has its Polar H10 report and its Combined ECG: the watch’s 30-second strips and the strap’s ECG of the same moments, together, compared beat for beat. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
   }
 
   /** Shows the list now, then again if new versions were generated. */
