@@ -876,8 +876,8 @@ function showStrip(copy: EcgSummary, event: ReportEvent | null): void {
 }
 
 
-/** The ECG result tiles (rhythm, waves, training) with reference ranges; out-of-range values go into `sink`. */
-function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivElement[]; waves: HTMLDivElement[]; training: HTMLDivElement[]; exercise: boolean; maxSeen: number } {
+/** The ECG result tiles (rhythm and waves) with reference ranges; out-of-range values go into `sink`. */
+function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivElement[]; waves: HTMLDivElement[]; exercise: boolean; maxSeen: number } {
   const metric = (k: string, v: string, unit: string, hint = '', ref?: MetricRef | null): HTMLDivElement => metricTile(k, v, unit, hint, ref, sink);
   const qtcName = settings.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
   const R = referenceRanges(settings);
@@ -912,15 +912,7 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
     metric('2–8 Hz energy', fmt(m.hf, 1), '%', 'can include noise; no reference range'),
   ];
   const maxSeen = Math.max(0, ...m.hr.filter((v): v is number => v != null));
-  const rec60 = m.recovery;
-  const training = [
-    metric('Effort (TRIMP)', fmt(m.trimp, 1), '', 'Banister, uses rest/max HR'),
-    metric('HR recovery (60 s)', rec60 ? fmt(rec60.hrr60) : '--', 'bpm',
-      rec60 ? `${fmt(rec60.peak)} → ${fmt(rec60.after60)} bpm` : 'needs ≥1 min above 90 % of max HR',
-      rec60 ? ref('hrr60', rec60.hrr60) : null),
-    metric('Highest HR', maxSeen ? fmt(maxSeen) : '--', 'bpm', `max HR setting ${settings.hrMax}`),
-  ];
-  return { rhythm, waves, training, exercise, maxSeen };
+  return { rhythm, waves, exercise, maxSeen };
 }
 
 function renderReport({ session, analysis, metrics: m, events }: CurrentReport): void {
@@ -952,11 +944,9 @@ function renderReport({ session, analysis, metrics: m, events }: CurrentReport):
   const g = ecgTileGroups(m, outliers);
   $('mRhythm').replaceChildren(...g.rhythm);
   $('mWaves').replaceChildren(...g.waves);
-  $('mTraining').replaceChildren(...g.training);
   const exercise = g.exercise, maxSeen = g.maxSeen;
 
   renderOutliers(exercise);
-  renderZones(m.zones);
   renderCharts(analysis, m, maxSeen, copy !== null);
   renderEvents(events);
   for (const id of ['btnExportEdf', 'btnExportCsv']) {
@@ -1005,20 +995,7 @@ function renderOutliers(exercise: boolean): void {
   renderOutlierBox($('reportFlags'), outliers, exercise ? ['Exercise recording: resting ranges for heart rate and HRV are not applied.'] : []);
 }
 
-const ZONE_NAMES = ['Below 50 %', 'Z1 50–60 %', 'Z2 60–70 %', 'Z3 70–80 %', 'Z4 80–90 %', 'Z5 90–100 %'] as const;
 
-function renderZones(zones: SessionMetrics['zones']): void {
-  const totalZ = zones.reduce((a, b) => a + b, 0) || 1;
-  $('zoneBars').replaceChildren(...zones.map((secs, i) => {
-    const row = make('div', 'zone');
-    const fill = make('span');
-    fill.style.width = `${(100 * secs) / totalZ}%`;
-    const bar = make('div', 'bar');
-    bar.appendChild(fill);
-    row.append(make('span', '', ZONE_NAMES[i] ?? ''), bar, make('span', 't', fmtTime(secs)));
-    return row;
-  }));
-}
 
 function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number, isCopy = false): void {
   // heart rate over time

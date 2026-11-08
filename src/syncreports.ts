@@ -3,7 +3,7 @@
 
 import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { EcgViewer, type ReportEvent } from './charts';
-import { referenceRanges, checkRange, fmtRange, type ReferenceRanges } from './ranges';
+import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
 import { agreedEvents, beatAgreement, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
 import * as store from './store';
@@ -12,7 +12,7 @@ import {
   combineHr, compareRows, makeVersion, trackingSuggestions, whatChanged,
   type CompareRow, type HrPoint, type SyncTrace, type TimedBeat, type TrackVersion,
 } from './synccompare';
-import { deleteButton, fmt, make } from './ui';
+import { deleteButton, fmt, make, renderOutliers, type Outlier } from './ui';
 import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 import type { TrackingWatchData } from './d2/backup';
@@ -78,8 +78,9 @@ const ecgFigures = (m: SessionMetrics): [string, number, number][] => [
 ];
 
 /**
- * The H10 ECG report's boxes, each with two readings: the strap's and the watch's for the same moments, with the same
- * normal ranges. Events count only where both devices saw one at the same heartbeat.
+ * The H10 ECG report's layout with two readings per box: the strap's and the watch's for the same moments, with the same
+ * normal ranges: the values outside them listed first, then Rhythm and HRV, and ECG waves. Events count only where both
+ * devices saw one at the same heartbeat.
  */
 function pairBoxes(p: SessionMetrics, w: SessionMetrics, events: { polar: number; watch: number }, user: number): HTMLElement {
   const s = store.loadSettings(user as store.UserNumber);
@@ -87,46 +88,67 @@ function pairBoxes(p: SessionMetrics, w: SessionMetrics, events: { polar: number
   const [, , z2, z3, z4, z5] = p.zones;
   const exercise = (z2 + z3 + z4 + z5) / (p.zones.reduce((a, b) => a + b, 0) || 1) > 0.3;
   const qtcName = s.qtcFormula === 'fridericia' ? 'Fridericia' : 'Bazett';
-  const box = make('div', 'metrics pair-metrics');
-  const tile = (k: string, unit: string, f: (m: SessionMetrics) => number, hint = '', key?: keyof ReferenceRanges, digits = 0, text?: (m: SessionMetrics) => string): void => {
+  const outliers: Outlier[] = [];
+  const devices = [['Polar H10', p], ['Watch D2', w]] as const;
+  type Tile = { k: string; unit: string; f: (m: SessionMetrics) => number; hint?: string; key?: keyof ReferenceRanges; digits?: number; text?: (m: SessionMetrics) => string; range?: Range; refText?: string };
+  const tile = (o: Tile): HTMLElement => {
     const el = make('div', 'metric');
-    el.appendChild(make('div', 'k', k));
-    const range = key && !(exercise && R[key].rest) ? R[key] : undefined;
-    for (const [who, m] of [['Polar H10', p], ['Watch D2', w]] as const) {
-      const v = f(m), line = make('div', 'pair-line');
-      const shown = text ? text(m) : Number.isFinite(v) ? fmt(v, digits) : '--';
+    el.appendChild(make('div', 'k', o.k));
+    const range = o.range ?? (o.key && !(exercise && R[o.key].rest) ? R[o.key] : undefined);
+    const flags: HTMLElement[] = [];
+    for (const [who, m] of devices) {
+      const v = o.f(m), line = make('div', 'pair-line');
+      const shown = o.text ? o.text(m) : Number.isFinite(v) ? fmt(v, o.digits ?? 0) : '--';
       const val = make('span', 'v', shown);
-      if (unit && shown !== '--') val.appendChild(make('small', '', unit));
+      if (o.unit && shown !== '--') val.appendChild(make('small', '', o.unit));
       line.append(make('span', 'pair-who', who), val);
-      const status = range ? checkRange(range, v) : null;
-      if (status) { line.classList.add('out'); line.appendChild(make('span', 'flag', status === 'high' ? `▲ ${range?.highLabel ?? 'Above range'}` : `▼ ${range?.lowLabel ?? 'Below range'}`)); }
       el.appendChild(line);
+      const status = range ? checkRange(range, v) : null;
+      if (status && range) {
+        const label = status === 'high' ? range.highLabel : range.lowLabel;
+        line.classList.add('out');
+        el.classList.add('out');
+        flags.push(make('div', 'flag', `${status === 'high' ? '▲' : '▼'} ${who}: ${label ?? (status === 'high' ? 'above range' : 'below range')}`));
+        const rangeText = o.refText ?? `${fmtRange(range)}${o.unit ? ` ${o.unit}` : ''}`;
+        outliers.push({ name: `${o.k} (${who})`, value: o.key === undefined && o.range ? `${fmt(v, 1)} % of beats` : `${shown}${o.unit ? ` ${o.unit}` : ''}`, range: rangeText, status });
+      }
     }
-    if (hint) el.appendChild(make('div', 'h', hint));
-    if (range) el.appendChild(make('div', 'ref', `Ref ${fmtRange(range)}${unit ? ` ${unit}` : ''}${range.note ? ` · ${range.note}` : ''}`));
-    else if (key && exercise) el.appendChild(make('div', 'ref', 'Resting range not applied (exercise)'));
-    box.appendChild(el);
+    if (o.hint) el.appendChild(make('div', 'h', o.hint));
+    if (range) el.appendChild(make('div', 'ref', `Ref ${o.refText ?? `${fmtRange(range)}${o.unit ? ` ${o.unit}` : ''}`}${range.note ? ` · ${range.note}` : ''}`));
+    else if (o.key && exercise) el.appendChild(make('div', 'ref', 'Resting range not applied (exercise)'));
+    el.append(...flags);
+    return el;
   };
-  tile('Mean heart rate', 'bpm', (m) => m.meanHR, 'from normal beats', 'meanHR');
-  tile('HRV score', '', (m) => m.hrvScore, '15 × ln(RMSSD)', 'hrvScore');
-  tile('RMSSD', 'ms', (m) => m.rmssd, '', 'rmssd');
-  tile('SDNN', 'ms', (m) => m.sdnn, '', 'sdnn');
-  tile('pNN50', '%', (m) => m.pnn50, 'successive Δ > 50 ms', 'pnn50', 1);
-  tile('pNN200', '%', (m) => m.pnn200, 'successive Δ > 200 ms', 'pnn200', 1);
-  tile('Poincaré SD1 / SD2', 'ms', () => NaN, '', undefined, 0, (m) => `${fmt(m.sd1)} / ${fmt(m.sd2)}`);
-  tile('Events', '', (m) => (m === p ? events.polar : events.watch), 'only where both devices saw it');
-  tile('QRS duration', 'ms', (m) => m.qrs, 'median beat', 'qrs');
-  tile('QT', 'ms', (m) => m.qt, 'median beat');
-  tile('QTc', 'ms', (m) => m.qtc, `${qtcName}, median beat`, 'qtc');
-  tile('T wave positive', '%', (m) => m.tPositive, '', 'tPositive');
-  tile('T-wave amplitude', 'µV', (m) => m.tAmp, 'median, vs PR baseline', 'tAmp');
-  tile('T/R ratio', '', (m) => m.trRatio, 'T size ÷ R wave size, median', 'trRatio', 2);
-  tile('J point', 'µV', (m) => m.jPoint, 'vs PR baseline', 'jPoint');
-  tile('ST at J+60 ms', 'µV', (m) => m.st60, '', 'st60');
-  tile('R amplitude', 'µV', (m) => m.rAmp, 'tallest upward wave; no reference range');
-  tile('S amplitude', 'µV', (m) => Math.abs(m.sAmp), 'depth of the deepest downward wave; no reference range');
-  tile('2–8 Hz energy', '%', (m) => m.hf, 'can include noise; no reference range', undefined, 1);
-  tile('Effort (TRIMP)', '', (m) => m.trimp, 'Banister, uses rest/max HR', undefined, 1);
+  // events: those both saw, as a share of each device's beats
+  const pct = (m: SessionMetrics): number => (m.beatCount ? (100 * (m === p ? events.polar : events.watch)) / m.beatCount : NaN);
+  const rhythm = [
+    tile({ k: 'Mean heart rate', unit: 'bpm', f: (m) => m.meanHR, hint: 'from normal beats', key: 'meanHR' }),
+    tile({ k: 'HRV score', unit: '', f: (m) => m.hrvScore, hint: '15 × ln(RMSSD)', key: 'hrvScore' }),
+    tile({ k: 'RMSSD', unit: 'ms', f: (m) => m.rmssd, key: 'rmssd' }),
+    tile({ k: 'SDNN', unit: 'ms', f: (m) => m.sdnn, key: 'sdnn' }),
+    tile({ k: 'pNN50', unit: '%', f: (m) => m.pnn50, hint: 'successive Δ > 50 ms', key: 'pnn50', digits: 1 }),
+    tile({ k: 'pNN200', unit: '%', f: (m) => m.pnn200, hint: 'successive Δ > 200 ms', key: 'pnn200', digits: 1 }),
+    tile({ k: 'Poincaré SD1 / SD2', unit: 'ms', f: () => NaN, text: (m) => `${fmt(m.sd1)} / ${fmt(m.sd2)}` }),
+    tile({ k: 'Events', unit: '', f: pct, text: (m) => `${m === p ? events.polar : events.watch} · ${fmt(pct(m), 1)} %`, hint: 'only where both devices saw it · % of beats', range: { ...R.eventPct, note: 'of beats' }, refText: `${fmtRange(R.eventPct)} %` }),
+  ];
+  const waves = [
+    tile({ k: 'QRS duration', unit: 'ms', f: (m) => m.qrs, hint: 'median beat', key: 'qrs' }),
+    tile({ k: 'QT', unit: 'ms', f: (m) => m.qt, hint: 'median beat' }),
+    tile({ k: 'QTc', unit: 'ms', f: (m) => m.qtc, hint: `${qtcName}, median beat`, key: 'qtc' }),
+    tile({ k: 'T wave positive', unit: '%', f: (m) => m.tPositive, key: 'tPositive' }),
+    tile({ k: 'T-wave amplitude', unit: 'µV', f: (m) => m.tAmp, hint: 'median, vs PR baseline', key: 'tAmp' }),
+    tile({ k: 'T/R ratio', unit: '', f: (m) => m.trRatio, hint: 'T size ÷ R wave size, median', key: 'trRatio', digits: 2 }),
+    tile({ k: 'J point', unit: 'µV', f: (m) => m.jPoint, hint: 'vs PR baseline', key: 'jPoint' }),
+    tile({ k: 'ST at J+60 ms', unit: 'µV', f: (m) => m.st60, key: 'st60' }),
+    tile({ k: 'R amplitude', unit: 'µV', f: (m) => m.rAmp, hint: 'tallest upward wave; no reference range' }),
+    tile({ k: 'S amplitude', unit: 'µV', f: (m) => Math.abs(m.sAmp), hint: 'depth of the deepest downward wave; no reference range' }),
+    tile({ k: '2–8 Hz energy', unit: '%', f: (m) => m.hf, hint: 'can include noise; no reference range', digits: 1 }),
+  ];
+  const box = make('div', 'pair-report');
+  const flags = make('div');
+  renderOutliers(flags, outliers, ['The watch records lead I (wrist to fingertip), the strap a chest lead: wave sizes can differ even when both are right.']);
+  const group = (title: string, tiles: HTMLElement[]): HTMLElement[] => { const g = make('div', 'metrics pair-metrics'); g.append(...tiles); return [make('h3', '', title), g]; };
+  box.append(flags, ...group('Rhythm and HRV', rhythm), ...group('ECG waves', waves));
   return box;
 }
 
