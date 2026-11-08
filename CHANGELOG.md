@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.40.0 – Watch ECG strips in the tracking reports, and a scale fix *(GitHub)*
+
+- **Fix:** the watch's ECG values were read in the wrong unit, so v1.39.0 strips were cut off at the 16-bit limit (a sixth to two fifths of each strip). The unit is now worked out from the size of the waves (mV, µV or nV). **Download today's watch ECGs again** (on the Watch ECG card) fetches the day's recordings from the watch and replaces the cut-off strips.
+- Events %: beats that are likely connection errors no longer count towards "% of beats".
+- **D2 report:** every watch ECG strip taken during the tracking, analysed together as one recording (heart rate, HRV, QRS, QT, QTc, wave sizes and events; the joins are left out), with a list of the strips.
+- **Comparison report:** each strip is lined up with the Polar H10 beat for beat (the watch's clock only gives whole seconds, so each strip is shifted to fit). The strap's ECG is cut to the same moments and pieced together. Shows how many beats match, the interval difference, and every ECG figure side by side.
+- **Combined report:** the same moments only. Heart rate and HRV come from the heartbeats both found; the waves are the strap's. An event the strap marks counts only if the watch's strip shows one at the same heartbeat.
+- **ECG** (in Synchronised Tracking History and on each report) now opens both ECGs one above the other: the watch's strips joined, and the strap's ECG of exactly the same moments. They move and zoom together, with Previous and Next event, and the comparison and combined figures underneath. Without watch strips it offers the Polar H10 ECG as before.
+
 ## 8 Nov 2026 – v1.39.0 – ECG from the Watch D2, 30 seconds at a time *(GitHub)*
 
 - ECG live and Synchronised Tracking have a new **ECG from the Watch D2** card. ECG live also gets its own Watch D2 connection (optional), with the watch account ID box.

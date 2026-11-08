@@ -1,7 +1,9 @@
 // Synchronised Tracking History: one row per version of each tracking, each with four reports (Polar H10, D2, Combined,
 // Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
-import { analyze, sessionMetrics } from './dsp';
+import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
+import { EcgViewer, type ReportEvent } from './charts';
+import { agreedEvents, beatAgreement, joinStrips, matchStrips, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
 import * as store from './store';
 import type { SyncBp, SyncTrackingEntry } from './store';
@@ -14,7 +16,7 @@ import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 import type { TrackingWatchData } from './d2/backup';
 
-type Kind = 'polar' | 'watch' | 'combined' | 'comparison';
+type Kind = 'polar' | 'watch' | 'combined' | 'comparison' | 'ecg';
 
 /** What keeping the reports up to date needs. */
 export interface TrackingReportDeps {
@@ -32,7 +34,53 @@ export interface SyncReportDeps extends TrackingReportDeps {
 }
 
 /** One tracking, and the version of its reports being shown. */
-interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; latest: boolean }
+interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; latest: boolean; strips: Strips | null }
+
+/** The watch's 30-second ECG strips taken during a tracking, joined, and lined up with the strap's ECG when it has one. */
+interface Strips {
+  joined: NonNullable<ReturnType<typeof joinStrips>>;
+  joinedM: SessionMetrics;
+  set: StripSet | null;
+  watchM: SessionMetrics | null;
+  polarM: SessionMetrics | null;
+}
+
+const STRIP_FS = 130;
+
+async function gatherStrips(e: SyncTrackingEntry): Promise<Strips | null> {
+  const end = e.start + e.durationS * 1000;
+  const sessions = (await store.listSessions(e.user as store.UserNumber))
+    .filter((s) => s.source === 'watch' && !s.cloudOnly && s.start < end && s.start + s.durationS * 1000 > e.start);
+  if (!sessions.length) return null;
+  const s = store.loadSettings(e.user);
+  const opts = { notch: s.notch, qtcFormula: s.qtcFormula };
+  const ins: StripIn[] = [];
+  for (const x of sessions) { const { samples } = await store.loadSession(x.id); if (samples) ins.push({ id: x.id, start: x.start, samples, fs: x.fs }); }
+  const joined = joinStrips(ins, STRIP_FS, opts);
+  if (!joined) return null;
+  let set: StripSet | null = null;
+  if (e.ecgId) {
+    const { session, samples } = await store.loadSession(e.ecgId);
+    if (session && samples && session.fs === STRIP_FS) set = matchStrips(ins, session.start, samples, STRIP_FS, opts);
+  }
+  const profile = { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex };
+  const metrics = (a: Analysis): SessionMetrics => sessionMetrics(a, a.x.length / a.fs, profile);
+  return { joined, joinedM: metrics(joined.watchA), set, watchM: set ? metrics(set.watchA) : null, polarM: set ? metrics(set.polarA) : null };
+}
+
+/** Figures from an ECG, as the Polar H10 report shows them: [name, value, decimals]. */
+const ecgFigures = (m: SessionMetrics): [string, number, number][] => [
+  ['Average heart rate (bpm)', m.meanHR, 0], ['RMSSD (ms)', m.rmssd, 1], ['SDNN (ms)', m.sdnn, 1], ['pNN50 (%)', m.pnn50, 1],
+  ['QRS duration (ms)', m.qrs, 0], ['QT (ms)', m.qt, 0], ['QTc (ms)', m.qtc, 0],
+  ['R amplitude (µV)', m.rAmp, 0], ['S amplitude (µV)', Math.abs(m.sAmp), 0], ['T-wave amplitude (µV)', m.tAmp, 0], ['T/R ratio', m.trRatio, 2],
+  ['Events', m.eventCount, 0],
+];
+
+/** Clock time of a moment in the joined ECGs. */
+function clockAt(strips: readonly MatchedStrip[], t: number): string {
+  const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
+  return s ? new Date(s.start + (t - s.at) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--';
+}
 
 /** Stored watch readings this close to a tracking are shown with it, like blood pressure. */
 const NEAR_MS = 3600000;
@@ -176,8 +224,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
       right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
     }
-    const ecgId = e.ecgId;
-    if (ecgId) right.appendChild(button('ECG', '', () => deps.openEcg(ecgId)));
+    right.appendChild(button('ECG', kind === 'ecg' ? 'primary' : '', () => void openReport(e.id, 'ecg', at)));
     right.appendChild(button('Print / PDF', '', () => window.print()));
     bar.appendChild(right);
     return bar;
@@ -222,8 +269,142 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       ...heading('D2 report', g), ...oldNote(g),
       card('Heart rate', hrChart([{ name: 'Watch D2', color: WATCH_COLOR, points: g.trace.watchHr }], g.e.durationS)),
       card('Beats and HRV', table(['Figure', 'Watch D2'], rows.length ? rows : [['No beats saved', '--']])),
+      ...watchStripCards(g),
       bpCard(g.v.bps), ...storedCards(g.v.stored),
     ];
+  }
+
+  /** The D2 report's strips: all of them analysed together, as the Polar H10 report analyses its ECG. */
+  function watchStripCards(g: Gathered): HTMLElement[] {
+    const st = g.strips;
+    if (!st) return [card('ECG strips from the watch', make('p', 'muted', 'No 30-second ECG strips were taken on the watch during this tracking. Take them with “Start watch ECG” on Synchronised Tracking or ECG live.'))];
+    const list = make('ul', 'watch-ecg-list');
+    for (const s of st.joined.strips) {
+      const li = make('li');
+      li.append(make('span', '', `${clock(s.start)}:${String(new Date(s.start).getSeconds()).padStart(2, '0')} · ${n(s.durationS)} s`), button('Open', 'sync-open', () => deps.openEcg(s.id)));
+      list.appendChild(li);
+    }
+    const total = st.joined.strips.reduce((a, s) => a + s.durationS, 0);
+    return [card(`ECG strips from the watch (${st.joined.strips.length}, ${n(total)} s in all)`,
+      table(['Figure', 'Watch D2 strips'], ecgFigures(st.joinedM).map(([k, v, d]) => [k, n(v, d)])),
+      make('p', 'note', 'Every strip taken during the tracking, analysed together as one recording; the joins between strips are left out of every figure.'),
+      list)];
+  }
+
+  /** The comparison report's strips: each one against the strap's ECG of the same moments, beat for beat. */
+  function stripComparison(g: Gathered): HTMLElement[] {
+    const st = g.strips;
+    if (!st) return [];
+    const set = st.set;
+    if (!set || !st.watchM || !st.polarM) return [card('ECG strips: watch against Polar H10', make('p', 'muted', g.e.ecgId ? 'None of the watch’s strips overlaps the strap’s ECG.' : 'This tracking has no Polar H10 ECG to compare the strips with.'))];
+    const a = beatAgreement(set);
+    const wm = st.watchM, pm = st.polarM;
+    const rows = ecgFigures(pm).map(([k, p, d], i) => {
+      const w = ecgFigures(wm)[i]?.[1] ?? NaN, diff = w - p;
+      return [k, n(p, d), n(w, d), Number.isFinite(diff) ? signed(diff, Math.max(1, d)) : '--', Number.isFinite(diff) && p ? `${signed((100 * diff) / p, 1)} %` : '--'];
+    });
+    return [card('ECG strips: watch against Polar H10, beat for beat',
+      make('p', 'note', `Only the moments the watch recorded: the strap’s ECG is cut to match each of the ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} and pieced together the same way.`),
+      table(['Measure', 'Value'], [
+        ['Watch beats that are also strap beats (%)', n(a.watchMatchedPct, 1)],
+        ['Strap beats the watch also found (%)', n(a.polarFoundPct, 1)],
+        ['Beat intervals compared', String(a.intervals)],
+        ['Interval difference, watch minus strap (ms)', Number.isFinite(a.rrBias) ? signed(a.rrBias, 1) : '--'],
+        ['Average size of the interval difference (ms)', n(a.rrMae, 1)],
+        ['Intervals within ±10 ms (%)', n(a.within10Pct)],
+      ]),
+      table(['Figure', 'Polar H10 (same moments)', 'Watch D2 strips', 'Difference', 'Difference %'], rows),
+      table(['Strip (watch’s time)', 'Shift to match the strap (s)', 'Length (s)', 'Beats lined up'],
+        set.strips.map((s) => [clockAt([s], s.at), signed(s.offsetMs / 1000, 2), n(s.durationS), `${s.matched} of ${s.watchBeats}`])),
+      make('p', 'note', 'Difference = watch minus strap. The watch records lead I (wrist to fingertip) and the strap a chest lead, so wave sizes and shapes are expected to differ; timing (heart rate, intervals, QRS and QT) should agree. The watch’s clock only gives whole seconds, so each strip is shifted to line up with the strap.'))];
+  }
+
+  /** The combined report's strips: the strap's ECG of the same moments, with only the events both devices saw. */
+  function stripCombined(g: Gathered): HTMLElement[] {
+    const st = g.strips, set = st?.set;
+    if (!st || !set || !st.polarM) return [];
+    const ev = agreedEvents(set), both = ev.filter((x) => x.agreed), strapOnly = ev.filter((x) => !x.agreed);
+    const rr = set.pairs.map((x) => x.polarRr);
+    const ok = rr.filter((x): x is number => x != null);
+    const diffs: number[] = [];
+    for (let i = 1; i < rr.length; i++) { const a = rr[i - 1], b = rr[i]; if (a != null && b != null) diffs.push(b - a); }
+    const meanRr = ok.length ? ok.reduce((x, y) => x + y, 0) / ok.length : NaN;
+    const rmssd = diffs.length ? Math.sqrt(diffs.reduce((x, y) => x + y * y, 0) / diffs.length) : NaN;
+    const m = st.polarM;
+    return [card('ECG where both recorded',
+      make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. Heart rate and HRV use the heartbeats both devices found, timed by the strap; the waves are the strap’s. An event the strap marks counts only if the watch’s strip shows an event at the same heartbeat.'),
+      table(['Figure', 'Combined'], [
+        ['Heartbeats both found', String(set.pairs.length)],
+        ['Average heart rate (bpm)', n(60000 / meanRr)], ['RMSSD (ms)', n(rmssd, 1)],
+        ['QRS duration (ms)', n(m.qrs)], ['QT (ms)', n(m.qt)], ['QTc (ms)', n(m.qtc)],
+        ['Events both agree on', String(both.length)], ['Strap events the watch didn’t confirm (not counted)', String(strapOnly.length)],
+      ]),
+      ...(ev.length ? [table(['Time', 'Event', 'Counted'], ev.map((x) => [clockAt(set.strips, x.t), EVENT_LABELS[x.type], x.agreed ? 'Yes: both' : 'No: strap only']))] : []))];
+  }
+
+  /** Both ECGs one above the other, moving together; with the comparison and combined figures. */
+  function ecgPairReport(g: Gathered): { body: HTMLElement[]; after: () => void } {
+    const st = g.strips, set = st?.set;
+    const ecgId = g.e.ecgId;
+    if (!st || !set) {
+      return { body: [...heading('ECG: watch strips and Polar H10', g), make('p', 'muted', st ? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.' : 'No ECG strips were taken on the watch during this tracking.'),
+        ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
+    }
+    const agreed = agreedEvents(set);
+    const wEvents: ReportEvent[] = set.watchA.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] }));
+    const pEvents: ReportEvent[] = agreed.map((e) => ({ t: e.t, type: e.type, label: `${EVENT_LABELS[e.type]}${e.agreed ? ' (both)' : ' (strap only)'}` }));
+    const mk = (title: string, label: string): { box: HTMLElement; canvas: HTMLCanvasElement } => {
+      const canvas = make('canvas');
+      canvas.setAttribute('aria-label', label);
+      const box = make('div', 'card viewer');
+      box.append(make('h3', 'sync-h', title), canvas);
+      return { box, canvas };
+    };
+    const w = mk('Watch D2: the strips joined', 'ECG strips from the watch, joined'), p = mk('Polar H10: the same moments', 'The strap’s ECG of the same moments');
+    const wv = new EcgViewer(w.canvas), pv = new EcgViewer(p.canvas);
+    const pos = make('input');
+    Object.assign(pos, { type: 'range', min: '0', max: '1000', value: '0' });
+    pos.setAttribute('aria-label', 'Position in both ECGs');
+    const time = make('span', 'muted', '');
+    const all = [...new Set([...wEvents, ...pEvents].map((e) => Math.round(e.t * 100) / 100))].sort((a, b) => a - b);
+    let idx = -1;
+    const evText = make('span', 'muted', all.length ? `${all.length} event${all.length > 1 ? 's' : ''}` : 'No events');
+    const goEvent = (i: number): void => {
+      const t = all[i];
+      if (t == null) return;
+      idx = i;
+      wv.span = Math.min(wv.span, 6);
+      wv.center(t);
+      const here = [...wEvents.filter((e) => Math.abs(e.t - t) < 0.06).map((e) => `watch: ${e.label}`), ...pEvents.filter((e) => Math.abs(e.t - t) < 0.06).map((e) => `strap: ${e.label}`)];
+      evText.textContent = `Event ${i + 1} of ${all.length} at ${clockAt(set.strips, t)} · ${here.join(' · ')}`;
+    };
+    const bar = make('div', 'row wrap viewer-bar no-print');
+    bar.append(button('−', '', () => wv.zoom(1.4)), pos, button('+', '', () => wv.zoom(1 / 1.4)), time);
+    const evBar = make('div', 'row wrap event-nav no-print');
+    evBar.append(button('← Previous event', '', () => goEvent(Math.max(0, idx - 1))), evText, button('Next event →', '', () => goEvent(Math.min(all.length - 1, idx + 1))));
+    // move one and the other follows, so a heartbeat is at the same place in both
+    let linking = false;
+    const link = (a: EcgViewer, b: EcgViewer): void => a.addEventListener('move', () => {
+      if (linking) return;
+      linking = true;
+      b.span = a.span;
+      b.goTo(a.t0);
+      linking = false;
+      pos.value = String(Math.round((a.t0 / Math.max(0.001, a.duration - a.span)) * 1000));
+      time.textContent = `${clockAt(set.strips, a.t0)} · ${n(a.span, 1)} s shown`;
+    });
+    link(wv, pv); link(pv, wv);
+    pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
+    return {
+      body: [
+        ...heading('ECG: watch strips and Polar H10', g),
+        make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events; on the strap’s ECG, “(both)” means the watch saw it too.`),
+        w.box, p.box, bar, evBar,
+        ...stripComparison(g), ...stripCombined(g),
+        ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
+      ],
+      after: () => { wv.load(set.watchA, wEvents); pv.load(set.polarA, pEvents); wv.dispatchEvent(new Event('move')); },
+    };
   }
 
   function combinedReport(g: Gathered): HTMLElement[] {
@@ -236,6 +417,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       card('Beats and HRV', table(['Figure', 'Combined'], rows.length ? rows : [['No beats saved', '--']])),
       bpCard(g.v.bps),
       ...(g.v.ecg ? [card('ECG waves (Polar H10 only)', table(['Figure', 'Polar H10'], ecgRows(g.v.ecg)))] : []),
+      ...stripCombined(g),
     ];
   }
 
@@ -282,6 +464,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         ])
         : make('p', 'muted', 'Second-by-second heart rate from both devices is needed for this.')),
       card('Every figure side by side', rows.length ? table(['Figure', 'Polar H10', 'Watch D2', 'Difference', 'Difference %'], rows) : make('p', 'muted', 'No figures saved.'), make('p', 'note', 'Difference = watch minus Polar. Only the strap records ECG waves: see the Polar H10 report.')),
+      ...stripComparison(g),
       ...(checks.length ? [card('Stored watch readings against the strap', table(['Reading', 'Watch D2', 'Polar H10', 'Difference'], checks), make('p', 'note', 'A reading taken outside the tracking is compared with the strap’s average for the whole tracking, so a larger difference there is expected.'))] : []),
       card('How to improve accuracy', tips),
     ];
@@ -300,9 +483,15 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       const latest = versions[versions.length - 1];
       const v = versions.find((x) => x.generatedAt === at) ?? latest;
       if (!e || !trace || !v) { reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
-      const g: Gathered = { e, trace, v, latest: v === latest };
-      const body = kind === 'polar' ? polarReport(g) : kind === 'watch' ? watchReport(g) : kind === 'combined' ? combinedReport(g) : comparisonReport(g);
-      reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...body);
+      const g: Gathered = { e, trace, v, latest: v === latest, strips: await gatherStrips(e).catch(() => null) };
+      if (kind === 'ecg') {
+        const r = ecgPairReport(g);
+        reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...r.body);
+        r.after();
+      } else {
+        const body = kind === 'polar' ? polarReport(g) : kind === 'watch' ? watchReport(g) : kind === 'combined' ? combinedReport(g) : comparisonReport(g);
+        reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...body);
+      }
     } catch (err) {
       reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', `This report could not be made: ${errorMessage(err)}`));
     }
@@ -351,7 +540,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
           actions.appendChild(button(label, 'small', () => void openReport(e.id, k, v.generatedAt)));
         }
-        if (ecgId) actions.appendChild(button('ECG', 'small', () => deps.openEcg(ecgId)));
+        actions.appendChild(button('ECG', 'small', () => void openReport(e.id, 'ecg', v.generatedAt)));
         if (i === versions.length) actions.appendChild(remove); // the tracking goes, with all its versions
         li.appendChild(actions);
         list.appendChild(li);
