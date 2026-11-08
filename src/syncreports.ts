@@ -1,4 +1,5 @@
-// Synchronised Tracking History: one row per version of each tracking, each with four reports (Polar H10, D2, Combined,
+// Synchronised Tracking History: one row per version of each tracking, with its Polar H10 report and the two-ECG report (the D2,
+// Combined and Comparison reports are no longer offered: the two-ECG report holds what they added). Formerly: (Polar H10, D2, Combined,
 // Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
 import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
@@ -317,7 +318,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const bar = make('div', 'row between wrap no-print');
     bar.appendChild(button(`← ${backTo?.label ?? 'Synchronised Tracking History'}`, '', backToHistory));
     const right = make('div', 'row wrap');
-    for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
+    for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
       right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
     }
     right.appendChild(button('ECG', kind === 'ecg' ? 'primary' : '', () => void openReport(e.id, 'ecg', at)));
@@ -649,7 +650,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         list.appendChild(li);
         continue;
       }
-      // one row per version, newest first, each with its four reports
+      // one row per version, newest first, each with its Polar H10 report and the two-ECG report
       for (let i = versions.length; i >= 1; i--) {
         const v = versions[i - 1]!;
         const hr = (f: TrackVersion['p'], s: SyncTrackingEntry['polar']): number | null => f?.meanHr ?? s?.hr ?? null;
@@ -664,7 +665,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
           make('span', 'muted sync-sleep-made', `${v.bps.length ? `Blood pressure ${v.bps.map((b) => `${n(b.systolic)}/${n(b.diastolic)} at ${clock(b.at)}`).join(', ')}` : 'No blood pressure reading'} · ${madeText(v)}`),
         );
         const actions = make('div', 'row wrap sync-sleep-actions');
-        for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
+        for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
           actions.appendChild(button(label, 'small', () => { backTo = null; void openReport(e.id, k, v.generatedAt); }));
         }
         actions.appendChild(button('ECG', 'small', () => { backTo = null; void openReport(e.id, 'ecg', v.generatedAt); }));
@@ -673,7 +674,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         list.appendChild(li);
       }
     }
-    box.replaceChildren(make('p', 'note', 'Each tracking has four reports. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
+    box.replaceChildren(make('p', 'note', 'Each tracking has its Polar H10 report and its ECG: with the watch’s 30-second strips, both ECGs together, compared beat for beat. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
   }
 
   /** Shows the list now, then again if new versions were generated. */

@@ -98,9 +98,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   const btnStop = make('button', '', 'Stop') as HTMLButtonElement;
   btnStop.hidden = true;
   const row = make('div', 'row wrap');
-  const btnAgain = make('button', '', 'Download today’s watch ECGs again') as HTMLButtonElement;
-  btnAgain.title = 'Fetch every ECG taken on the watch today: new ones are added, and strips saved by v1.39.0 (cut off by a scale error) are replaced';
-  row.append(btnStart, btnStop, btnAgain);
+  row.append(btnStart, btnStop);
   const status = make('p', 'note', 'Not started.');
   const canvas = make('canvas');
   canvas.setAttribute('aria-label', 'ECG from the Watch D2');
@@ -136,14 +134,15 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     btnStart.hidden = running;
     btnStop.hidden = !running;
     btnStart.disabled = !w;
-    btnAgain.disabled = !w;
     btnStart.title = w ? '' : 'Connect the watch first';
     if (!running) status.textContent = w ? (strips ? `${strips} strip${strips > 1 ? 's' : ''} saved. Press Start watch ECG to take more.` : 'Ready: press Start watch ECG.') : 'Connect the watch first.';
   };
 
-  async function save(r: WatchRecording): Promise<void> {
+  /** With `repairOnly`, only a strip already saved in an older form is saved again; nothing new is added. */
+  async function save(r: WatchRecording, repairOnly = false): Promise<void> {
     const id = `w${r.start}`;
     const old = await store.loadSession(id);
+    if (repairOnly && !old.session) return;
     // already saved (on the other page); one from before v1.41.0 (cut off, or its rate not checked) is replaced
     if (old.session && old.session.watchFs && !(old.samples && isCutOff(old.samples))) return;
     const { uv, sourceFs } = bestRate(r, deps.settings());
@@ -188,21 +187,26 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (running) timer = setTimeout(() => void poll(), POLL_MS);
   }
 
-  btnAgain.addEventListener('click', () => void (async () => {
-    const w = deps.watch();
-    if (!w) { status.textContent = 'Connect the watch first.'; return; }
-    btnAgain.disabled = true;
-    status.textContent = 'Fetching today’s ECGs from the watch…';
+  /**
+   * Strips saved before v1.41.0 (cut off by a scale error, or their rate not checked) are fetched again from the watch and
+   * replaced, by themselves, the first time Start is pressed: the watch keeps its recordings.
+   */
+  let repaired = false;
+  async function repairOld(w: LiveWatch): Promise<void> {
+    if (repaired) return;
+    repaired = true;
+    const old = (await store.listSessions(deps.user() as UserNumber)).filter((s) => s.source === 'watch' && !s.cloudOnly && !s.watchFs);
+    if (!old.length) return;
+    const from = Math.min(...old.map((s) => s.start)) - 1000;
     try {
-      const day = new Date(); day.setHours(0, 0, 0, 0);
       const before = strips;
-      for (const r of await w.ecgSince(day.getTime())) { seen.add(r.start); await save(r); }
-      status.textContent = `${strips - before} strip${strips - before === 1 ? '' : 's'} added or repaired from today’s ECGs on the watch.`;
+      for (const r of await w.ecgSince(from)) await save(r, true);
+      if (strips > before) deps.log(`${strips - before} watch ECG strip${strips - before === 1 ? '' : 's'} saved by an earlier version replaced with a correct copy from the watch.`);
     } catch (err) {
-      status.textContent = `Couldn’t read the watch’s ECG: ${errorMessage(err)}.`;
+      deps.log(`Couldn’t fetch the watch’s earlier ECGs to repair them: ${errorMessage(err)}.`);
     }
-    btnAgain.disabled = false;
-  })());
+  }
+
   btnStart.addEventListener('click', () => {
     running = true;
     since = Date.now() - 60_000; // an ECG finished just before Start counts too
@@ -210,7 +214,8 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     update();
     status.textContent = 'Start an ECG on the watch now: fingertip on its lower button for 30 seconds.';
     deps.log('Watch ECG started: checking the watch for new ECG recordings every 5 seconds.');
-    void poll();
+    const w = deps.watch();
+    void (w ? repairOld(w) : Promise.resolve()).then(() => poll());
   });
   const stop = (): void => {
     running = false;
