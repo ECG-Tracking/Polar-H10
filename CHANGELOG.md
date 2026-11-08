@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.6 – Watch D2 ECG strips in their own section *(GitHub)*
+
+- ECG history and trending: the watch's 30-second ECG strips are now listed in their own section, **Watch D2 ECG strips**, below the other recordings, with how many there are. They open, delete and sync as before.
+- The trend charts use the other recordings only, so 30-second strips don't skew them. A synchronised tracking's box above still shows both ECGs together.
+
 ## 8 Nov 2026 – v1.41.5 – Two-ECG view: each event once in Previous / Next *(GitHub)*
 
 - The two-ECG view's event navigation listed the same premature beat twice, once from each device (their marks fall a few tens of ms apart on the two leads), so 6 events showed as 13.
