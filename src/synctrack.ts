@@ -71,7 +71,7 @@ const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour
 // ---------- the page ----------
 
 /** `historyRoot`: the “Synchronised Tracking History” page. */
-export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void } {
+export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised Tracking'), make('p', 'note',
     'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start.'));
@@ -187,7 +187,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const historyBox = make('div');
   historyCard.append(historyBox);
   historyRoot.replaceChildren(make('h2', '', 'Synchronised Tracking History'), historyCard);
-  const renderHistory = initSyncReports(historyBox, reportRoot, deps).render;
+  const reports = initSyncReports(historyBox, reportRoot, deps);
+  const renderHistory = reports.render;
   logs.el.classList.add('page-log');
 
   const watchEcg = watchEcgCard({ watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: true, openReport: deps.openEcg });
@@ -583,6 +584,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   drawChart();
 
   return {
+    openPair: reports.openPair,
     refreshHistory: () => { renderHistory(); void fillBpFromStored(); },
     stop: () => {
       if (drawFrame) cancelAnimationFrame(drawFrame);

@@ -38,3 +38,29 @@ test('the watch’s unit is worked out from the size of the waves', () => {
   assert.equal(unitScale(wave(1000)), 1, 'microvolts');
   assert.equal(unitScale(wave(1_000_000)), 0.001, 'nanovolts');
 });
+
+import { bestFit, loneEvents } from '../src/stripmatch';
+
+test('a clock about one beat off is put right by the rhythm’s pattern, not taken as the neighbouring beat', () => {
+  // beats with a slightly varying rhythm, as a real heart has
+  const rr = Array.from({ length: 60 }, (_, i) => 850 + 25 * Math.sin(i / 2.3) + (i % 7 === 3 ? 15 : 0));
+  const polar: number[] = []; let t = 0; for (const x of rr) { t += x; polar.push(T0 + t); }
+  const watch = polar.slice(20, 50).map((p) => p - polar[20]!); // times from the strip's start
+  const clockErr = 860; // about one beat
+  const fit = bestFit(watch, polar, polar[20]! + clockErr);
+  assert.equal(Math.round(fit.offsetMs / 10), Math.round(-clockErr / 10), JSON.stringify(fit));
+  assert.ok(Math.abs(fit.stretch - 1) < 0.002);
+});
+
+test('the watch running 2.5 % fast is stretched to fit', () => {
+  const rr = Array.from({ length: 60 }, (_, i) => 850 + 25 * Math.sin(i / 2.3));
+  const polar: number[] = []; let t = 0; for (const x of rr) { t += x; polar.push(T0 + t); }
+  const watch = polar.slice(10, 45).map((p) => (p - polar[10]!) / 1.024);
+  const fit = bestFit(watch, polar, polar[10]! - 300);
+  assert.ok(Math.abs(fit.stretch - 1.024) < 0.002 && Math.abs(fit.offsetMs - 300) <= 10, JSON.stringify(fit));
+});
+
+test('only events with no other within 5 s are clear enough to line up on', () => {
+  const ev = loneEvents([{ t: 0, type: 'premature' }, { t: 3000, type: 'pause' }, { t: 20000, type: 'premature' }]);
+  assert.deepEqual(ev.map((e) => e.t), [20000]);
+});

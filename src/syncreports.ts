@@ -76,6 +76,32 @@ const ecgFigures = (m: SessionMetrics): [string, number, number][] => [
   ['Events', m.eventCount, 0],
 ];
 
+/** The ECG report's boxes, each with the strap's reading and the watch's for the same moments. */
+function pairTiles(p: SessionMetrics | null, w: SessionMetrics | null): HTMLElement {
+  const box = make('div', 'tiles pair-tiles');
+  const one = (label: string, unit: string, f: (m: SessionMetrics) => number, digits = 0): void => {
+    const tile = make('div', 'tile');
+    const line = (who: string, m: SessionMetrics | null): HTMLElement => {
+      const row = make('div', 'pair-line');
+      const v = m ? f(m) : NaN;
+      row.append(make('span', 'pair-who', who), make('span', 'value', Number.isFinite(v) ? fmt(v, digits) : '--'), make('small', '', unit));
+      return row;
+    };
+    tile.append(make('div', 'label', label), line('Polar H10', p), line('Watch D2', w));
+    box.appendChild(tile);
+  };
+  one('Heart rate', 'bpm', (m) => m.meanHR);
+  one('RMSSD', 'ms', (m) => m.rmssd, 1);
+  one('SDNN', 'ms', (m) => m.sdnn, 1);
+  one('QRS', 'ms', (m) => m.qrs);
+  one('QT', 'ms', (m) => m.qt);
+  one('QTc', 'ms', (m) => m.qtc);
+  one('R wave', 'µV', (m) => m.rAmp);
+  one('T wave', 'µV', (m) => m.tAmp);
+  one('Events', '', (m) => m.eventCount);
+  return box;
+}
+
 /** Clock time of a moment in the joined ECGs. */
 function clockAt(strips: readonly MatchedStrip[], t: number): string {
   const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
@@ -214,12 +240,14 @@ function ecgRows(m: NonNullable<TrackVersion['ecg']>): string[][] {
 }
 
 /** `box`: the history page's list; `reportRoot`: the report page. */
-export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void } {
-  const backToHistory = (): void => deps.show('syncHistory');
+export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
+  /** Where ← goes: Synchronised Tracking History, or ECG history when the pair was opened from there. */
+  let backTo: { label: string; go: () => void } | null = null;
+  const backToHistory = (): void => { if (backTo) backTo.go(); else deps.show('syncHistory'); };
 
   function reportBar(e: SyncTrackingEntry, kind: Kind, at: number): HTMLElement {
     const bar = make('div', 'row between wrap no-print');
-    bar.appendChild(button('← Synchronised Tracking History', '', backToHistory));
+    bar.appendChild(button(`← ${backTo?.label ?? 'Synchronised Tracking History'}`, '', backToHistory));
     const right = make('div', 'row wrap');
     for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
       right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
@@ -399,7 +427,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       body: [
         ...heading('ECG: watch strips and Polar H10', g),
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events; on the strap’s ECG, “(both)” means the watch saw it too.`),
-        w.box, p.box, bar, evBar,
+        pairTiles(st.polarM, st.watchM), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),
         ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
       ],
@@ -538,9 +566,9 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         );
         const actions = make('div', 'row wrap sync-sleep-actions');
         for (const [k, label] of [['polar', 'Polar H10 report'], ['watch', 'D2 report'], ['combined', 'Combined report'], ['comparison', 'Comparison report']] as const) {
-          actions.appendChild(button(label, 'small', () => void openReport(e.id, k, v.generatedAt)));
+          actions.appendChild(button(label, 'small', () => { backTo = null; void openReport(e.id, k, v.generatedAt); }));
         }
-        actions.appendChild(button('ECG', 'small', () => void openReport(e.id, 'ecg', v.generatedAt)));
+        actions.appendChild(button('ECG', 'small', () => { backTo = null; void openReport(e.id, 'ecg', v.generatedAt); }));
         if (i === versions.length) actions.appendChild(remove); // the tracking goes, with all its versions
         li.appendChild(actions);
         list.appendChild(li);
@@ -554,5 +582,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     void render().then(() => deps.updateReports()).then((changed) => { if (changed) void render(); }).catch(() => undefined);
   };
 
-  return { render: refresh };
+  /** The two ECGs of a tracking, opened from ECG history: ← goes back there. */
+  const openPair = (id: string, back: { label: string; go: () => void }): void => { backTo = back; void openReport(id, 'ecg'); };
+  return { render: refresh, openPair };
 }

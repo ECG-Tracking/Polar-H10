@@ -81,6 +81,8 @@ export interface Session {
   syncTracking?: boolean; // recorded during a synchronised tracking (Polar H10 with the Watch D2)
   /** Saved with "Save ignoring irregular shape": always analysed with Irregular Shape ignored. */
   ignoreShape?: boolean;
+  /** A Watch D2 strip: the watch's samples a second it was converted from (from v1.41.0). */
+  watchFs?: number;
   /** The recording it was saved from (with ignoreShape). */
   derivedFrom?: string;
   /** The summary in the cloud (or this copy of it) has the version ignoring Irregular Shape when this is 2 (see SUMMARY_LEVEL). */

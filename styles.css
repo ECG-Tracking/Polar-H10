@@ -665,3 +665,11 @@ details > summary { list-style-position: inside; }
 .watch-ecg-results { font-weight: 600; font-variant-numeric: tabular-nums; margin: 10px 0 0; }
 .watch-ecg-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; }
 .watch-ecg-list li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; background: var(--raised); border-radius: 8px; }
+/* ECG history: a synchronised tracking's two ECGs in one box */
+.sessions li.pair-row { border-left: 4px solid var(--series-1); }
+.pair-stats { display: flex; flex-direction: column; gap: 2px; }
+/* the two ECGs' report: two readings per box */
+.pair-tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.pair-tiles .pair-line { display: flex; align-items: baseline; gap: 6px; }
+.pair-tiles .pair-who { font-size: 0.75rem; color: var(--muted); min-width: 5.5em; }
+.pair-tiles .value { font-size: 1.3rem; }

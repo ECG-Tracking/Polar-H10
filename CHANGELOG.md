@@ -4,6 +4,22 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.0 – Watch and strap ECGs lined up beat for beat; both in ECG history *(GitHub)*
+
+- **Events now line up.** Three things caused events a few beats apart:
+  - Some watch strips run 2.5 % fast (512 samples a second, not 500).
+  - With a steady rhythm, a shift of one whole beat also "matched".
+  - Analysed as one joined recording, some strips lost all their beats.
+- **How each strip is now matched:**
+  - Its stretch and shift are fitted together, by how closely each beat lands and by pattern recognition of the rhythm: each beat's interval against the strap's at that heartbeat.
+  - A lone event (no other event within 5 s) on each device, of the same kind, is taken as the same heartbeat and anchors the fit.
+  - Each strip is analysed on its own before the pieces are joined.
+  - Strips without clear heartbeats are left out.
+- **Result on 8 Nov:** all six premature beats the strap marked fall on the same heartbeat in the watch's strips, and intervals agree within 3 ms on average.
+- **Watch strips from now on:** each strip's rate (500 or 512) is chosen by which gives the heart rate the watch itself reported. **Download today's watch ECGs again** also replaces strips saved before this version.
+- **ECG history and trending:** each synchronised tracking with watch strips gets its own box, with both readings (Polar H10, and Watch D2 with the number of strips). It opens both ECGs together.
+- **The two-ECG report:** each box holds both readings (heart rate, RMSSD, SDNN, QRS, QT, QTc, R and T waves, events), above the two ECGs on one slider. ← returns to where it was opened from.
+
 ## 8 Nov 2026 – v1.40.0 – Watch ECG strips in the tracking reports, and a scale fix *(GitHub)*
 
 - **Fix:** the watch's ECG values were read in the wrong unit, so v1.39.0 strips were cut off at the 16-bit limit (a sixth to two fifths of each strip). The unit is now worked out from the size of the waves (mV, µV or nV). **Download today's watch ECGs again** (on the Watch ECG card) fetches the day's recordings from the watch and replaces the cut-off strips.
