@@ -653,6 +653,7 @@ async function renderHistory(): Promise<void> {
       const li = make('li', 'pair-row');
       li.append(
         make('span', 'when', `${new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · From Synchronised Tracking`),
+        make('span', 'dur', `${store.sessionUser(polar)}${polar.alias ? `:${polar.alias}` : ''}`),
         make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0)),
       );
       li.addEventListener('click', () => {
@@ -677,7 +678,7 @@ async function renderHistory(): Promise<void> {
     const li = make('li');
     li.append(
       make('span', 'when', `${new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${from}`),
-      make('span', 'dur', s.alias), // the alias it was recorded under, on the right
+      make('span', 'dur', `${store.sessionUser(s)}${s.alias ? `:${s.alias}` : ''}`), // user number and alias it was recorded under, e.g. 1:M
       make('span', 'stats', what),
     );
     li.appendChild(deleteButton('this recording', async () => {

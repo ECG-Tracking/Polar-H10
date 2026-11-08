@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.13 – User and alias as "1:M" *(GitHub)*
+
+- Every box shows the user number and alias on the right as "1:M" (user 1, alias M), or just the number when there is no alias: each recording and synchronised tracking box in ECG history, and each row in Synchronised Tracking History.
+
 ## 8 Nov 2026 – v1.41.12 – Every ECG history row in the same two lines *(GitHub)*
 
 - Every recording in ECG history and trending uses the format of the synchronised tracking boxes:
