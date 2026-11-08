@@ -187,6 +187,12 @@ const splicedText = (strips: readonly MatchedStrip[]): string => {
   return `Combined duration ${mmss(s)} (${strips.length} strip${strips.length === 1 ? '' : 's'} spliced together)`;
 };
 
+/** The user number and alias on the right of each row, e.g. "1:M". */
+export function userTag(user: number): string {
+  const alias = store.loadSettings(user as store.UserNumber).alias;
+  return `${user}${alias ? `:${alias}` : ''}`;
+}
+
 /** A tracking's second line, the same everywhere it is listed: what was recorded, and how long. */
 export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, watch: boolean): string {
   return [
@@ -674,7 +680,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         const actions = make('div', 'row wrap sync-sleep-actions');
         actions.appendChild(remove);
-        li.append(make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking`), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
+        li.append(make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking`), make('span', 'dur', userTag(e.user)), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
         list.appendChild(li);
         continue;
       }
@@ -684,6 +690,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         li.append(
           make('span', 'when', `${dateTime(e.start)} · From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
+          make('span', 'dur', userTag(e.user)),
           make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w || hadStrips(e))),
         );
         const actions = make('div', 'row wrap sync-sleep-actions');
