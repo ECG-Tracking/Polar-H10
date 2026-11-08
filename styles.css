@@ -686,3 +686,4 @@ details > summary { list-style-position: inside; }
 .watch-strips h3 { margin-top: 0; }
 /* ECG history: every row's two lines (where it came from; what was recorded and how long) under each other */
 #sessionList > li > .stats, #watchStripList > li > .stats { grid-column: 1 / span 2; grid-row: 2; }
+.sessions .when .from { font-weight: 400; }

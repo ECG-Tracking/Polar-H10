@@ -10,7 +10,7 @@ import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
 import { connectionLog, forgetStrapButton } from './devicekit';
 import { watchEcgCard } from './watchecg';
 import type { LiveWatch } from './d2/live';
-import { byId, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
+import { byId, whenLine, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { renderRecovery } from './recovery';
@@ -652,7 +652,7 @@ async function renderHistory(): Promise<void> {
       const { e, strips, polar } = row.p;
       const li = make('li', 'pair-row');
       li.append(
-        make('span', 'when', `${new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · From Synchronised Tracking`),
+        whenLine(new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), 'From Synchronised Tracking'),
         make('span', 'dur', `${store.sessionUser(polar)}${polar.alias ? `:${polar.alias}` : ''}`),
         make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0)),
       );
@@ -677,7 +677,7 @@ async function renderHistory(): Promise<void> {
     ].filter(Boolean).join(' · ');
     const li = make('li');
     li.append(
-      make('span', 'when', `${new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${from}`),
+      whenLine(new Date(s.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), from),
       make('span', 'dur', `${store.sessionUser(s)}${s.alias ? `:${s.alias}` : ''}`), // user number and alias it was recorded under, e.g. 1:M
       make('span', 'stats', what),
     );
