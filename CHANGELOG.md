@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 8 Nov 2026 – v1.41.9 – No more repair of old watch strips at Start *(GitHub)*
+
+- Start watch ECG no longer fetches strips saved before v1.41.0 from the watch to repair them. All that could be repaired have been. The five left (08:17–08:21 on 8 Nov) are no longer on the watch: they stay labelled "may be damaged" and are left out of the two-ECG analysis.
+
 ## 8 Nov 2026 – v1.41.8 – 6 and 7 minutes; damaged watch strips left out *(GitHub)*
 
 - "Track for" on ECG live and Synchronised Tracking adds **6 minutes** and **7 minutes**.
