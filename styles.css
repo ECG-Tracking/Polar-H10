@@ -696,3 +696,9 @@ details > summary { list-style-position: inside; }
 .storage-box > summary { cursor: pointer; list-style-position: inside; }
 .storage-box > summary h2 { display: inline; }
 .storage-bar { align-items: center; justify-content: space-between; margin: 8px 0 12px; }
+/* desktop: only the menu scrolls; the logo and the version line at the bottom stay put */
+@media (min-width: 901px) {
+  body:not(.view-mobile) .app-nav { overflow: hidden; }
+  body:not(.view-mobile) .app-nav .tabs { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  body:not(.view-mobile) .app-nav-foot { flex: none; background: var(--nav-bg); }
+}
