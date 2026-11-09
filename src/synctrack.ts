@@ -197,6 +197,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     watch: () => watch, log,
     pauseHeartbeats: async () => { watchTesting = false; await watch?.stopHeartbeats().catch(() => undefined); log('Watch heartbeat test paused for the capture.'); },
     resumeHeartbeats: async () => { if (watch && !watchTesting) await startWatchTest(); },
+    pauseStripChecks: () => { const on = watchEcg.running(); if (on) watchEcg.stop(); return on; },
+    resumeStripChecks: (fromMs) => { watchEcg.start(fromMs); },
   });
   root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, watchEcg.el, chartCard, bpCard, summary, capture.el);
   showWatchParts();

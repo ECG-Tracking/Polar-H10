@@ -53,25 +53,47 @@ export interface LiveWatch {
   capture(onLine: (line: string) => void): () => void;
 }
 
-/** One received message without its values: "19/05 enc 82[83[04:2 05:1]×3]". */
+/**
+ * Fields whose values a capture shows, per message: protocol numbers only (result codes, package names, the
+ * configuration ID and action, small state bytes), never measurements. Paths go through containers, e.g. "83.84.05".
+ */
+const SHOWN_VALUES: Readonly<Record<string, readonly string[]>> = {
+  '19/01': ['7f'], '2c/06': ['7f', '01'], '01/3d': ['01'], '23/0d': ['01'], '1f/01': ['81.02', '81.03'],
+  '37/01': ['01', '02', '83.84.05', '83.84.06', '83.84.07'], '37/02': ['01', '02', '83.84.05', '83.84.06'],
+  '37/03': ['01', '02', '83.84.05', '83.84.06'], '37/04': ['01', '02', '83.84.05', '83.84.06'],
+  '34/01': ['01', '02', '03', '04'],
+};
+
+/** A shown value: text when it reads as text, a number up to 4 bytes, else hex (up to 8 bytes). */
+export function showValue(v: Uint8Array): string {
+  if (v.length >= 3 && v.every((b) => b >= 0x20 && b < 0x7f)) return `"${String.fromCharCode(...v)}"`;
+  if (v.length >= 1 && v.length <= 4) return String(v.reduce((n, b) => n * 256 + b, 0));
+  if (v.length <= 8) return `0x${Array.from(v, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return `${v.length} bytes`;
+}
+
+/** One received message: "19/05 enc 82[83[04:2 05:1]×3]"; only the fields in SHOWN_VALUES also show "=value". */
 export function describePacket(p: Pick<InPacket, 'service' | 'command' | 'tlv' | 'raw' | 'encrypted'>): string {
   const hex = (n: number): string => n.toString(16).padStart(2, '0');
-  const fields = (t: Tlv, depth: number): string => {
+  const key = `${hex(p.service)}/${hex(p.command)}`;
+  const shown = new Set(SHOWN_VALUES[key] ?? []);
+  const fields = (t: Tlv, depth: number, path: string): string => {
     const parts: string[] = [];
     for (const i of t.items) {
+      const here = path ? `${path}.${hex(i.tag)}` : hex(i.tag);
       // tags from 0x80 hold further fields: shown one level down, repeats counted
-      if (i.tag >= 0x80 && depth < 2) {
+      if (i.tag >= 0x80 && depth < 3) {
         let inner: string;
-        try { inner = fields(Tlv.parse(i.value), depth + 1); } catch { inner = `${i.value.length} bytes`; }
+        try { inner = fields(Tlv.parse(i.value), depth + 1, here); } catch { inner = `${i.value.length} bytes`; }
         const last = parts[parts.length - 1], item = `${hex(i.tag)}[${inner}]`;
         const m = last?.match(/^(.*?)(?:×(\d+))?$/);
         if (m && m[1] === item) parts[parts.length - 1] = `${item}×${Number(m[2] ?? 1) + 1}`;
         else parts.push(item);
-      } else parts.push(`${hex(i.tag)}:${i.value.length}`);
+      } else parts.push(`${hex(i.tag)}:${i.value.length}${shown.has(here) ? `=${showValue(i.value)}` : ''}`);
     }
     return parts.join(' ');
   };
-  return `${hex(p.service)}/${hex(p.command)}${p.encrypted ? ' enc' : ''} ${p.tlv ? fields(p.tlv, 0) : `raw ${p.raw.length} bytes`}`;
+  return `${key}${p.encrypted ? ' enc' : ''} ${p.tlv ? fields(p.tlv, 0, '') : `raw ${p.raw.length} bytes`}`;
 }
 
 export interface LiveOptions {

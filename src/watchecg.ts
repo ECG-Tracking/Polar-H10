@@ -110,7 +110,7 @@ export interface WatchEcgDeps {
 }
 
 /** The "ECG from the Watch D2" card: instructions, Start and Stop, the strip on screen, its results and the saved strips. */
-export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void; start: () => void; running: () => boolean; collect: (sinceMs: number) => Promise<number> } {
+export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void; start: (fromMs?: number) => void; running: () => boolean; collect: (sinceMs: number) => Promise<number> } {
   const card = make('div', 'card watch-ecg');
   const steps = make('ol', 'd2-steps');
   for (const line of [
@@ -202,17 +202,18 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (running) timer = setTimeout(() => void poll(), POLL_MS);
   }
 
-  const start = (): void => {
+  /** `fromMs`: the earliest ECG to fetch (default: one finished just before Start counts too). */
+  const start = (fromMs?: number): void => {
     if (running || !deps.watch()) return;
     running = true;
-    since = Date.now() - 60_000; // an ECG finished just before Start counts too
+    since = fromMs ?? Date.now() - 60_000;
     filter = new EcgFilter(STRIP_FS, deps.settings().notch);
     update();
     status.textContent = 'Start an ECG on the watch now: fingertip on its lower button for 30 seconds.';
     deps.log('Watch ECG started: checking the watch for new ECG recordings every 5 seconds.');
     void poll();
   };
-  btnStart.addEventListener('click', start);
+  btnStart.addEventListener('click', () => start());
   /** One check now for every ECG since `sinceMs` not saved yet (at the end of a tracking); returns how many were new. */
   const collect = async (sinceMs: number): Promise<number> => {
     const w = deps.watch();
