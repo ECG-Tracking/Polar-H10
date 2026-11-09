@@ -702,3 +702,8 @@ details > summary { list-style-position: inside; }
   body:not(.view-mobile) .app-nav .tabs { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   body:not(.view-mobile) .app-nav-foot { flex: none; background: var(--nav-bg); }
 }
+/* Synchronised ECG Tracking: the watch ECG prompts */
+.ecg-prompts { margin-top: 10px; }
+.ecg-prompt-now { font-weight: 600; color: var(--accent); margin: 0 0 6px; }
+.ecg-prompt-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 0.9rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ecg-prompt-list li.done { color: var(--ink); }

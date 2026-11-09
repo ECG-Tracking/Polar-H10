@@ -14,6 +14,7 @@ import { Tlv } from './tlv';
 import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch } from './watch';
 
 const HR_TEST = 0x19;
+const ECG_SERVICE = 0x23;
 
 /** One heartbeat from the watch: the interval since the previous beat (ms) and its signal quality (0 = unusable). */
 export interface Beat { rri: number; sqi: number }
@@ -51,6 +52,11 @@ export interface LiveWatch {
    * tags and lengths (never their values). Returns the function that stops it.
    */
   capture(onLine: (line: string) => void): () => void;
+  /**
+   * The watch's ECG service message 23/0d, seen with code 103 after an ECG finished and again when its screen closed: a
+   * cue to look for a new ECG, not proof of one. Returns the function that stops listening.
+   */
+  onEcgCue(fn: (code: number) => void): () => void;
 }
 
 /**
@@ -148,6 +154,11 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
       }));
     },
     async close() { await disconnectWatch(); },
+    onEcgCue(fn) {
+      const cue = (p: InPacket): void => { if (p.service === ECG_SERVICE && p.command === 0x0d) fn(p.tlv?.has(0x01) ? p.tlv.byte(0x01) : -1); };
+      link.listeners.add(cue);
+      return () => { link.listeners.delete(cue); };
+    },
     capture(onLine) {
       const t = (): string => { const d = new Date(); return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
       const fn = (p: InPacket): void => onLine(`${t()}  ${describePacket(p)}`);

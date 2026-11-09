@@ -13,7 +13,10 @@ import { errorMessage } from './util';
 import type { LiveWatch } from './d2/live'; // type only: D2 Link's code stays in d2link.js
 
 export const STRIP_FS = 130; // as the Polar H10, so every report, chart and export works the same
-const POLL_MS = 5000;
+/** The backup check: the watch's cue (23/0d) starts a check at once, and this catches a strip whose cue was missed. */
+const POLL_MS = 20000;
+/** A second check this long after a cue, in case the watch was still writing the strip. */
+const CUE_RECHECK_MS = 6000;
 const RATES = [125, 128, 250, 256, 300, 500, 512, 1000];
 
 export interface WatchRecording { start: number; end: number; avgHr: number; samples: readonly number[] }
@@ -108,6 +111,8 @@ export interface WatchEcgDeps {
   /** Whether a strip was taken during a synchronised ECG tracking (a function: only those a tracking covers). */
   syncTracking?: boolean | ((r: WatchRecording) => boolean);
   openReport: (id: string) => void;
+  /** Each new strip saved, by its recording time (for the ECG prompts during a tracking). */
+  onStrip?: (r: WatchRecording) => void;
 }
 
 /** The "ECG from the Watch D2" card: instructions, Start and Stop, the strip on screen, its results and the saved strips. */
@@ -117,7 +122,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   for (const line of [
     'Connect the watch, then press Start watch ECG.',
     'On the watch, open the ECG app. Rest your arms, and keep a fingertip of the other hand on the watch’s lower button for the 30 seconds it records.',
-    'When the watch finishes, this page downloads the recording within seconds, shows it here, analyses it and saves it in ECG history.',
+    'When the watch finishes, it tells this page, which downloads the recording straight away, shows it here, analyses it and saves it in ECG history (it also checks every 20 seconds, in case the watch’s message is missed).',
     'Start the next ECG on the watch straight away, again and again, until you press Stop. The watch can’t record continuously, so it is one 30-second strip at a time.',
   ]) steps.appendChild(make('li', '', line));
   const btnStart = make('button', 'primary', 'Start watch ECG') as HTMLButtonElement;
@@ -138,6 +143,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   let filter = new EcgFilter(STRIP_FS, deps.settings().notch);
   let queue: Float32Array[] = [], playing: ReturnType<typeof setInterval> | null = null, frame = 0;
   let running = false, timer: ReturnType<typeof setTimeout> | null = null, since = 0, strips = 0;
+  let cueOff: (() => void) | null = null, cueWatch: LiveWatch | null = null, polling = false, again = false;
   const seen = new Set<number>();
 
   /** Plays the strips at their real speed, one after the other, as the Polar ECG is shown. */
@@ -187,16 +193,39 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     deps.log(`Watch ECG from ${clock(r.start)} saved (${Math.round(sourceFs)} Hz on the watch).`);
   }
 
+  /** Listens to the connected watch's ECG cue; called on every check, as the watch may have reconnected. */
+  const listenForCue = (w: LiveWatch | null): void => {
+    if (w === cueWatch) return;
+    cueOff?.(); cueOff = null; cueWatch = w;
+    if (!w || typeof w.onEcgCue !== 'function') return;
+    cueOff = w.onEcgCue((code) => {
+      if (!running) return;
+      deps.log(`The watch signalled the end of an ECG (code ${code}): checking for it now.`);
+      checkNow();
+      setTimeout(() => { if (running) checkNow(); }, CUE_RECHECK_MS);
+    });
+  };
+  /** A check now instead of at the next backup check (or right after the one running). */
+  const checkNow = (): void => {
+    if (!running) return;
+    if (polling) { again = true; return; }
+    if (timer) clearTimeout(timer);
+    timer = null;
+    void poll();
+  };
+
   async function poll(): Promise<void> {
     timer = null;
     if (!running) return;
+    polling = true;
     const w = deps.watch();
+    listenForCue(w);
     if (!w) { status.textContent = 'The watch disconnected: reconnect it to carry on.'; }
     else {
       try {
         const all = await w.ecgSince(since);
         const found = all.filter((r) => !seen.has(r.start));
-        for (const r of found) { seen.add(r.start); await save(r); }
+        for (const r of found) { seen.add(r.start); await save(r); deps.onStrip?.(r); }
         // the next check asks only for what is newer: the watch otherwise sends every strip since Start each time
         const latest = all.reduce((m, r) => Math.max(m, r.start), 0);
         if (latest) since = Math.max(since, latest + 1000);
@@ -205,7 +234,10 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
         status.textContent = `Couldn’t read the watch’s ECG: ${errorMessage(err)}. Trying again…`;
       }
     }
-    if (running) timer = setTimeout(() => void poll(), POLL_MS);
+    polling = false;
+    if (running) {
+      if (again) { again = false; timer = setTimeout(() => void poll(), 0); } else timer = setTimeout(() => void poll(), POLL_MS);
+    }
   }
 
   /** `fromMs`: the earliest ECG to fetch (default: one finished just before Start counts too). */
@@ -216,7 +248,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     filter = new EcgFilter(STRIP_FS, deps.settings().notch);
     update();
     status.textContent = 'Start an ECG on the watch now: fingertip on its lower button for 30 seconds.';
-    deps.log('Watch ECG started: checking the watch for new ECG recordings every 5 seconds.');
+    deps.log('Watch ECG started: the watch’s signal at the end of each ECG starts a download, with a check every 20 seconds as a backup.');
     void poll();
   };
   btnStart.addEventListener('click', () => start());
@@ -226,11 +258,12 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (!w) return 0;
     const before = strips;
     const found = (await w.ecgSince(sinceMs)).filter((r) => !seen.has(r.start));
-    for (const r of found) { seen.add(r.start); await save(r); }
+    for (const r of found) { seen.add(r.start); await save(r); deps.onStrip?.(r); }
     return strips - before;
   };
   const stop = (): void => {
     running = false;
+    cueOff?.(); cueOff = null; cueWatch = null;
     if (timer) clearTimeout(timer);
     timer = null;
     update();

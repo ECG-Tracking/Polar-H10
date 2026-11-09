@@ -10,7 +10,7 @@ export interface CaptureDeps {
   /** Pauses and resumes the watch's heartbeat test, so the ECG is seen on its own. */
   pauseHeartbeats: () => Promise<void>;
   resumeHeartbeats: () => Promise<void>;
-  /** Pauses the check for new watch ECG strips (every 5 s), whose own replies would fill the capture; true if it was running. */
+  /** Pauses the check for new watch ECG strips (every 20 s, and on the watch’s cue), whose own replies would fill the capture; true if it was running. */
   pauseStripChecks: () => boolean;
   /** `fromMs`: strips from then on are fetched (those taken during the capture). */
   resumeStripChecks: (fromMs: number) => void;
