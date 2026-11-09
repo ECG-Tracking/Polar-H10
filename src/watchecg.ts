@@ -200,7 +200,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (!w || typeof w.onEcgCue !== 'function') return;
     cueOff = w.onEcgCue((code) => {
       if (!running) return;
-      deps.log(`The watch signalled the end of an ECG (code ${code}): checking for it now.`);
+      deps.log(`The watch sent its ECG message (code ${code}): checking for a new strip now.`);
       checkNow();
       setTimeout(() => { if (running) checkNow(); }, CUE_RECHECK_MS);
     });

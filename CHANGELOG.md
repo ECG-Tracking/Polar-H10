@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.1 – Watch ECG prompts no longer freeze the page *(GitHub)*
+
+- Fixed: starting a tracking with Watch ECG prompts on could freeze the page. To find the next prompt, the page built a list of every future prompt, billions of them. It now works out only the next one. Thanks to ChatGPT's review.
+- Only the watch's ECG message with code 103 starts a check for a new strip. Any other code is noted in the connection log.
+
 ## 9 Nov 2026 – v1.43.0 – Watch ECG prompts, and strips fetched as soon as the watch finishes *(GitHub)*
 
 - Synchronised ECG Tracking: new **Watch ECG prompts** choice (Off, or every 2, 3, 5 or 10 minutes) above the timer. During a tracking, the page beeps and asks you to take a 30-second ECG on the watch: first 30 seconds after the start, then at each interval. No prompt comes too late to finish before a set end.

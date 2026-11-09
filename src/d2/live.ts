@@ -15,6 +15,8 @@ import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch } from './wa
 
 const HR_TEST = 0x19;
 const ECG_SERVICE = 0x23;
+/** The code seen in 23/0d after an ECG finished (and when its screen closed). */
+const ECG_DONE = 103;
 
 /** One heartbeat from the watch: the interval since the previous beat (ms) and its signal quality (0 = unusable). */
 export interface Beat { rri: number; sqi: number }
@@ -155,7 +157,11 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
     },
     async close() { await disconnectWatch(); },
     onEcgCue(fn) {
-      const cue = (p: InPacket): void => { if (p.service === ECG_SERVICE && p.command === 0x0d) fn(p.tlv?.has(0x01) ? p.tlv.byte(0x01) : -1); };
+      const cue = (p: InPacket): void => {
+        if (p.service !== ECG_SERVICE || p.command !== 0x0d) return;
+        const code = p.tlv?.has(0x01) ? p.tlv.byte(0x01) : -1;
+        if (code === ECG_DONE) fn(code); else o.log(`The watch sent ECG message 23/0d with code ${code} (not ${ECG_DONE}): no check started.`);
+      };
       link.listeners.add(cue);
       return () => { link.listeners.delete(cue); };
     },

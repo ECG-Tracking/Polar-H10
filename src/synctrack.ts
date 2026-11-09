@@ -12,7 +12,7 @@ import { make } from './ui';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { watchEcgCard } from './watchecg';
 import { watchCaptureCard } from './watchcapture';
-import { FIRST_PROMPT_MS, matchPrompts, promptSummary, promptTimes } from './ecgprompts';
+import { FIRST_PROMPT_MS, matchPrompts, promptAt, promptSummary } from './ecgprompts';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -232,8 +232,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   };
   const nextPrompt = (): void => {
     if (timerId == null || t0 == null || !promptEvery) return;
-    const due = promptTimes(t0, promptEvery * 1000, Number.MAX_SAFE_INTEGER)[prompts.length];
-    if (due == null) return;
+    const due = promptAt(t0, promptEvery * 1000, prompts.length);
     if (length != null && due > t0 + length * 1000 - 30_000) return; // no prompt too late to finish before the end
     promptTimer = setTimeout(() => {
       if (timerId == null) return;
