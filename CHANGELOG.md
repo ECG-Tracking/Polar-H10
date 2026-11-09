@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.6 – Fixes that can stop the app hanging, and a record of hangs *(GitHub)*
+
+- Fixed a loop that could freeze the app. ECG history works out a watch strip's heart rate again if it came out blank. For a strip with no clear beats it stayed blank, and every redraw tried again and started more redraws. Each strip is now tried once per visit, and closely spaced redraws are combined into one.
+- Sleep monitor: the strap reconnect loop always waits between attempts, so it can never spin.
+- About › **Problems recorded on this device**: when the app stops without closing normally (for example Chrome had to be quit), pauses for over 5 seconds, or hits an error, it records when, on which page, the version and the error message. There's a Copy and a Clear button. No recordings or health data, and it stays on this device.
+
 ## 9 Nov 2026 – v1.43.5 – Recorded ECGs at the calibrated scale; the mouse wheel no longer stretches them *(GitHub)*
 
 - The ECG viewer in ECG reports and in the Combined ECG now uses the same scale as the live trace: 25 mm/s and 10 mm/mV, with your screen calibration and ECG size setting. The QRS and every other wave keep their true width and height, whatever the window width.
