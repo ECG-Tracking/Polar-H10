@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.5 – D2 Link checks whether the watch has an ECG command *(GitHub)*
+
+- When D2 Link sets up the watch, it now also asks whether the watch supports its ECG service and the ECG on/off command. It only asks and sends nothing that changes the watch. The connection log shows the answer, for example "Watch ECG: service yes, ECG on/off command yes". This is a first step towards starting the watch's ECG from the app during a Synchronised ECG Tracking. You still touch the button for each 30-second strip.
+
 ## 9 Nov 2026 – v1.42.4 – Version line stays at the bottom of the menu *(GitHub)*
 
 - Desktop: only the menu in the left sidebar scrolls now. The logo at the top and the version line at the bottom (for example "Version 1.42.4 (9 Nov 2026)") stay in place.
