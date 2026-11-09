@@ -12,6 +12,9 @@ export function promptTimes(startMs: number, everyMs: number, untilMs: number): 
   return out;
 }
 
+/** The `n`th prompt's time (0 = the first), worked out directly: never a list of every future prompt. */
+export const promptAt = (startMs: number, everyMs: number, n: number): number => startMs + FIRST_PROMPT_MS + n * everyMs;
+
 /** Each prompt with the first strip that started at or after it and before the next prompt (null = missed). */
 export function matchPrompts(prompts: readonly number[], strips: readonly number[]): EcgPrompt[] {
   const sorted = [...strips].sort((a, b) => a - b);
