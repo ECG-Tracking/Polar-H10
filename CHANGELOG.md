@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.8 – Watch message capture shows only what the watch sends by itself *(GitHub)*
+
+- Watch message capture now also pauses the checks for new watch ECG strips while it runs. Their replies (`2c/06` about every 6 seconds) were filling the first capture.
+- When the capture stops, the checks resume and fetch any strip taken during it.
+- For the messages the watch sends during an ECG, the capture now also shows their protocol numbers: package names, the configuration ID and action, and small state bytes. Never measurements. The second capture showed the watch announcing a finished ECG on its own (`37/01` and `34/01`, repeated because nobody replied), a status message about every 20 seconds while the ECG app is open (`1f/01`), and an ECG-service message when the screen closes (`23/0d`). These numbers show which commands to try next.
+
 ## 9 Nov 2026 – v1.42.7 – Watch message capture, for working out how the watch starts its ECG *(GitHub)*
 
 - Synchronised ECG Tracking: a new expandable **Watch message capture (testing)** section at the bottom of the page. It records every message the watch sends while it runs, whatever else is running, with no limit. For each it records the time, service/command and the layout of its fields (tags and lengths), never their values.
