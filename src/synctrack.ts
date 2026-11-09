@@ -11,6 +11,7 @@ import { LiveTrace } from './charts';
 import { make } from './ui';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { watchEcgCard } from './watchecg';
+import { watchCaptureCard } from './watchcapture';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -192,7 +193,12 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   logs.el.classList.add('page-log');
 
   const watchEcg = watchEcgCard({ watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: true, openReport: deps.openEcg });
-  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, watchEcg.el, chartCard, bpCard, summary);
+  const capture = watchCaptureCard({
+    watch: () => watch, log,
+    pauseHeartbeats: async () => { watchTesting = false; await watch?.stopHeartbeats().catch(() => undefined); log('Watch heartbeat test paused for the capture.'); },
+    resumeHeartbeats: async () => { if (watch && !watchTesting) await startWatchTest(); },
+  });
+  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, watchEcg.el, chartCard, bpCard, summary, capture.el);
   showWatchParts();
 
   // ---------- state ----------
@@ -282,9 +288,10 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     btnWatch.disabled = true;
     try {
       const w = await api.connectLive({ account: deps.account(), user: deps.user(), via: via.value === 'mac' ? 'mac' : 'bluetooth', profile: deps.profile(), log });
-      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchEcg.update(); watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
+      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchEcg.update(); capture.update(); watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
       watch = w;
       watchEcg.update();
+      capture.update();
       if (timerId != null) watchEcg.start(); // joined during a tracking: its ECG strips are fetched too
       watchDot.className = 'dot on';
       watchText.textContent = `${w.name}: connected${w.battery != null ? ` · battery ${w.battery}%` : ''}`;
