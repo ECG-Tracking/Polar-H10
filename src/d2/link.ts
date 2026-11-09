@@ -264,7 +264,16 @@ export class D2Link {
    * Downloads one of the watch's files for [start, end] (seconds since 1970): `type` 0x16 = sequence data (with a
    * dictionary id), 0x10 = stress (heartbeat intervals), 0x18 = ECG recordings. An empty result means nothing recorded.
    */
-  async downloadFile(f: { name: string; type: number; start: number; end: number; dict?: number; what: string }, progress: (done: number, total: number) => void = () => {}): Promise<Uint8Array> {
+  /** One file download at a time: the watch's pieces carry no file ID, so two at once would mix them up. */
+  private fileQueue: Promise<unknown> = Promise.resolve();
+
+  downloadFile(f: { name: string; type: number; start: number; end: number; dict?: number; what: string }, progress: (done: number, total: number) => void = () => {}): Promise<Uint8Array> {
+    const run = this.fileQueue.then(() => this.downloadFileNow(f, progress), () => this.downloadFileNow(f, progress));
+    this.fileQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async downloadFileNow(f: { name: string; type: number; start: number; end: number; dict?: number; what: string }, progress: (done: number, total: number) => void): Promise<Uint8Array> {
     const init = new Tlv().putString(0x01, f.name).putByte(0x02, f.type).putInt(0x05, f.start).putInt(0x06, f.end);
     if (f.dict != null) init.putInt(0x0c, f.dict);
     const r = await this.request({ service: FILE_DOWNLOAD, command: 0x01, tlv: init }, 10000, `the ${f.what} download request`);

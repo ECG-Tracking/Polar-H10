@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.9 – Watch ECG downloads no longer get mixed up; strips labelled correctly *(GitHub)*
+
+- Two downloads from the watch at once, for example Download ECG while the strip checks run during a tracking, mixed up each other's pieces. Both then stalled ("No more data from the watch … asking again"). Downloads from the watch now take turns.
+- The strip checks during a tracking now ask only for ECGs newer than the last one received. Before, each check downloaded every strip since Start again (117 KB each time).
+- Watch strips saved on the Synchronised ECG Tracking page are now marked as part of a tracking only when a tracking covers them. Before, every strip saved there was marked, including the ones from the watch message captures. Those are corrected when the page opens, so ECG history shows them as "From the Watch D2 ECG app".
+
 ## 9 Nov 2026 – v1.42.8 – Watch message capture shows only what the watch sends by itself *(GitHub)*
 
 - Watch message capture now also pauses the checks for new watch ECG strips while it runs. Their replies (`2c/06` about every 6 seconds) were filling the first capture.

@@ -88,7 +88,7 @@ export async function saveWatchStrip(r: WatchRecording, user: number, s: StripSe
   const a = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula });
   const m = sessionMetrics(a, uv.length / STRIP_FS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
   // taken during a tracking: kept as such when it was saved that way before
-  const during = syncTracking || old.session?.syncTracking === true;
+  const during = syncTracking;
   const session: Session = {
     id, user: user as UserNumber, start: r.start, durationS: uv.length / STRIP_FS, fs: STRIP_FS, alias: s.alias, source: 'watch',
     watchFs: sourceFs, userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
@@ -105,7 +105,8 @@ export interface WatchEcgDeps {
   settings: () => Pick<store.Settings, 'alias' | 'notch' | 'qtcFormula' | 'hrRest' | 'hrMax' | 'sex'>;
   log: (line: string) => void;
   /** Saved during a synchronised ECG tracking. */
-  syncTracking?: boolean;
+  /** Whether a strip was taken during a synchronised ECG tracking (a function: only those a tracking covers). */
+  syncTracking?: boolean | ((r: WatchRecording) => boolean);
   openReport: (id: string) => void;
 }
 
@@ -166,7 +167,8 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   async function save(r: WatchRecording): Promise<void> {
     const id = `w${r.start}`;
     // already saved (on the other page, or by D2 Link); one from before v1.41.0 (cut off, or its rate not checked) is replaced
-    const got = await saveWatchStrip(r, deps.user(), deps.settings(), deps.syncTracking);
+    const during = typeof deps.syncTracking === 'function' ? deps.syncTracking(r) : deps.syncTracking === true;
+    const got = await saveWatchStrip(r, deps.user(), deps.settings(), during);
     if (got.result === 'same') return;
     if (got.result === 'short' || !got.session || !got.metrics || !got.uv) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
     const { session, metrics: m, uv, sourceFs = 0 } = got;
@@ -192,8 +194,12 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (!w) { status.textContent = 'The watch disconnected: reconnect it to carry on.'; }
     else {
       try {
-        const found = (await w.ecgSince(since)).filter((r) => !seen.has(r.start));
+        const all = await w.ecgSince(since);
+        const found = all.filter((r) => !seen.has(r.start));
         for (const r of found) { seen.add(r.start); await save(r); }
+        // the next check asks only for what is newer: the watch otherwise sends every strip since Start each time
+        const latest = all.reduce((m, r) => Math.max(m, r.start), 0);
+        if (latest) since = Math.max(since, latest + 1000);
         status.textContent = `Waiting for the next ECG on the watch (fingertip on its lower button for 30 s)…${strips ? ` ${strips} strip${strips > 1 ? 's' : ''} so far.` : ''}`;
       } catch (err) {
         status.textContent = `Couldn’t read the watch’s ECG: ${errorMessage(err)}. Trying again…`;

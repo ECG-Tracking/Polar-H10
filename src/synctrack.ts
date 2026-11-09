@@ -192,7 +192,10 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const renderHistory = reports.render;
   logs.el.classList.add('page-log');
 
-  const watchEcg = watchEcgCard({ watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: true, openReport: deps.openEcg });
+  /** A strip belongs to a tracking only when one covers it: the one running now, or one in the history. */
+  const inTracking = (r: { start: number; end: number }): boolean =>
+    (timerId != null && t0 != null && r.end > t0) || store.loadSyncHistory().some((e) => r.start < e.start + e.durationS * 1000 && r.end > e.start);
+  const watchEcg = watchEcgCard({ watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: inTracking, openReport: deps.openEcg });
   const capture = watchCaptureCard({
     watch: () => watch, log,
     pauseHeartbeats: async () => { watchTesting = false; await watch?.stopHeartbeats().catch(() => undefined); log('Watch heartbeat test paused for the capture.'); },
@@ -417,6 +420,12 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
   // recordings saved before ECG history noted synchronised ECG tracking: mark them now
   void (async () => {
+    // watch strips saved on this page outside any tracking (before v1.42.9 every one was marked as tracked)
+    for (const s of await store.listSessions(deps.user() as UserNumber).catch(() => [])) {
+      if (s.source !== 'watch' || !s.syncTracking || s.cloudOnly || inTracking({ start: s.start, end: s.start + s.durationS * 1000 })) continue;
+      const { syncTracking: _t, ...rest } = s;
+      await store.updateSession(rest).catch(() => undefined);
+    }
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;
       try {
@@ -496,6 +505,12 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
   // recordings saved before ECG history noted synchronised ECG tracking: mark them now
   void (async () => {
+    // watch strips saved on this page outside any tracking (before v1.42.9 every one was marked as tracked)
+    for (const s of await store.listSessions(deps.user() as UserNumber).catch(() => [])) {
+      if (s.source !== 'watch' || !s.syncTracking || s.cloudOnly || inTracking({ start: s.start, end: s.start + s.durationS * 1000 })) continue;
+      const { syncTracking: _t, ...rest } = s;
+      await store.updateSession(rest).catch(() => undefined);
+    }
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;
       try {
