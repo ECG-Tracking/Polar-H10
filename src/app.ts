@@ -1375,8 +1375,10 @@ startDiagnostics();
 function renderProblems(): void {
   const root = $('problemsRoot');
   const list = problems().slice().reverse();
-  const card = make('details', 'card problems-box');
-  card.appendChild(make('summary', '', `Problems recorded on this device (${list.length})`));
+  const card = make('details', 'storage-box problems-box');
+  const sum = make('summary');
+  sum.appendChild(make('h2', '', `Problems recorded on this device (${list.length})`));
+  card.appendChild(sum);
   card.appendChild(make('p', 'note', 'If the app stops responding, this lists when, on which page and in which version, with any error message. It holds no recordings or health data and stays on this device. Copy it to report a problem.'));
   if (!list.length) card.appendChild(make('p', 'muted', 'None.'));
   else {

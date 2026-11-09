@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.7 – Problems is its own section on About *(GitHub)*
+- About: "Problems recorded on this device" is now a separate section with its own heading, like Storage, instead of looking like part of Storage.
+
 ## 9 Nov 2026 – v1.43.6 – Fixes that can stop the app hanging, and a record of hangs *(GitHub)*
 
 - Fixed a loop that could freeze the app. ECG history works out a watch strip's heart rate again if it came out blank. For a strip with no clear beats it stayed blank, and every redraw tried again and started more redraws. Each strip is now tried once per visit, and closely spaced redraws are combined into one.
