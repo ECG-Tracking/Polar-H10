@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — live use of the watch for OpenBeat ECG's synchronised tracking: the watch's 60-second heartbeat test
+// D2 Link — live use of the watch for OpenBeat ECG's synchronised ECG tracking: the watch's 60-second heartbeat test
 // (each beat-to-beat interval as it is measured, with its signal quality) and blood pressure readings taken on the watch.
 // Ported from Gadgetbridge's heartbeat (RRI) test (https://codeberg.org/Freeyourgadget/Gadgetbridge), © Gadgetbridge contributors.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.

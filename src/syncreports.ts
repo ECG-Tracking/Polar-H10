@@ -1,4 +1,4 @@
-// Synchronised Tracking History: one row per version of each tracking, with its Polar H10 report and the two-ECG report (the D2,
+// Synchronised ECG Tracking History: one row per version of each tracking, with its Polar H10 report and the two-ECG report (the D2,
 // Combined and Comparison reports are no longer offered: the two-ECG report holds what they added). Formerly: (Polar H10, D2, Combined,
 // Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
@@ -343,13 +343,13 @@ function ecgRows(m: NonNullable<TrackVersion['ecg']>): string[][] {
 
 /** `box`: the history page's list; `reportRoot`: the report page. */
 export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
-  /** Where ← goes: Synchronised Tracking History, or ECG history when the pair was opened from there. */
+  /** Where ← goes: Synchronised ECG Tracking History, or ECG history when the pair was opened from there. */
   let backTo: { label: string; go: () => void } | null = null;
   const backToHistory = (): void => { if (backTo) backTo.go(); else deps.show('syncHistory'); };
 
   function reportBar(e: SyncTrackingEntry, kind: Kind, at: number): HTMLElement {
     const bar = make('div', 'row between wrap no-print');
-    bar.appendChild(button(`← ${backTo?.label ?? 'Synchronised Tracking History'}`, '', backToHistory));
+    bar.appendChild(button(`← ${backTo?.label ?? 'Synchronised ECG Tracking History'}`, '', backToHistory));
     const right = make('div', 'row wrap');
     for (const [k, label] of [['polar', 'Polar H10 report']] as const) {
       right.appendChild(button(label, k === kind ? 'primary' : '', () => void openReport(e.id, k, at)));
@@ -407,7 +407,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   /** The D2 report's strips: all of them analysed together, as the Polar H10 report analyses its ECG. */
   function watchStripCards(g: Gathered): HTMLElement[] {
     const st = g.strips;
-    if (!st) return [card('ECG strips from the watch', make('p', 'muted', 'No 30-second ECG strips were taken on the watch during this tracking. Take them with “Start watch ECG” on Synchronised Tracking or ECG live.'))];
+    if (!st) return [card('ECG strips from the watch', make('p', 'muted', 'No 30-second ECG strips were taken on the watch during this tracking. Take them with “Start watch ECG” on Synchronised ECG Tracking or ECG live.'))];
     const list = make('ul', 'watch-ecg-list');
     for (const s of st.joined.strips) {
       const li = make('li');
@@ -632,7 +632,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       const versions = trace?.reports ?? [];
       const latest = versions[versions.length - 1];
       const v = versions.find((x) => x.generatedAt === at) ?? latest;
-      if (!e || !trace || !v) { reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
+      if (!e || !trace || !v) { reportRoot.replaceChildren(button('← Synchronised ECG Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
       const g: Gathered = { e, trace, v, latest: v === latest, strips: await gatherStrips(e).catch(() => null) };
       if (kind === 'ecg') {
         const r = ecgPairReport(g);
@@ -643,14 +643,14 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...body);
       }
     } catch (err) {
-      reportRoot.replaceChildren(button('← Synchronised Tracking History', '', backToHistory), make('p', 'muted', `This report could not be made: ${errorMessage(err)}`));
+      reportRoot.replaceChildren(button('← Synchronised ECG Tracking History', '', backToHistory), make('p', 'muted', `This report could not be made: ${errorMessage(err)}`));
     }
     window.scrollTo(0, 0);
   }
 
   async function render(): Promise<void> {
     const entries = store.loadSyncHistory().filter((e) => e.user === deps.user());
-    if (!entries.length) { box.replaceChildren(make('p', 'muted', 'No synchronised tracking yet on this device.')); return; }
+    if (!entries.length) { box.replaceChildren(make('p', 'muted', 'No synchronised ECG tracking yet on this device.')); return; }
     const list = make('ul', 'sessions');
     // the watch counts as recorded when it sent beats or when its ECG strips were taken during the tracking
     const strips = (await store.listSessions(deps.user() as store.UserNumber).catch(() => [])).filter((s) => s.source === 'watch');
@@ -670,7 +670,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const li = make('li', 'sync-sleep-row');
         const actions = make('div', 'row wrap sync-sleep-actions');
         actions.appendChild(remove);
-        li.append(whenLine(dateTime(e.start), 'From Synchronised Tracking'), make('span', 'dur', userTag(e.user)), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
+        li.append(whenLine(dateTime(e.start), 'From Synchronised ECG Tracking'), make('span', 'dur', userTag(e.user)), make('span', 'stats', `${trackingLine(e, false, false, false)} · generating the reports…`), actions);
         list.appendChild(li);
         continue;
       }
@@ -679,7 +679,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         const v = versions[i - 1]!;
         const li = make('li', 'sync-sleep-row');
         li.append(
-          whenLine(dateTime(e.start), `From Synchronised Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
+          whenLine(dateTime(e.start), `From Synchronised ECG Tracking${versions.length > 1 ? ` · Version ${i} of ${versions.length}${i === versions.length ? ' (latest)' : ''}` : ''}`),
           make('span', 'dur', userTag(e.user)),
           make('span', 'stats', trackingLine(e, v.bps.length > 0, !!v.p, !!v.w || hadStrips(e))),
         );

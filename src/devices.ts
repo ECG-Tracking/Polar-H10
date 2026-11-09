@@ -1,4 +1,4 @@
-// The Polar H10 connection, shared by every page: pair it on ECG live, Sleep monitor or Synchronised Tracking and the
+// The Polar H10 connection, shared by every page: pair it on ECG live, Sleep monitor or Synchronised ECG Tracking and the
 // others use the same connection instead of pairing again. Each page says what to do with the strap through onStrap.
 
 import { PolarH10 } from './polar';

@@ -332,7 +332,7 @@ export function initBackups(root: HTMLElement, deps: { loadD2: () => Promise<D2A
   const all = [backupBtn, restoreBtn, compareBtn, overwriteBtn, restoreCloudBtn];
   card.append(
     make('h3', 'backup-h', 'Account backup and restore'),
-    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep recording with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised Tracking history, D2 Link’s download history and everything in the Recovery centre. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
+    make('p', '', 'A backup holds everything this account has saved on this device: every ECG recording with its full signal, every sleep recording with its raw data, the summary copies from your other devices, the Watch D2 nights and data, each user’s biodata and settings, the Synchronised ECG Tracking history, D2 Link’s download history and everything in the Recovery centre. Your password, sign-in, the watch pairing and the watch account ID are not included (after restoring on a new device, enter the watch account ID in D2 Link again). Keep the backup file somewhere outside this browser. Restoring puts its items back on this device and uploads them at the next sync.'),
     r1,
     make('hr', 'backup-sep'),
     make('h3', 'backup-h', 'This device and the cloud copy'),

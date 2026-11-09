@@ -47,7 +47,7 @@ export function usageRows(m: Measured): UseRow[] {
     { name: 'ECG recordings', count: s.sessions.count, bytes: s.sessions.bytes + s.signals.bytes + s.ecgSummaries.bytes },
     { name: 'Sleep', count: s.sleeps.count, bytes: s.sleeps.bytes + s.sleepSignals.bytes },
     { name: 'Synchronised sleep reports', count: s.sleepReports.count, bytes: s.sleepReports.bytes },
-    { name: 'Synchronised tracking beats', count: s.syncTraces.count, bytes: s.syncTraces.bytes },
+    { name: 'Synchronised ECG tracking beats', count: s.syncTraces.count, bytes: s.syncTraces.bytes },
     { name: 'Recovery centre', count: s.bin.count + (d2?.bin ?? none).count, bytes: s.bin.bytes + s.binSignals.bytes + (d2?.bin ?? none).bytes },
     { name: 'App settings', count: null, bytes: m.settings.bytes },
     { name: 'The app itself (offline copy)', count: m.app.count, bytes: m.app.bytes },
@@ -130,10 +130,15 @@ function table(head: string[], rows: string[][]): HTMLElement {
 }
 
 let drawing = 0;
+/** Measured again at least once a day while the app stays open. */
+export const REFRESH_MS = 24 * 3600 * 1000;
+let daily: ReturnType<typeof setInterval> | null = null;
 
-/** Measures on every visit, so the page never shows old figures. */
+/** Measures on every visit, every day while the app is open, and on Refresh, so the page never shows old figures. */
 export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Promise<D2Api> }): Promise<void> {
   const mine = ++drawing;
+  if (daily) clearInterval(daily);
+  daily = setInterval(() => { if (root.isConnected) void renderStorage(root, deps); }, REFRESH_MS);
   root.replaceChildren(make('p', 'muted', 'Measuring…'));
   const [stores, d2, app, estimate] = await Promise.all([
     store.measureStores(sizeOf),
@@ -156,7 +161,7 @@ export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Pro
   what.append(make('h3', '', 'What takes the space'), table(['Data', 'Items', 'Size', 'Share'], rows.map((r) => [
     r.name, r.count == null ? '--' : r.count.toLocaleString(), formatBytes(r.bytes), total ? `${Math.round((100 * r.bytes) / total)} %` : '--',
   ])));
-  what.appendChild(make('p', 'note', 'This account on this device, for all its users. ECG recordings include ECGs taken during sleep and synchronised tracking. Sizes are approximate: the browser compresses data and adds its own overhead, and “Used on this device” also includes any other account signed in here.'));
+  what.appendChild(make('p', 'note', 'This account on this device, for all its users. ECG recordings include ECGs taken during sleep and synchronised ECG tracking. Sizes are approximate: the browser compresses data and adds its own overhead, and “Used on this device” also includes any other account signed in here.'));
   if (!d2) what.appendChild(make('p', 'note', 'Watch D2 data isn’t included: D2 Link could not be loaded.'));
 
   const needs = make('section', 'card');
@@ -172,5 +177,10 @@ export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Pro
   label.append(box, ' Keep everything on this device');
   keep.append(make('h3', '', 'What this device keeps'), label, make('p', 'note', 'On: every tracking and the whole D2 Link download history stay here, as well as all recordings. Off: the latest 500 trackings and 300 downloads stay here, and the older ones stay in the cloud. Computers start on, phones and tablets off. The full ECG and raw sleep data stay on the device that recorded them.'));
 
-  root.replaceChildren(tiles, what, needs, keep);
+  const bar = make('div', 'row wrap storage-bar');
+  const refresh = make('button', 'small', 'Refresh') as HTMLButtonElement;
+  refresh.addEventListener('click', () => void renderStorage(root, deps));
+  bar.append(make('span', 'muted', `Measured ${new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · measured again every day`), refresh);
+
+  root.replaceChildren(bar, tiles, what, needs, keep);
 }

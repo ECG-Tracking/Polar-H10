@@ -13,6 +13,22 @@ const painters = new Map<HTMLCanvasElement, () => void>();
 function watch(canvas: HTMLCanvasElement, draw: () => void): void {
   painters.set(canvas, draw);
   new ResizeObserver(draw).observe(canvas);
+  watchZoom();
+}
+
+let zoomWatched = false;
+/**
+ * A browser zoom or a move to another screen changes the pixel ratio without always resizing the canvas: everything is
+ * drawn again, so the picture is never the old one stretched, and the live ECG keeps its calibrated mm per second.
+ */
+function watchZoom(): void {
+  if (zoomWatched || typeof matchMedia !== 'function') return;
+  zoomWatched = true;
+  const listen = (): void => {
+    const q = matchMedia(`(resolution: ${globalThis.devicePixelRatio || 1}dppx)`);
+    q.addEventListener('change', () => { for (const [c, draw] of painters) if (c.isConnected) draw(); listen(); }, { once: true });
+  };
+  listen();
 }
 
 function repaint(): void {
@@ -293,6 +309,8 @@ export class LiveTrace {
   draw(): void {
     if (!this.canvas.clientWidth) return;
     this.canvas.dataset['size'] = String(ecgSize()); // bigger waves need a taller trace (styles.css)
+    // the page's width, never the picture's: a canvas without a CSS width would grow to its own pixels and be stretched
+    if (!this.canvas.style.width) this.canvas.style.width = '100%';
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;

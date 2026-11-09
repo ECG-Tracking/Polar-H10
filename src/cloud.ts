@@ -4,7 +4,7 @@
 //   • Sleep history: table sleep_nights holds each night's report outputs (numbers and graph data).
 //   • Everything else: table user_data, one row per (kind, id) with the data as JSON, so new kinds need no new SQL.
 //     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
-//     Kind 'tracking': each synchronised tracking with its beats and report versions, id = its id; the same rule.
+//     Kind 'tracking': each synchronised ECG tracking with its beats and report versions, id = its id; the same rule.
 //     Kind 'sleep-reports': each synchronised sleep's four reports with every version, id = its id; the same rule.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
@@ -13,7 +13,7 @@ import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport, SUMMARY_LEVEL } from './summary';
 import { SLEEP_METHOD } from './sleep';
-import { mergeVersions, parseTrackingRow, planCloudCopies } from './synccompare';
+import { mergeTrace, parseTrackingRow, planCloudCopies } from './synccompare';
 import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
 import { errorMessage } from './util';
 
@@ -172,7 +172,7 @@ export class CloudSync extends EventTarget {
     if (replaced) this.dispatchEvent(new Event('settings'));
   }
 
-  // ---------- synchronised tracking (table user_data, kind 'tracking') ----------
+  // ---------- synchronised ECG tracking (table user_data, kind 'tracking') ----------
 
   private async syncTracking(result: SyncResult): Promise<void> {
     const stillPending: string[] = [];
@@ -206,7 +206,7 @@ export class CloudSync extends EventTarget {
       const copy = await cloudCopy(id);
       if (!copy) continue;
       const here = await store.loadSyncTrace(id);
-      if (copy.trace) await store.saveSyncTrace({ ...copy.trace, reports: mergeVersions(here?.reports, copy.trace.reports) });
+      if (copy.trace) await store.saveSyncTrace(mergeTrace(here, copy.trace));
       store.saveSyncEntry({ ...copy.entry, savedAt: inCloud.get(id) ?? Date.now() }, { fromCloud: true });
       result.downloaded++;
     }
@@ -215,8 +215,8 @@ export class CloudSync extends EventTarget {
       if (!entry) continue;
       let trace = (await store.loadSyncTrace(id)) ?? null;
       if (inCloud.has(id)) { // another device may have added versions
-        const reports = mergeVersions(trace?.reports, (await cloudCopy(id))?.trace?.reports);
-        if (trace && reports.length) { trace = { ...trace, reports }; await store.saveSyncTrace(trace); }
+        const there = (await cloudCopy(id))?.trace;
+        if (trace && there) { trace = mergeTrace(there, trace); await store.saveSyncTrace(trace); }
       }
       const savedAt = entry.savedAt ?? Date.now();
       const { synced: _s, ...sent } = entry;

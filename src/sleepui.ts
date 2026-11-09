@@ -9,8 +9,8 @@ import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_C
 import { checkRange, fmtRange, sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
 import type { Session, SleepSession, UserNumber } from './store';
-import { forgetStrapButton, trackFor } from './devicekit';
-import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, type Outlier, type MetricRef } from './ui';
+import { H10_RESTART_TIP, forgetStrapButton, trackFor } from './devicekit';
+import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, whenLine, type Outlier, type MetricRef } from './ui';
 import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
 import { parseSleepReport, toAnalysis, type SleepReport } from './summary';
@@ -120,6 +120,7 @@ export function initSleep(deps: SleepDeps): {
     } catch (err) {
       const cancelled = errorName(err) === 'NotFoundError';
       log(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorMessage(err)}`);
+      log(H10_RESTART_TIP);
       status(cancelled ? 'No device selected' : `Connection failed: ${errorMessage(err)}`, '');
     }
     syncButtons();
@@ -353,7 +354,7 @@ export function initSleep(deps: SleepDeps): {
       const li = make('li');
       const stats = s ? [nap ? '' : `Score ${s.score}`, `${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'}`, `HR ${fmt(s.avgHR)} bpm`, `HRV ${fmt(s.avgHrv)} ms`, fmtHM(s.sleepMin)] : ['Open to analyse', fmtTime(n.durationS)];
       li.append(
-        make('span', 'when', `${new Date(n.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${nap ? 'Nap' : 'Night'}`),
+        whenLine(new Date(n.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), nap ? 'Nap' : 'Night'),
         make('span', 'dur', [n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
         make('span', 'stats', stats.filter(Boolean).join(' · ')),
       );

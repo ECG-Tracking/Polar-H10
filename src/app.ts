@@ -7,13 +7,14 @@ import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
-import { connectionLog, forgetStrapButton } from './devicekit';
+import { H10_RESTART_TIP, connectionLog, forgetStrapButton } from './devicekit';
 import { watchEcgCard } from './watchecg';
 import type { LiveWatch } from './d2/live';
 import { byId, whenLine, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { renderRecovery } from './recovery';
+import { startVersionTidying } from './oldversions';
 import { parseEcgSummary, withoutShape, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
@@ -82,7 +83,7 @@ let d2Loading: Promise<void> | null = null;
 /** D2 Link switched to its history page itself (e.g. to show a night): keep what it shows. */
 let d2KeepPage = false;
 
-/** Loads d2link.js once (D2 Link's page and the watch for synchronised tracking). */
+/** Loads d2link.js once (D2 Link's page and the watch for synchronised ECG tracking). */
 async function loadD2(): Promise<D2Api> {
   d2Loading ??= new Promise<void>((resolve, reject) => {
     const s = document.createElement('script');
@@ -100,7 +101,7 @@ async function loadD2(): Promise<D2Api> {
 const biodataProfile = (): { heightCm: number; weightKg: number; age: number; sex: 'male' | 'female' } | null =>
   (settings.heightCm > 0 && settings.weightKg > 0 ? { heightCm: settings.heightCm, weightKg: settings.weightKg, age: settings.age, sex: settings.sex } : null);
 
-// ---------- Synchronised tracking (Polar H10 and Watch D2 together) ----------
+// ---------- Synchronised ECG tracking (Polar H10 and Watch D2 together) ----------
 
 let syncUI: ReturnType<typeof initSyncTracking> | null = null;
 let backupsReady = false;
@@ -376,6 +377,7 @@ async function connectPolar(): Promise<void> {
   } catch (err) {
     const cancelled = errorName(err) === 'NotFoundError';
     btLog(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorName(err)}: ${errorMessage(err)}`);
+    btLog(H10_RESTART_TIP);
     setStatus(cancelled ? 'No device selected' : `Connection failed: ${errorMessage(err)}`, '');
   }
 }
@@ -632,7 +634,7 @@ async function renderHistory(): Promise<void> {
   list.replaceChildren();
   $('emptyHistory').hidden = sessions.some((s) => s.source !== 'watch');
   trends.show(sessions.filter((s) => s.source !== 'watch')); // 30-second watch strips have their own section
-  // synchronised trackings with watch ECG strips: one box with both readings, opening both ECGs together
+  // synchronised ECG trackings with watch ECG strips: one box with both readings, opening both ECGs together
   const pairs = store.loadSyncHistory().filter((e) => e.user === currentUser && e.ecgId).flatMap((e) => {
     const end = e.start + e.durationS * 1000;
     const strips = sessions.filter((s) => s.source === 'watch' && s.start < end && s.start + s.durationS * 1000 > e.start);
@@ -652,7 +654,7 @@ async function renderHistory(): Promise<void> {
       const { e, strips, polar } = row.p;
       const li = make('li', 'pair-row');
       li.append(
-        whenLine(new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), 'From Synchronised Tracking'),
+        whenLine(new Date(e.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), 'From Synchronised ECG Tracking'),
         make('span', 'dur', `${store.sessionUser(polar)}${polar.alias ? `:${polar.alias}` : ''}`),
         // the combined duration of the spliced strips (within the tracking), not the strap's
         make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0,
@@ -666,8 +668,8 @@ async function renderHistory(): Promise<void> {
       continue;
     }
     const s = row.s;
-    // the same two lines as a synchronised tracking: where it came from, then what was recorded and how long
-    const from = s.syncTracking ? 'From Synchronised Tracking' : s.sleepId ? 'From Sleep monitor' : s.source === 'watch' ? 'From the Watch D2 ECG app'
+    // the same two lines as a synchronised ECG tracking: where it came from, then what was recorded and how long
+    const from = s.syncTracking ? 'From Synchronised ECG Tracking' : s.sleepId ? 'From Sleep monitor' : s.source === 'watch' ? 'From the Watch D2 ECG app'
       : s.source === 'import' ? 'Imported EDF file' : s.source === 'demo' ? 'Demo' : s.ignoreShape ? 'Saved ignoring irregular shape' : 'From ECG live';
     const what = [
       s.source === 'watch' ? 'Watch D2' : s.source === 'demo' ? 'Demo signal' : s.source === 'import' ? 'EDF file' : 'Polar H10',
@@ -1336,3 +1338,10 @@ if (!bluetoothAvailable() || !window.isSecureContext) {
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
+
+// report versions replaced over a week ago go to the Recovery centre, and leave it for good after four weeks
+startVersionTidying(() => {
+  historyChanged();
+  if ($('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory();
+  if ($('view-syncSleepHistory').classList.contains('active')) void syncSleepUI?.refreshHistory();
+});

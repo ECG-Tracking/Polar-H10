@@ -1,4 +1,4 @@
-// ECG from the Watch D2, for ECG live and Synchronised Tracking. The watch can't stream its ECG: it records 30 seconds while
+// ECG from the Watch D2, for ECG live and Synchronised ECG Tracking. The watch can't stream its ECG: it records 30 seconds while
 // a fingertip touches its button, then keeps the recording. While this runs, the app asks the watch every few seconds for
 // new recordings, plays each one on screen like a Polar strip, analyses it and saves it in ECG history. The person starts
 // the next 30-second ECG on the watch, again and again, until they press Stop.
@@ -79,7 +79,7 @@ export interface WatchEcgDeps {
   user: () => number;
   settings: () => Pick<store.Settings, 'alias' | 'notch' | 'qtcFormula' | 'hrRest' | 'hrMax' | 'sex'>;
   log: (line: string) => void;
-  /** Saved during a synchronised tracking. */
+  /** Saved during a synchronised ECG tracking. */
   syncTracking?: boolean;
   openReport: (id: string) => void;
 }
