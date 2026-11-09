@@ -175,6 +175,7 @@ export function initSleep(deps: SleepDeps): {
       try {
         await polar.reconnect(log);
         strapReady(polar); // the other pages use it again too
+        if (!polar.connected) await sleep(2000); // never a tight loop, even if reconnecting returns at once
       } catch (err) {
         log(`Reconnect failed: ${errorMessage(err)}`);
         await sleep(15000);

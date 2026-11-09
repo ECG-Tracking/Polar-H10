@@ -16,6 +16,7 @@ import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { renderRecovery } from './recovery';
 import { startVersionTidying } from './oldversions';
+import { clearProblems, notePage, problems, startDiagnostics } from './diagnostics';
 import { parseEcgSummary, withoutShape, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
@@ -49,6 +50,7 @@ let sleepUI: ReturnType<typeof initSleep> | null = null;
 printInLightColours();
 
 function show(view: View): void {
+  notePage(view);
   for (const v of document.querySelectorAll('.view')) v.classList.toggle('active', v.id === `view-${view}`);
   const tab = view === 'report' ? 'history' : view === 'sleepReport' ? 'sleepHistory' : view === 'syncSleepReport' ? 'syncSleepHistory' : view === 'syncReport' ? 'syncHistory' : view === 'locate' ? 'backups' : view;
   for (const b of document.querySelectorAll<HTMLButtonElement>('.tabs button')) b.setAttribute('aria-selected', String(b.dataset['view'] === tab));
@@ -66,7 +68,7 @@ function show(view: View): void {
   if (view === 'backups' && !backupsReady) { backupsReady = true; initBackups($('backupsRoot'), { loadD2, openLocate: () => show('locate') }); }
   if (view === 'locate') { locateUI ??= initLocate($('locateRoot'), () => show('backups')); locateUI.refresh(); }
   if (view === 'recovery') void renderRecovery($('recoveryRoot'), { loadD2, user: () => currentUser });
-  if (view === 'about') void renderStorage($('storageRoot'), { loadD2 });
+  if (view === 'about') { void renderStorage($('storageRoot'), { loadD2 }); renderProblems(); }
   // D2 Link is open source (built on Gadgetbridge); the rest of the app is not
   // every page: "Copyright © 2026 ECG-Tracking. All rights reserved."; D2 Link (open source) has its licence lines instead
   // the licence lines only on the D2 Link page; D2 Link History has the plain copyright line, like the other pages
@@ -637,9 +639,10 @@ async function renderHistory(): Promise<void> {
   let sessions: Session[] = [];
   try { sessions = await store.listSessions(currentUser); } catch { /* storage blocked */ }
   // watch strips saved before v1.41.1 whose heart rate came out blank (a burst at the start hid the beats): worked out again
-  const blank = sessions.filter((s) => s.source === 'watch' && !s.cloudOnly && s.summary && !Number.isFinite(s.summary.meanHR));
+  // once per strip per visit: a strip with no clear beats stays blank, and trying again on every redraw looped endlessly
+  const blank = sessions.filter((s) => s.source === 'watch' && !s.cloudOnly && s.summary && !Number.isFinite(s.summary.meanHR) && !retriedBlank.has(s.id));
   if (blank.length) {
-    for (const s of blank) { await store.updateSession({ ...s, summary: null }); await summarise(s.id); }
+    for (const s of blank) { retriedBlank.add(s.id); await store.updateSession({ ...s, summary: null }); await summarise(s.id, false); }
     try { sessions = await store.listSessions(currentUser); } catch { /* storage blocked */ }
   }
   $('historyUser').textContent = `· ${userLabel(currentUser)}`;
@@ -769,13 +772,22 @@ viewerPos.addEventListener('input', () => viewer.goTo((Number(viewerPos.value) /
 
 
 /** Works out a saved recording's list summary (HR, HRV, events) without opening it, as opening it would. */
-async function summarise(id: string): Promise<void> {
+/** Watch strips whose blank heart rate was already worked out again on this visit. */
+const retriedBlank = new Set<string>();
+let historyRedraw: ReturnType<typeof setTimeout> | null = null;
+/** One redraw of ECG history for any number of changes close together, never one per change. */
+function redrawHistorySoon(): void {
+  if (historyRedraw) return;
+  historyRedraw = setTimeout(() => { historyRedraw = null; if ($('view-history').classList.contains('active')) void renderHistory(); }, 300);
+}
+
+async function summarise(id: string, redraw = true): Promise<void> {
   const { session, samples } = await store.loadSession(id);
   if (!session || !samples || session.summary || session.cloudOnly) return;
   const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: session.ignoreShape === true });
   const metrics = sessionMetrics(analysis, session.durationS, { hrRest: settings.hrRest, hrMax: settings.hrMax, sex: settings.sex });
   await store.updateSession({ ...session, summary: { meanHR: metrics.meanHR, hrvScore: metrics.hrvScore, eventCount: analysis.events.length, trend: trendValues(metrics) } });
-  if ($('view-history').classList.contains('active')) void renderHistory();
+  if (redraw) redrawHistorySoon();
 }
 
 // "Ignore Irregular Shape": for the recording it was turned on for only; opening another one shows its original version
@@ -1357,3 +1369,26 @@ startVersionTidying(() => {
   if ($('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory();
   if ($('view-syncSleepHistory').classList.contains('active')) void syncSleepUI?.refreshHistory();
 });
+
+// what went wrong on this device (the app stuck, long pauses, errors): to find the cause, without any health data
+startDiagnostics();
+function renderProblems(): void {
+  const root = $('problemsRoot');
+  const list = problems().slice().reverse();
+  const card = make('details', 'card problems-box');
+  card.appendChild(make('summary', '', `Problems recorded on this device (${list.length})`));
+  card.appendChild(make('p', 'note', 'If the app stops responding, this lists when, on which page and in which version, with any error message. It holds no recordings or health data and stays on this device. Copy it to report a problem.'));
+  if (!list.length) card.appendChild(make('p', 'muted', 'None.'));
+  else {
+    const text = list.map((p) => `${new Date(p.at).toLocaleString()} · ${p.kind} · page ${p.page} · v${p.version} · ${p.detail}`).join('\n');
+    const pre = make('pre', 'log', text);
+    const row = make('div', 'row wrap');
+    const copy = make('button', 'small', 'Copy') as HTMLButtonElement;
+    copy.addEventListener('click', () => void navigator.clipboard?.writeText(text).then(() => { copy.textContent = 'Copied'; }).catch(() => undefined));
+    const clear = make('button', 'small', 'Clear') as HTMLButtonElement;
+    clear.addEventListener('click', () => { clearProblems(); renderProblems(); });
+    row.append(copy, clear);
+    card.append(pre, row);
+  }
+  root.replaceChildren(card);
+}
