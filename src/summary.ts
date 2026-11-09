@@ -47,7 +47,7 @@ export interface EcgSummary {
   ignoreShape?: true; // saved ignoring irregular shape
   fromWatch?: true; // a 30-second ECG from the Watch D2 (the cloud table's source column says import)
   derivedFrom?: string;
-  syncTracking?: boolean; // recorded during a synchronised tracking
+  syncTracking?: boolean; // recorded during a synchronised ECG tracking
   /** The same recording worked out ignoring Irregular Shape, shown only when someone asks for it (missing in older copies). */
   noShape?: NoShapeVersion;
 }

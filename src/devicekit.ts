@@ -4,6 +4,9 @@
 import { make, durationSeconds } from './ui';
 import { currentStrap, disconnectStrap, onStrap } from './devices';
 
+/** What to do when the Polar H10 isn't in Chrome's list or won't connect. */
+export const H10_RESTART_TIP = 'If the Polar H10 didn’t appear in the list or wouldn’t connect: switch it off for 30 seconds (unclip the sensor from the strap), clip it back on, wet the electrodes, wear it, then press Connect again.';
+
 export interface LogBox { el: HTMLPreElement; log: (line: string) => void; clear: () => void }
 
 /** The connection log as on ECG live: hidden until there is something in it. Pass an existing <pre> to use it. */

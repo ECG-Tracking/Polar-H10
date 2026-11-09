@@ -2,7 +2,7 @@
 // and the combined and comparison reports. The Polar H10 and D2 reports are the usual ones, opened from here.
 
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
-import { connectionLog, forgetStrapButton, trackFor } from './devicekit';
+import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { ECG_FS, type BatteryDetail, type EcgDetail, type PolarH10 } from './polar';
 import { EcgFilter } from './dsp';
 import { LiveTrace, Hypnogram, drawDonut, fmtClock, STAGE_COLOR_VAR, STAGE_LABEL, type SleepStageKey } from './charts';
@@ -11,7 +11,7 @@ import { analyzeSleep, EPOCH_S, type SleepAnalysis, type SleepData, type Stage }
 import * as store from './store';
 import { buildReports, pairUp, whatChanged, type Known, type PastSleepReports, type PolarFigures, type SavedSleepReports, type SleepCopy, type SleepPair, type WatchSleep } from './syncsleep';
 import { fromAnalysis, parseSleepReport, toAnalysis } from './summary';
-import { fmt, fmtHM, make } from './ui';
+import { fmt, fmtHM, make, whenLine } from './ui';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
@@ -214,6 +214,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     } catch (err) {
       const cancelled = errorName(err) === 'NotFoundError';
       logs.log(cancelled ? 'No strap chosen (the list was closed or cancelled)' : `Error: ${errorMessage(err)}`);
+      logs.log(H10_RESTART_TIP);
       statusText.textContent = cancelled ? 'Polar H10 not connected' : `Could not connect: ${errorMessage(err)}`;
       dot.className = 'dot';
       return;
@@ -335,6 +336,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'combine' && (r.combineRule ?? 1) >= 3 ? `Generated again ${dateTime(r.generatedAt)}, because breaks of 1–2 minutes inside a longer block are now part of it, and being awake before falling asleep no longer counts as waking up`
     : r.changed === 'combine' ? `Generated again ${dateTime(r.generatedAt)}, because the combined stages now come from the Polar H10, with the watch filling its gaps`
     : r.changed === 'labels' ? `Generated again ${dateTime(r.generatedAt)}, because you changed how this sleep is counted`
     : r.changed === 'method' ? `Generated again ${dateTime(r.generatedAt)}, because the Polar H10 sleep stages are now worked out better`
@@ -377,7 +379,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
         const v = versions[n - 1]!;
         const li = make('li', 'sync-sleep-row');
         li.append(
-          make('span', 'when', `${dateTime(p.start)} · ${p.nap ? 'Nap' : 'Night'}${versions.length > 1 ? ` · Version ${n} of ${versions.length}${n === versions.length ? ' (latest)' : ''}` : ''}`),
+          whenLine(dateTime(p.start), `${p.nap ? 'Nap' : 'Night'}${versions.length > 1 ? ` · Version ${n} of ${versions.length}${n === versions.length ? ' (latest)' : ''}` : ''}`),
           make('span', 'dur', tags),
           make('span', 'stats', `Polar H10 ${fmtHM(v.polar.sleepMin)} · Watch D2 ${fmtHM(v.watch.sleepMin)}${v.agreement.stagePct == null ? '' : ` · ${fmt(v.agreement.stagePct)} % same stage`}`),
           make('span', 'muted sync-sleep-made', madeText(v)),

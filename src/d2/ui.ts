@@ -533,7 +533,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
           ? 'The port opened but the watch didn’t answer on it: it is probably not the watch’s data channel.'
           : '';
     } finally {
-      // the connection stays open for the next download and for Synchronised Tracking
+      // the connection stays open for the next download and for Synchronised ECG Tracking
       syncButtons(false);
       if (!store.nothingCameBack(entry)) store.addDownloadLog(entry);
       renderHistory();
@@ -636,7 +636,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     window.scrollTo(0, 0);
   }
 
-  // the watch connection is shared with Synchronised Tracking: this page shows it, whichever page connected it
+  // the watch connection is shared with Synchronised ECG Tracking: this page shows it, whichever page connected it
   logTo(log);
   btnDisconnect.addEventListener('click', () => void disconnectWatch());
   onWatch((w) => {

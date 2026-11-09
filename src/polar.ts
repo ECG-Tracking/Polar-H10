@@ -111,7 +111,7 @@ export class PolarH10 extends EventTarget {
         log(`Connect failed: ${errorMessage(err)}`);
         if (gatt.connected) gatt.disconnect();
         if (attempt >= 3) {
-          throw new Error(`${errorMessage(err)}. Try: forget the H10 in macOS Bluetooth settings, close Polar apps on your phone, then reconnect`);
+          throw new Error(`${errorMessage(err)}. Try: switch the H10 off for 30 seconds (unclip the sensor), clip it back on and reconnect; if that fails, forget it in the computer’s Bluetooth settings and close Polar apps on your phone`);
         }
         await sleep(1500);
       }

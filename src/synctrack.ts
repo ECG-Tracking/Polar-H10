@@ -1,4 +1,4 @@
-// Synchronised tracking: the Polar H10's ECG and the Watch D2's heartbeats side by side for a chosen time (1, 3 or 5 min,
+// Synchronised ECG tracking: the Polar H10's ECG and the Watch D2's heartbeats side by side for a chosen time (1, 3 or 5 min,
 // a custom time, or until stopped), plus a blood pressure reading taken on the watch within the hour after the start.
 // The watch is reached through D2 Link (d2link.js); this page only uses what it offers.
 
@@ -9,7 +9,7 @@ import { hrFrom, rmssd, sdnn, usable, type TimedBeat } from './synccompare';
 import { initSyncReports } from './syncreports';
 import { LiveTrace } from './charts';
 import { make } from './ui';
-import { connectionLog, forgetStrapButton, trackFor } from './devicekit';
+import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { watchEcgCard } from './watchecg';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
@@ -70,10 +70,10 @@ const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour
 
 // ---------- the page ----------
 
-/** `historyRoot`: the “Synchronised Tracking History” page. */
+/** `historyRoot`: the “Synchronised ECG Tracking History” page. */
 export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
   root.replaceChildren();
-  root.append(make('h2', '', 'Synchronised Tracking'), make('p', 'note',
+  root.append(make('h2', '', 'Synchronised ECG Tracking'), make('p', 'note',
     'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start.'));
 
   // --- 1. Polar H10 ---
@@ -186,7 +186,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const historyCard = make('div', 'card');
   const historyBox = make('div');
   historyCard.append(historyBox);
-  historyRoot.replaceChildren(make('h2', '', 'Synchronised Tracking History'), historyCard);
+  historyRoot.replaceChildren(make('h2', '', 'Synchronised ECG Tracking History'), historyCard);
   const reports = initSyncReports(historyBox, reportRoot, deps);
   const renderHistory = reports.render;
   logs.el.classList.add('page-log');
@@ -234,6 +234,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     } catch (err) {
       polarDot.className = 'dot';
       polarText.textContent = errorName(err) === 'NotFoundError' ? 'Polar H10: no strap chosen' : `Polar H10: ${errorMessage(err)}`;
+      log(H10_RESTART_TIP);
     }
     ready();
   })());
@@ -396,7 +397,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   onStrap(useStrap); // the strap, if another page already paired it
   // the watch, if D2 Link connected it (now or later)
   void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
-  // recordings saved before ECG history noted synchronised tracking: mark them now
+  // recordings saved before ECG history noted synchronised ECG tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;
@@ -431,7 +432,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       const row = make('div', 'row wrap');
       const open = make('button', '', 'Open in ECG history and trending');
       open.addEventListener('click', () => deps.openEcg(session.id));
-      row.append(make('span', 'note', `ECG saved to ECG history and trending (${mmss(session.durationS)}); results saved to Synchronised Tracking History.`), open);
+      row.append(make('span', 'note', `ECG saved to ECG history and trending (${mmss(session.durationS)}); results saved to Synchronised ECG Tracking History.`), open);
       summary.appendChild(row);
       log(`ECG saved to ECG history and trending (${mmss(session.durationS)}).`);
       return session.id;
@@ -475,7 +476,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   onStrap(useStrap); // the strap, if another page already paired it
   // the watch, if D2 Link connected it (now or later)
   void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
-  // recordings saved before ECG history noted synchronised tracking: mark them now
+  // recordings saved before ECG history noted synchronised ECG tracking: mark them now
   void (async () => {
     for (const e of store.loadSyncHistory()) {
       if (!e.ecgId) continue;

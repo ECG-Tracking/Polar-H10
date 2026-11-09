@@ -1,5 +1,6 @@
-// The numbers of a synchronised tracking: what each device's beats give, how the two agree, and the two put together.
+// The numbers of a synchronised ECG tracking: what each device's beats give, how the two agree, and the two put together.
 
+import { mergeRetirement, shown } from './versions';
 import type { SessionMetrics } from './dsp';
 import type { TrackingWatchData } from './d2/backup';
 import type { SyncBp, SyncTrackingEntry } from './store';
@@ -61,6 +62,15 @@ export interface SyncTrace {
   watchPoor: number; // beats the watch marked as unusable
   /** Every version of the tracking's reports, oldest first. */
   reports?: TrackVersion[];
+  /** Versions (by generatedAt) moved to the Recovery centre, and ones restored from it: see versions.ts. */
+  retired?: number[]; kept?: number[];
+}
+
+/** Two copies of a tracking's beats and reports: every version of both, less the ones either retired. */
+export function mergeTrace(here: SyncTrace | undefined | null, there: SyncTrace): SyncTrace {
+  const r = mergeRetirement(here ?? undefined, there);
+  const { retired: _r, kept: _k, ...rest } = there;
+  return { ...rest, ...r, reports: shown(mergeVersions(here?.reports, there.reports), r) };
 }
 
 /** What the reports show, as it was when generated. A new version is added when blood pressure or the watch's data changes. */

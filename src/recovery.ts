@@ -15,8 +15,9 @@ const GROUPS = [
   { name: 'Sleep', length: true, detail: '' },
   { name: 'Watch D2 sleep', length: true, detail: '' },
   { name: 'Watch D2 data', length: false, detail: 'Kind' },
-  { name: 'Synchronised tracking', length: true, detail: '' },
+  { name: 'Synchronised ECG tracking', length: true, detail: '' },
   { name: 'D2 Link download history', length: false, detail: 'Result' },
+  { name: 'Older report versions', length: false, detail: 'Version' },
 ] as const;
 export type Category = (typeof GROUPS)[number]['name'];
 
@@ -64,7 +65,11 @@ export function describe(item: BinItem): RecoveryItem {
     return { ...base, category: 'ECG recordings', what: 'ECG recording', recorded: item.session.start, length: item.session.durationS, detail: [item.session.alias, item.session.cloudOnly ? 'summary copy' : ''].filter(Boolean).join(' · ') };
   }
   if (item.kind === 'sleep') return { ...base, category: 'Sleep', what: isNap(item.session.start, item.session.durationS) ? 'Nap' : 'Sleep night', recorded: item.session.start, length: item.session.durationS, detail: '' };
-  return { ...base, category: 'Synchronised tracking', what: 'Synchronised tracking', recorded: item.entry.start, length: item.entry.durationS, detail: '' };
+  if (item.kind === 'version') {
+    const what = item.of === 'tracking' ? 'Synchronised ECG tracking reports' : `Synchronised sleep reports · ${item.nap ? 'Nap' : 'Night'}`;
+    return { ...base, category: 'Older report versions', what, recorded: item.start, length: null, detail: `Made ${dateTime(item.version.generatedAt)}` };
+  }
+  return { ...base, category: 'Synchronised ECG tracking', what: 'Synchronised ECG tracking', recorded: item.entry.start, length: item.entry.durationS, detail: '' };
 }
 
 /** Sorts by one column (items without a length go last); equal rows keep the most recently deleted first. */
@@ -98,6 +103,7 @@ export async function renderRecovery(root: HTMLElement, deps: RecoveryDeps): Pro
   const used = all.reduce((s, i) => s + i.size, 0);
 
   const card = make('div', 'card backup-card');
+  card.appendChild(make('p', 'note', 'Older versions of synchronised ECG tracking and synchronised sleep reports move here a week after a newer version replaced them, and are deleted for good after four more weeks here. Restore puts a version back in its history to stay.'));
   card.appendChild(make('p', '', 'Everything you delete stays here, on this device, until you delete it permanently. Restore puts it back where it was and syncs it to your other devices again. Backup Account includes them, so a large Recovery centre makes a larger backup file.'));
   const estimate = await navigator.storage?.estimate?.().catch(() => null);
   const device = estimate?.usage && estimate.quota ? ` The app uses ${formatSize(estimate.usage)} of the ${formatSize(estimate.quota)} this browser allows.` : '';

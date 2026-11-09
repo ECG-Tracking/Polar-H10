@@ -78,7 +78,7 @@ export interface Session {
   synced?: boolean; // its summary is in the account's cloud copy
   cloudOnly?: boolean; // a summary copy from another device: no signal on this device
   sleepId?: string; // recorded together with this sleep night
-  syncTracking?: boolean; // recorded during a synchronised tracking (Polar H10 with the Watch D2)
+  syncTracking?: boolean; // recorded during a synchronised ECG tracking (Polar H10 with the Watch D2)
   /** Saved with "Save ignoring irregular shape": always analysed with Irregular Shape ignored. */
   ignoreShape?: boolean;
   /** A Watch D2 strip: the watch's samples a second it was converted from (from v1.41.0). */
@@ -97,7 +97,7 @@ const STORE_NAMES: readonly StoreName[] = ['sessions', 'signals', 'sleeps', 'sle
 function open(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
     // version 2 adds sleep recordings, version 3 summary copies of ECG recordings, version 4 the Recovery centre,
-    // version 5 the synchronised sleep reports, version 6 the beats of each synchronised tracking, version 7 sleep recordings
+    // version 5 the synchronised sleep reports, version 6 the beats of each synchronised ECG tracking, version 7 sleep recordings
     // as they run; existing data is kept
     const req = indexedDB.open(dbName, 7);
     req.onupgradeneeded = () => {
@@ -357,7 +357,9 @@ interface BinBase { id: string; user: number; deletedAt: number; size: number; e
 export type BinItem =
   | BinBase & { kind: 'ecg'; session: Session; summary?: unknown }
   | BinBase & { kind: 'sleep'; session: SleepSession }
-  | BinBase & { kind: 'tracking'; entry: SyncTrackingEntry };
+  | BinBase & { kind: 'tracking'; entry: SyncTrackingEntry }
+  /** An older version of a report, moved here a week after a newer one replaced it (see versions.ts). */
+  | BinBase & { kind: 'version'; of: 'sleep-reports' | 'tracking'; parentId: string; start: number; nap?: boolean; version: { generatedAt: number } };
 
 export interface BinSignalRecord { id: string; samples?: Int16Array; signals?: SleepSignals }
 
@@ -430,6 +432,14 @@ export async function importBin(item: BinItem, data?: BinSignalRecord): Promise<
   });
 }
 
+/** Moves an older report version into the Recovery centre. */
+export async function binVersion(of: 'sleep-reports' | 'tracking', parentId: string, user: number, start: number, version: { generatedAt: number }, nap?: boolean): Promise<void> {
+  await keepInBin({
+    id: `version:${of}:${parentId}:${version.generatedAt}`, kind: 'version', of, parentId, user, start, version,
+    deletedAt: Date.now(), size: JSON.stringify(version).length, ...(nap == null ? {} : { nap }),
+  });
+}
+
 /** Removes an item from the Recovery centre for good. */
 async function dropFromBin(id: string): Promise<void> {
   await tx(['bin', 'binSignals'], 'readwrite', (t) => {
@@ -465,6 +475,24 @@ export async function restoreBin(id: string): Promise<void> {
     // already back here with its signal (from another device's restore): a summary copy adds nothing
     if (data?.samples) await saveSession(restoredCopy(item.session, true), data.samples);
     else if (!now || now.cloudOnly) await saveSummaryCopy(restoredCopy(item.session, false), item.summary);
+  } else if (item.kind === 'version') {
+    const at = item.version.generatedAt;
+    const keep = (k: readonly number[] = []): number[] => [...new Set([...k, at])].sort((a, b) => a - b);
+    if (item.of === 'sleep-reports') {
+      const r = await loadSleepReports(item.parentId);
+      if (r) {
+        const past = [...(r.past ?? []).filter((v) => v.generatedAt !== at), item.version as NonNullable<SavedSleepReports['past']>[number]].sort((a, b) => a.generatedAt - b.generatedAt);
+        await saveSleepReports({ ...r, past, kept: keep(r.kept) });
+      }
+    } else {
+      const t = await loadSyncTrace(item.parentId);
+      if (t) {
+        const reports = [...(t.reports ?? []).filter((v) => v.generatedAt !== at), item.version as NonNullable<SyncTrace['reports']>[number]].sort((a, b) => a.generatedAt - b.generatedAt);
+        await saveSyncTrace({ ...t, reports, kept: keep(t.kept) });
+        const e = loadSyncHistory().find((x) => x.id === item.parentId);
+        if (e) saveSyncEntry(e); // uploads the restored version at the next sync
+      }
+    }
   } else if (item.kind === 'sleep') {
     setPendingCloudDeletes(withoutId(pendingCloudDeletes('sleep'), item.session.id), 'sleep');
     const { session: now } = await loadSleep(item.session.id);
@@ -598,9 +626,9 @@ export function saveSettings(user: UserNumber, s: Settings, savedAt = Date.now()
   } catch { /* private mode */ }
 }
 
-// ---------- Synchronised tracking history (this device) ----------
+// ---------- Synchronised ECG tracking history (this device) ----------
 
-/** One synchronised tracking: when, how long, both devices' results, the blood pressure taken and the saved ECG. */
+/** One synchronised ECG tracking: when, how long, both devices' results, the blood pressure taken and the saved ECG. */
 export interface SyncBp { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
 
 /** Blood pressure readings of an entry (older entries kept only the first). */

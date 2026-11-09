@@ -11,7 +11,7 @@ import { mount, type D2Deps } from './ui';
 import { accountBox, pairing } from './accountbox';
 import { onWatch, type OpenWatch } from './watch';
 
-/** What d2link.js offers the app: the D2 Link page, and the watch live for synchronised tracking. */
+/** What d2link.js offers the app: the D2 Link page, and the watch live for synchronised ECG tracking. */
 export interface D2Api {
   mount: (root: HTMLElement, deps: D2Deps) => { refresh: () => void; openNight: (id: string, back: () => void, copy?: unknown) => Promise<void> };
   /** This user's nights and naps, for Synchronised Sleep Tracking. */

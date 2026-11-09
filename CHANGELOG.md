@@ -4,6 +4,19 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.0 – Tidier sleep stages, old versions to the Recovery centre, Synchronised ECG Tracking *(GitHub)*
+
+- **Synchronised ECG Tracking**: Synchronised Tracking is now called Synchronised ECG Tracking everywhere in the app.
+- Combined sleep:
+  - Being awake before falling asleep no longer counts as waking up. Times woke up are now counted from the combined stages after falling asleep, not taken halfway between the two devices.
+  - A block of 1–2 minutes (missing minutes included) that breaks up a longer block, with at least 2 minutes of it on each side, is now part of that block.
+  - Existing combined reports are generated again with these rules, as a new version.
+- Sleep History and Synchronised Sleep Tracking History: "Nap", "Night" and "Version … of … (latest)" now look like the line below. Only the date stays bold.
+- Older versions of synchronised ECG tracking and synchronised sleep reports move to the Recovery centre a week after a newer version replaced them, and are deleted from it for good after four more weeks. This runs when the app starts and every day while it stays open. Restoring a version puts it back in its history to stay. Other devices don't bring back a version that was moved.
+- About › Storage is now an expandable section. It is measured again every day while the app is open, shows when it was measured, and has a **Refresh** button.
+- Live ECG: the trace keeps its calibrated size. It can no longer be stretched by the page's width or by zooming or moving to another screen.
+- Polar H10: when it doesn't appear in Chrome's list or won't connect, the connection log now says to switch it off for 30 seconds (unclip the sensor), clip it back on, wet the electrodes and try again.
+
 ## 8 Nov 2026 – v1.41.18 – "Combined ECG", without repeats *(GitHub)*
 
 - Synchronised Tracking: the ECG button and report are now called **Combined ECG**.

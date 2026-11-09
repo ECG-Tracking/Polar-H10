@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — the "Watch account ID (optional)" box, shared by D2 Link, Synchronised Tracking and Synchronised Sleep Tracking.
+// D2 Link — the "Watch account ID (optional)" box, shared by D2 Link, Synchronised ECG Tracking and Synchronised Sleep Tracking.
 // Part of D2 Link (GNU AGPL v3 or later); see index.ts and LICENSE-D2-LINK.txt.
 
 import * as store from './store';

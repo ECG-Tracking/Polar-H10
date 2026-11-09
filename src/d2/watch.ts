@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// D2 Link — the watch connection, shared: once the watch is connected on D2 Link or Synchronised Tracking, it stays
+// D2 Link — the watch connection, shared: once the watch is connected on D2 Link or Synchronised ECG Tracking, it stays
 // connected and the other page uses it, instead of pairing and logging in again.
 // Port © 2026 ECG-Tracking. See LICENSE-D2-LINK.txt.
 
