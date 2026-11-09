@@ -23,7 +23,7 @@ const SHOWN = 400; // lines on screen; the saved file has them all
 export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: () => void } {
   const box = make('details', 'card watch-capture') as HTMLDetailsElement;
   box.appendChild(make('summary', '', 'Watch message capture (testing)'));
-  const note = make('p', 'note', 'For working out how the watch starts its ECG. While it runs, every message the watch sends is listed with its time, its layout and, for the known ECG messages, a few protocol numbers (package names, the configuration ID and action, state bytes) – never measurements or health data. Start it, then add a mark at each step as you take one ECG on the watch by hand: open the ECG screen, wait, put your finger on the button, let it finish, close the screen. Then press Save and share the file. The live heartbeat test and the checks for new watch ECG strips pause while it runs, so only what the watch sends by itself is listed; strips taken meanwhile are fetched afterwards.');
+  const note = make('p', 'note', 'For working out how the watch starts its ECG. While it runs, every message the watch sends is listed with its time, its layout and, for the known ECG messages, a few protocol numbers (package names, the configuration ID and action, state bytes) – never measurements or health data. Start it, then add a mark at each step as you take one ECG on the watch by hand: open the ECG screen, wait, put your finger on the button, let it finish, close the screen. Then press Save and share the file. The live heartbeat test can pause while it runs; the checks for new strips keep running unless you choose to pause them too.');
   const btnStart = make('button', 'primary', 'Start capture') as HTMLButtonElement;
   const btnStop = make('button', '', 'Stop') as HTMLButtonElement;
   btnStop.hidden = true;
@@ -32,6 +32,11 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
   pause.checked = true;
   const pauseLabel = make('label', 'check');
   pauseLabel.append(pause, ' Pause the live heartbeat test while capturing (so the ECG is seen on its own)');
+  const pauseStrips = make('input') as HTMLInputElement;
+  pauseStrips.type = 'checkbox';
+  pauseStrips.checked = false; // off: the capture then shows the downloads as they happen in ordinary use
+  const pauseStripsLabel = make('label', 'check');
+  pauseStripsLabel.append(pauseStrips, ' Also pause the checks for new watch ECG strips (a quieter record; strips taken meanwhile are fetched afterwards)');
   const mark = make('select') as HTMLSelectElement;
   mark.setAttribute('aria-label', 'Mark');
   for (const m of MARKS) { const o = make('option', '', m) as HTMLOptionElement; o.value = m; mark.appendChild(o); }
@@ -44,7 +49,7 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
   const status = make('p', 'muted', 'Not running.');
   const pre = make('pre', 'log') as HTMLPreElement;
   pre.hidden = true;
-  box.append(note, row1, pauseLabel, row2, status, pre);
+  box.append(note, row1, pauseLabel, pauseStripsLabel, row2, status, pre);
 
   let lines: string[] = [], stop: (() => void) | null = null, count = 0, paused = false, stripsPaused = false, startedAt = 0;
   const stamp = (): string => { const d = new Date(); return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
@@ -71,7 +76,7 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
     count = 0;
     startedAt = Date.now();
     if (pause.checked) { await deps.pauseHeartbeats(); paused = true; add(`${stamp()}  -- heartbeat test paused`); }
-    stripsPaused = deps.pauseStripChecks();
+    stripsPaused = pauseStrips.checked && deps.pauseStripChecks();
     if (stripsPaused) add(`${stamp()}  -- checks for new watch ECG strips paused (they are fetched after the capture)`);
     stop = w.capture((line) => { count++; add(line); status.textContent = `Capturing: ${count} message${count === 1 ? '' : 's'} from the watch.`; });
     add(`${stamp()}  -- capture started`);

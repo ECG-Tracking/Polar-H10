@@ -15,8 +15,12 @@ import type { LiveWatch } from './d2/live'; // type only: D2 Link's code stays i
 export const STRIP_FS = 130; // as the Polar H10, so every report, chart and export works the same
 /** The backup check: the watch's cue (23/0d) starts a check at once, and this catches a strip whose cue was missed. */
 const POLL_MS = 20000;
-/** A second check this long after a cue, in case the watch was still writing the strip. */
-const CUE_RECHECK_MS = 6000;
+/**
+ * Checks after the watch's cue (23/0d = 103). Its meaning isn't settled: in one capture it came 11–29 s after a strip
+ * ended, in another 2.5–5 s before the next began. So it is checked at once and soon after (an end cue), and again once
+ * a 30-second ECG would be finished (a start cue).
+ */
+const CUE_CHECKS_MS = [0, 6000, 40000, 50000];
 const RATES = [125, 128, 250, 256, 300, 500, 512, 1000];
 
 export interface WatchRecording { start: number; end: number; avgHr: number; samples: readonly number[] }
@@ -201,8 +205,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     cueOff = w.onEcgCue((code) => {
       if (!running) return;
       deps.log(`The watch sent its ECG message (code ${code}): checking for a new strip now.`);
-      checkNow();
-      setTimeout(() => { if (running) checkNow(); }, CUE_RECHECK_MS);
+      for (const ms of CUE_CHECKS_MS) setTimeout(() => { if (running) checkNow(); }, ms);
     });
   };
   /** A check now instead of at the next backup check (or right after the one running). */

@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.2 – Watch strips: more checks around each ECG and after Stop *(GitHub)*
+
+- The watch's ECG message (`23/0d`, code 103) now starts four checks for a new strip: at once, after 6 seconds, and after 40 and 50 seconds. Two captures disagree on whether it comes just before an ECG or after one, so the checks cover both. The 20-second backup check stays.
+- After Stop, the watch is checked again 45 and 90 seconds later. A strip still being recorded at Stop is collected without a separate Download ECG. A strip started after Stop goes into ECG history but doesn't count for the tracking's prompts.
+- Watch message capture no longer pauses the strip checks unless you tick **Also pause the checks for new watch ECG strips**, so a capture during a tracking shows the downloads as they normally happen.
+- Saving a tracking's prompt results no longer risks overwriting a blood pressure reading added in the meantime.
+
 ## 9 Nov 2026 – v1.43.1 – Watch ECG prompts no longer freeze the page *(GitHub)*
 
 - Fixed: starting a tracking with Watch ECG prompts on could freeze the page. To find the next prompt, the page built a list of every future prompt, billions of them. It now works out only the next one. Thanks to ChatGPT's review.
