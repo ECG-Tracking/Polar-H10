@@ -707,3 +707,4 @@ details > summary { list-style-position: inside; }
 .ecg-prompt-now { font-weight: 600; color: var(--accent); margin: 0 0 6px; }
 .ecg-prompt-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; font-size: 0.9rem; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .ecg-prompt-list li.done { color: var(--ink); }
+.capture-count { align-self: center; font-variant-numeric: tabular-nums; }

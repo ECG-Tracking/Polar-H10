@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.3 – Each tracking keeps its own ECG prompt results *(GitHub)*
+
+- The checks after Stop keep to their own tracking. If you start a new tracking within 90 seconds, a late check no longer stops the new tracking's prompts or writes their results into the previous tracking. A late check now counts its tracking's prompts from the strips saved in ECG history, however they arrived.
+- The prompts' cut-off is now the moment you press Stop. Before, it was set only after the strap's ECG had been saved, so a strip started a few seconds after Stop could still count. Thanks to ChatGPT's review.
+- Watch message capture: next to **Add mark**, a count shows how many ECGs you have marked as finished, for example "ECG finished 3 times". Each "ECG finished" mark in the saved file carries its number. The count starts again with each capture.
+
 ## 9 Nov 2026 – v1.43.2 – Watch strips: more checks around each ECG and after Stop *(GitHub)*
 
 - The watch's ECG message (`23/0d`, code 103) now starts four checks for a new strip: at once, after 6 seconds, and after 40 and 50 seconds. Two captures disagree on whether it comes just before an ECG or after one, so the checks cover both. The 20-second backup check stays.

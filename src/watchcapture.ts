@@ -45,7 +45,8 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
   btnSave.disabled = true;
   const row1 = make('div', 'row wrap'), row2 = make('div', 'row wrap');
   row1.append(btnStart, btnStop, btnSave);
-  row2.append(mark, btnMark);
+  const finished = make('span', 'muted capture-count', 'ECG finished 0 times');
+  row2.append(mark, btnMark, finished);
   const status = make('p', 'muted', 'Not running.');
   const pre = make('pre', 'log') as HTMLPreElement;
   pre.hidden = true;
@@ -75,6 +76,7 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
     lines = [`OpenBeat ECG watch message capture · ${new Date().toISOString()} · ${navigator.userAgent}`, 'time  service/command [enc] fields (tag:length; containers [..]×repeats)'];
     count = 0;
     startedAt = Date.now();
+    showFinished(0);
     if (pause.checked) { await deps.pauseHeartbeats(); paused = true; add(`${stamp()}  -- heartbeat test paused`); }
     stripsPaused = pauseStrips.checked && deps.pauseStripChecks();
     if (stripsPaused) add(`${stamp()}  -- checks for new watch ECG strips paused (they are fetched after the capture)`);
@@ -93,7 +95,12 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
     deps.log('Watch message capture stopped.');
     update();
   })());
-  btnMark.addEventListener('click', () => add(`${stamp()}  >> MARK: ${mark.value}`));
+  let done = 0;
+  function showFinished(n: number): void { done = n; finished.textContent = `ECG finished ${n} time${n === 1 ? '' : 's'}`; }
+  btnMark.addEventListener('click', () => {
+    if (mark.value === 'ECG finished') showFinished(done + 1);
+    add(`${stamp()}  >> MARK: ${mark.value}${mark.value === 'ECG finished' ? ` (${done})` : ''}`);
+  });
   btnSave.addEventListener('click', () => {
     const d = new Date(), p = (n: number): string => String(n).padStart(2, '0');
     download(new Blob([`${lines.join('\n')}\n`], { type: 'text/plain' }), `watch-capture-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.txt`);
