@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.0 – Watch ECG prompts, and strips fetched as soon as the watch finishes *(GitHub)*
+
+- Synchronised ECG Tracking: new **Watch ECG prompts** choice (Off, or every 2, 3, 5 or 10 minutes) above the timer. During a tracking, the page beeps and asks you to take a 30-second ECG on the watch: first 30 seconds after the start, then at each interval. No prompt comes too late to finish before a set end.
+  - Each prompt shows as done, with the time of the ECG that answered it, or as missed. A strip counts for the prompt it was recorded after, even if it downloads later.
+  - The result is saved with the tracking, and its history row shows "ECG prompts 2 of 3".
+  - The watch can't be started from the app, so you start each ECG on the watch.
+- The watch sends a message on its ECG service when an ECG ends (`23/0d`, code 103). That message now starts the strip download straight away, with a second check 6 seconds later in case the watch was still saving it. The regular check now runs every 20 seconds instead of every 5, as a backup. An ECG counts only once its strip is actually downloaded.
+
 ## 9 Nov 2026 – v1.42.9 – Watch ECG downloads no longer get mixed up; strips labelled correctly *(GitHub)*
 
 - Two downloads from the watch at once, for example Download ECG while the strip checks run during a tracking, mixed up each other's pieces. Both then stalled ("No more data from the watch … asking again"). Downloads from the watch now take turns.

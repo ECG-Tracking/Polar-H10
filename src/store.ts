@@ -646,6 +646,9 @@ export interface SyncTrackingEntry {
   /** Every blood pressure reading taken on the watch within one hour of the start. */
   bps?: SyncBp[];
   ecgId: string | null; // the recording saved to ECG history
+  /** ECG prompts during the tracking (every `promptEveryS`): when each was given and the watch strip that answered it. */
+  ecgPrompts?: { at: number; strip: number | null }[];
+  promptEveryS?: number;
   savedAt?: number; // last change, ms: the newest copy wins in the cloud
   synced?: boolean; // in the account's cloud copy
 }

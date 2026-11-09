@@ -217,6 +217,7 @@ export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, 
     polar || e.polar || e.ecgId ? 'Polar H10' : null,
     watch || (e.watch && e.watch.beats > 0) ? 'Watch D2' : null, // a watch that sent no beats (an old stale heart rate) isn't listed
     bp || e.bps?.length || e.bp ? 'BP recorded' : null,
+    e.ecgPrompts?.length ? `ECG prompts ${e.ecgPrompts.filter((p) => p.strip != null).length} of ${e.ecgPrompts.length}` : null,
     `Duration ${mmss(durationS)}`,
   ].filter(Boolean).join(' · ');
 }
