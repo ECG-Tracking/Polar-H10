@@ -36,7 +36,24 @@ export interface SyncReportDeps extends TrackingReportDeps {
 }
 
 /** One tracking, and the version of its reports being shown. */
-interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; latest: boolean; strips: Strips | null }
+interface Gathered { e: SyncTrackingEntry; trace: SyncTrace; v: TrackVersion; latest: boolean; strips: Strips | null; why?: string }
+
+/**
+ * Why there is no Combined ECG, in words: the strips and the strap's full ECG are kept only on the device that recorded
+ * them (other devices have summary copies), and an error is said rather than hidden behind "no strips".
+ */
+async function whyNoStrips(e: SyncTrackingEntry, failed: string | null): Promise<string> {
+  const end = e.start + e.durationS * 1000;
+  const all = await store.listSessions(e.user as store.UserNumber).catch(() => []);
+  const strips = all.filter((s) => s.source === 'watch' && s.start < end && s.start + s.durationS * 1000 > e.start);
+  if (failed) return `The watch’s strips couldn’t be put together with the strap’s ECG: ${failed}`;
+  if (strips.length && strips.every((s) => s.cloudOnly)) return `The watch took ${strips.length} ECG strip${strips.length === 1 ? '' : 's'} during this tracking, but only their summaries are on this device. Their full ECG is kept on the computer or browser that recorded them: open the Combined ECG there.`;
+  if (!strips.length) return 'No ECG strips from the watch were saved during this tracking. During a tracking, press Start watch ECG on this page, then take 30-second ECGs on the watch (fingertip on its lower button) until you stop. Each one appears here within seconds.';
+  const polar = e.ecgId ? (await store.loadSession(e.ecgId).catch(() => ({ session: undefined, samples: undefined }))) : null;
+  if (!polar?.session) return 'The Polar H10 ECG of this tracking isn’t on this device, so the watch’s strips have nothing to be lined up with.';
+  if (!polar.samples) return 'Only a summary of the Polar H10 ECG is on this device. Its full ECG is on the computer or browser that recorded it: open the Combined ECG there.';
+  return 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.';
+}
 
 /** The watch's 30-second ECG strips taken during a tracking, joined, and lined up with the strap's ECG when it has one. */
 interface Strips {
@@ -472,7 +489,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const st = g.strips, set = st?.set;
     const ecgId = g.e.ecgId;
     if (!st || !set) {
-      return { body: [...heading('Combined ECG: watch strips and Polar H10', g), make('p', 'muted', st ? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.' : 'No ECG strips were taken on the watch during this tracking.'),
+      return { body: [...heading('Combined ECG: watch strips and Polar H10', g), make('p', 'muted', g.why ?? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.'),
         ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
     }
     const agreed = agreedEvents(set);
@@ -633,7 +650,9 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       const latest = versions[versions.length - 1];
       const v = versions.find((x) => x.generatedAt === at) ?? latest;
       if (!e || !trace || !v) { reportRoot.replaceChildren(button('← Synchronised ECG Tracking History', '', backToHistory), make('p', 'muted', 'This tracking is no longer in the history.')); return; }
-      const g: Gathered = { e, trace, v, latest: v === latest, strips: await gatherStrips(e).catch(() => null) };
+      let failed: string | null = null;
+      const strips = await gatherStrips(e).catch((err: unknown) => { failed = errorMessage(err); return null; });
+      const g: Gathered = { e, trace, v, latest: v === latest, strips, ...(!strips?.set ? { why: await whyNoStrips(e, failed) } : {}) };
       if (kind === 'ecg') {
         const r = ecgPairReport(g);
         reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...r.body);
