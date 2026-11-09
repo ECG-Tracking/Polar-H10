@@ -532,13 +532,12 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       const s = spots[i];
       if (!s) return;
       idx = i;
-      wv.span = Math.min(wv.span, 6);
       wv.center(s.t);
       const what = (s.polar[0] ?? s.watch[0])?.label.replace(/ \((both|strap only)\)$/, '') ?? 'Event';
       evText.textContent = `Event ${i + 1} of ${spots.length} at ${clockAt(set.strips, s.t)} · ${what} · seen by both`;
     };
     const bar = make('div', 'row wrap viewer-bar no-print');
-    bar.append(button('−', '', () => wv.zoom(1.4)), pos, button('+', '', () => wv.zoom(1 / 1.4)), time);
+    bar.append(pos, time);
     const evBar = make('div', 'row wrap event-nav no-print');
     evBar.append(button('← Previous event', '', () => goEvent(Math.max(0, idx - 1))), evText, button('Next event →', '', () => goEvent(Math.min(all.length - 1, idx + 1))));
     // move one and the other follows, so a heartbeat is at the same place in both
@@ -546,7 +545,6 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const link = (a: EcgViewer, b: EcgViewer): void => a.addEventListener('move', () => {
       if (linking) return;
       linking = true;
-      b.span = a.span;
       b.goTo(a.t0);
       linking = false;
       pos.value = String(Math.round((a.t0 / Math.max(0.001, a.duration - a.span)) * 1000));

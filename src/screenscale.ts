@@ -38,6 +38,9 @@ let saved: ScreenScale | null | undefined; // read once: live traces ask on ever
 const scale = (): ScreenScale | null => (saved === undefined ? (saved = load()) : saved);
 const listeners = new Set<() => void>();
 
+/** Runs `fn` whenever the calibration or the ECG size setting changes. */
+export function onScaleChange(fn: () => void): void { listeners.add(fn); }
+
 export function pxPerMm(): number {
   const s = scale();
   return s ? atZoom(s, zoom()) : DEFAULT_PX_PER_MM;
