@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.7 – Watch message capture, for working out how the watch starts its ECG *(GitHub)*
+
+- Synchronised ECG Tracking: a new expandable **Watch message capture (testing)** section at the bottom of the page. It records every message the watch sends while it runs, whatever else is running, with no limit. For each it records the time, service/command and the layout of its fields (tags and lengths), never their values.
+- **Add mark** puts your own steps in the record: idle, ECG screen opened, finger on the button, ECG finished, ECG screen closed.
+- The live heartbeat test can be paused during the capture so the ECG is seen on its own. It resumes when you stop.
+- **Save as text** keeps the record as a file to share.
+
 ## 9 Nov 2026 – v1.42.6 – D2 Link: a fuller check of the watch's ECG support *(GitHub)*
 
 - When D2 Link sets up the watch, it now also asks about the watch's configuration messages (where its ECG settings live) and reads four ECG capability flags. As before, it only asks and changes nothing on the watch. The connection log shows everything on one line starting "Watch ECG:".

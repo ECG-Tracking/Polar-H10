@@ -46,6 +46,32 @@ export interface LiveWatch {
   close(): Promise<void>;
   /** Called when the watch disconnects. */
   onClose: (() => void) | null;
+  /**
+   * Records every message the watch sends, whatever is running, as one line each: time, service/command and its fields'
+   * tags and lengths (never their values). Returns the function that stops it.
+   */
+  capture(onLine: (line: string) => void): () => void;
+}
+
+/** One received message without its values: "19/05 enc 82[83[04:2 05:1]×3]". */
+export function describePacket(p: Pick<InPacket, 'service' | 'command' | 'tlv' | 'raw' | 'encrypted'>): string {
+  const hex = (n: number): string => n.toString(16).padStart(2, '0');
+  const fields = (t: Tlv, depth: number): string => {
+    const parts: string[] = [];
+    for (const i of t.items) {
+      // tags from 0x80 hold further fields: shown one level down, repeats counted
+      if (i.tag >= 0x80 && depth < 2) {
+        let inner: string;
+        try { inner = fields(Tlv.parse(i.value), depth + 1); } catch { inner = `${i.value.length} bytes`; }
+        const last = parts[parts.length - 1], item = `${hex(i.tag)}[${inner}]`;
+        const m = last?.match(/^(.*?)(?:×(\d+))?$/);
+        if (m && m[1] === item) parts[parts.length - 1] = `${item}×${Number(m[2] ?? 1) + 1}`;
+        else parts.push(item);
+      } else parts.push(`${hex(i.tag)}:${i.value.length}`);
+    }
+    return parts.join(' ');
+  };
+  return `${hex(p.service)}/${hex(p.command)}${p.encrypted ? ' enc' : ''} ${p.tlv ? fields(p.tlv, 0) : `raw ${p.raw.length} bytes`}`;
 }
 
 export interface LiveOptions {
@@ -100,6 +126,12 @@ export async function connectLive(o: LiveOptions): Promise<LiveWatch> {
       }));
     },
     async close() { await disconnectWatch(); },
+    capture(onLine) {
+      const t = (): string => { const d = new Date(); return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
+      const fn = (p: InPacket): void => onLine(`${t()}  ${describePacket(p)}`);
+      link.listeners.add(fn);
+      return () => { link.listeners.delete(fn); };
+    },
   };
   let gone = false;
   onWatch((now) => { if (now?.link !== link && !gone) { gone = true; live.onClose?.(); } });
