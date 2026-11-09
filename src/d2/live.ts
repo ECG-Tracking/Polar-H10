@@ -15,7 +15,7 @@ import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch } from './wa
 
 const HR_TEST = 0x19;
 const ECG_SERVICE = 0x23;
-/** The code seen in 23/0d after an ECG finished (and when its screen closed). */
+/** The code seen in 23/0d near each ECG (after one ended, or just before the next began). */
 const ECG_DONE = 103;
 
 /** One heartbeat from the watch: the interval since the previous beat (ms) and its signal quality (0 = unusable). */
@@ -55,8 +55,8 @@ export interface LiveWatch {
    */
   capture(onLine: (line: string) => void): () => void;
   /**
-   * The watch's ECG service message 23/0d, seen with code 103 after an ECG finished and again when its screen closed: a
-   * cue to look for a new ECG, not proof of one. Returns the function that stops listening.
+   * The watch's ECG service message 23/0d with code 103, seen near each ECG (after one ended, or just before the next
+   * began): a cue to look for a new ECG, not proof of one. Returns the function that stops listening.
    */
   onEcgCue(fn: (code: number) => void): () => void;
 }

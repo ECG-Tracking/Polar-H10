@@ -212,6 +212,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const inTracking = (r: { start: number; end: number }): boolean =>
     (timerId != null && t0 != null && r.end > t0) || store.loadSyncHistory().some((e) => r.start < e.start + e.durationS * 1000 && r.end > e.start);
   // ---------- ECG prompts ----------
+  let trackEnd: number | null = null;
   let prompts: number[] = [], promptStrips: number[] = [], promptTimer: ReturnType<typeof setTimeout> | null = null, promptEvery = 0;
   const clockS = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false });
   const showPrompts = (): void => {
@@ -262,7 +263,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   const watchEcg = watchEcgCard({
     watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: inTracking, openReport: deps.openEcg,
-    onStrip: (r) => { if (t0 != null && r.start >= t0) { promptStrips.push(r.start); showPrompts(); } },
+    // a strip started after Stop goes into ECG history but doesn't count for this tracking's prompts
+    onStrip: (r) => { if (t0 != null && r.start >= t0 && (trackEnd == null || r.start < trackEnd)) { promptStrips.push(r.start); showPrompts(); } },
   });
   const capture = watchCaptureCard({
     watch: () => watch, log,
@@ -460,6 +462,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     btnBp.disabled = !watch;
     // the watch's 30-second ECGs are fetched by themselves during a tracking: no separate Start watch ECG needed
     if (watch && !watchEcg.running()) watchEcg.start();
+    trackEnd = null;
     startPrompts();
     tick();
   })());
@@ -476,17 +479,29 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     await store.saveSyncTrace({ id: entry.id, polar: polarBeats, watch: watchBeats, polarHr: [...polarSeries], watchHr: [...watchSeries], watchPoor })
       .catch((e: unknown) => log(`The beats couldn’t be saved: ${errorMessage(e)}`));
     stopPrompts();
-    const withPrompts = (): SyncTrackingEntry => (promptEvery ? { ...entry, ecgPrompts: matchPrompts(prompts, promptStrips), promptEveryS: promptEvery } : entry);
+    // the latest saved copy (blood pressure may have been added since), with the prompts as they stand now
+    const withPrompts = (): SyncTrackingEntry => {
+      const e = store.loadSyncHistory().find((x) => x.id === entry.id) ?? entry;
+      return promptEvery ? { ...e, ecgPrompts: matchPrompts(prompts, promptStrips), promptEveryS: promptEvery } : e;
+    };
     store.saveSyncEntry(withPrompts());
     renderHistory();
-    // any watch ECG taken during the tracking and not fetched yet (the watch finishes a strip a few seconds after you lift your finger)
-    if (watch && t0 != null) {
-      const from = t0 - 60_000;
-      void watchEcg.collect(from).then((n) => {
-        if (n) log(`${n} watch ECG strip${n === 1 ? '' : 's'} from this tracking saved in ECG history.`);
-        if (promptEvery) { stopPrompts(); store.saveSyncEntry(withPrompts()); } // a strip that arrived late still counts for its prompt
-        if (n || promptEvery) renderHistory();
-      }).catch((e: unknown) => log(`The watch’s ECG strips couldn’t be fetched: ${errorMessage(e)}. Use D2 Link › Download all data to fetch them.`));
+    // any watch ECG taken during the tracking and not fetched yet: now, and again 45 and 90 s later for one still being
+    // recorded at Stop (it ends up to 30 s after, and the watch takes a little longer to save it)
+    trackEnd = Date.now();
+    if (t0 != null) {
+      const from = t0 - 60_000, thisStart = t0;
+      const collect = (): void => {
+        if (!watch || t0 !== thisStart) return; // disconnected, or a new tracking has started
+        void watchEcg.collect(from).then((n) => {
+          if (n) log(`${n} watch ECG strip${n === 1 ? '' : 's'} from this tracking saved in ECG history.`);
+          if (promptEvery) { stopPrompts(); store.saveSyncEntry(withPrompts()); } // a strip that arrived late still counts for its prompt
+          if (n || promptEvery) renderHistory();
+        }).catch((e: unknown) => log(`The watch’s ECG strips couldn’t be fetched: ${errorMessage(e)}. Use D2 Link › Download ECG to fetch them.`));
+      };
+      collect();
+      setTimeout(collect, 45_000);
+      setTimeout(collect, 90_000);
     }
   void fillBpFromStored();
   onStrap(useStrap); // the strap, if another page already paired it
