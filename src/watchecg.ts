@@ -73,6 +73,31 @@ export function bestRate(r: WatchRecording, s: { notch: number; qtcFormula: 'baz
   return Math.abs(hr(other.uv) - r.avgHr) < Math.abs(hr(first.uv) - r.avgHr) ? other : first;
 }
 
+export interface StripSettings { alias: string; notch: number; qtcFormula: 'bazett' | 'fridericia'; hrRest: number; hrMax: number; sex: 'male' | 'female' }
+
+/**
+ * Saves one watch ECG in ECG history, as the "ECG from the Watch D2" card does: 'same' when it is already there (and not
+ * one of v1.39.0's cut-off strips), 'short' when under 5 seconds. Used by the card and by D2 Link's Download all data.
+ */
+export async function saveWatchStrip(r: WatchRecording, user: number, s: StripSettings, syncTracking = false): Promise<{ result: 'saved' | 'same' | 'short'; session?: Session; metrics?: ReturnType<typeof sessionMetrics>; events?: number; uv?: Int16Array; sourceFs?: number }> {
+  const id = `w${r.start}`;
+  const old = await store.loadSession(id);
+  if (old.session && old.session.watchFs && !(old.samples && isCutOff(old.samples))) return { result: 'same' };
+  const { uv, sourceFs } = bestRate(r, s);
+  if (uv.length < STRIP_FS * 5) return { result: 'short' };
+  const a = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula });
+  const m = sessionMetrics(a, uv.length / STRIP_FS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
+  // taken during a tracking: kept as such when it was saved that way before
+  const during = syncTracking || old.session?.syncTracking === true;
+  const session: Session = {
+    id, user: user as UserNumber, start: r.start, durationS: uv.length / STRIP_FS, fs: STRIP_FS, alias: s.alias, source: 'watch',
+    watchFs: sourceFs, userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
+    ...(during ? { syncTracking: true } : {}),
+  };
+  await store.saveSession(session, uv);
+  return { result: 'saved', session, metrics: m, events: a.events.length, uv, sourceFs };
+}
+
 export interface WatchEcgDeps {
   /** The connected watch, or null. */
   watch: () => LiveWatch | null;
@@ -85,7 +110,7 @@ export interface WatchEcgDeps {
 }
 
 /** The "ECG from the Watch D2" card: instructions, Start and Stop, the strip on screen, its results and the saved strips. */
-export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void } {
+export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void; start: () => void; running: () => boolean; collect: (sinceMs: number) => Promise<number> } {
   const card = make('div', 'card watch-ecg');
   const steps = make('ol', 'd2-steps');
   for (const line of [
@@ -140,26 +165,18 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
 
   async function save(r: WatchRecording): Promise<void> {
     const id = `w${r.start}`;
-    const old = await store.loadSession(id);
-    // already saved (on the other page); one from before v1.41.0 (cut off, or its rate not checked) is replaced
-    if (old.session && old.session.watchFs && !(old.samples && isCutOff(old.samples))) return;
-    const { uv, sourceFs } = bestRate(r, deps.settings());
-    if (uv.length < STRIP_FS * 5) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
-    const s = deps.settings();
-    const a = analyze(uv, { fs: STRIP_FS, notch: s.notch, qtcFormula: s.qtcFormula });
-    const m = sessionMetrics(a, uv.length / STRIP_FS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
-    const session: Session = {
-      id, user: deps.user() as UserNumber, start: r.start, durationS: uv.length / STRIP_FS, fs: STRIP_FS, alias: s.alias, source: 'watch',
-      watchFs: sourceFs, userEvents: [], summary: { meanHR: m.meanHR, hrvScore: m.hrvScore, eventCount: a.events.length },
-      ...(deps.syncTracking ? { syncTracking: true } : {}),
-    };
-    await store.saveSession(session, uv);
+    // already saved (on the other page, or by D2 Link); one from before v1.41.0 (cut off, or its rate not checked) is replaced
+    const got = await saveWatchStrip(r, deps.user(), deps.settings(), deps.syncTracking);
+    if (got.result === 'same') return;
+    if (got.result === 'short' || !got.session || !got.metrics || !got.uv) { deps.log(`A watch ECG from ${clock(r.start)} is too short to use.`); return; }
+    const { session, metrics: m, uv, sourceFs = 0 } = got;
+    const events = got.events ?? 0;
     historyChanged();
     strips++;
     queue.push(Float32Array.from(uv, (v) => filter.process(v)));
     play();
     const r0 = (v: number): string => (Number.isFinite(v) ? fmt(v) : '--');
-    results.textContent = `Strip ${strips} · ${clock(r.start)}: heart rate ${r0(m.meanHR)} bpm (watch ${r.avgHr || '--'}) · RMSSD ${r0(m.rmssd)} ms · QRS ${r0(m.qrs)} ms · QT ${r0(m.qt)} ms · QTc ${r0(m.qtc)} ms · ${a.events.length} event${a.events.length === 1 ? '' : 's'}`;
+    results.textContent = `Strip ${strips} · ${clock(r.start)}: heart rate ${r0(m.meanHR)} bpm (watch ${r.avgHr || '--'}) · RMSSD ${r0(m.rmssd)} ms · QRS ${r0(m.qrs)} ms · QT ${r0(m.qt)} ms · QTc ${r0(m.qtc)} ms · ${events} event${events === 1 ? '' : 's'}`;
     const li = make('li');
     const open = make('button', 'sync-open', 'Open report') as HTMLButtonElement;
     open.addEventListener('click', () => deps.openReport(id));
@@ -185,7 +202,8 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     if (running) timer = setTimeout(() => void poll(), POLL_MS);
   }
 
-  btnStart.addEventListener('click', () => {
+  const start = (): void => {
+    if (running || !deps.watch()) return;
     running = true;
     since = Date.now() - 60_000; // an ECG finished just before Start counts too
     filter = new EcgFilter(STRIP_FS, deps.settings().notch);
@@ -193,7 +211,17 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     status.textContent = 'Start an ECG on the watch now: fingertip on its lower button for 30 seconds.';
     deps.log('Watch ECG started: checking the watch for new ECG recordings every 5 seconds.');
     void poll();
-  });
+  };
+  btnStart.addEventListener('click', start);
+  /** One check now for every ECG since `sinceMs` not saved yet (at the end of a tracking); returns how many were new. */
+  const collect = async (sinceMs: number): Promise<number> => {
+    const w = deps.watch();
+    if (!w) return 0;
+    const before = strips;
+    const found = (await w.ecgSince(sinceMs)).filter((r) => !seen.has(r.start));
+    for (const r of found) { seen.add(r.start); await save(r); }
+    return strips - before;
+  };
   const stop = (): void => {
     running = false;
     if (timer) clearTimeout(timer);
@@ -202,7 +230,7 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
   };
   btnStop.addEventListener('click', () => { stop(); deps.log('Watch ECG stopped.'); });
   queueMicrotask(update); // the page that made this card may not have its watch ready yet
-  return { el: card, stop, update };
+  return { el: card, stop, update, start, running: () => running, collect };
 }
 
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });

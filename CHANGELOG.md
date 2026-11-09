@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.2 – Download ECG, and watch strips from a tracking saved by themselves *(GitHub)*
+
+- Synchronised ECG Tracking: the watch's 30-second ECGs used to be fetched only after pressing **Start watch ECG**, so strips taken during a tracking without it never reached ECG history. Now:
+  - starting a tracking with the watch connected, or connecting the watch during one, starts fetching them;
+  - stopping the tracking checks the watch once more for any strip from the tracking not yet saved.
+- D2 Link: a new **Download ECG** button, between Download sleep and Download all data, downloads only the watch's 30-second ECG recordings for the chosen period and saves them in ECG history. **Download all data** now includes them too. Strips that fall within a synchronised ECG tracking are saved as part of it, so its Combined ECG can use them. A strip already saved isn't saved again.
+- D2 Link: the three download buttons now share the same colour and design as Download sleep.
+- The connection log and the download history show how many strips were saved and how many had no change.
+
 ## 9 Nov 2026 – v1.42.1 – Combined ECG says why it is empty *(GitHub)*
 
 - When a Combined ECG can't be shown, the report now says why instead of always "No ECG strips were taken":

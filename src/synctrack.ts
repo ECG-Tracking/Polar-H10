@@ -285,6 +285,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchEcg.update(); watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
       watch = w;
       watchEcg.update();
+      if (timerId != null) watchEcg.start(); // joined during a tracking: its ECG strips are fetched too
       watchDot.className = 'dot on';
       watchText.textContent = `${w.name}: connected${w.battery != null ? ` · battery ${w.battery}%` : ''}`;
       btnWatch.hidden = true; btnWatchOff.hidden = false;
@@ -377,6 +378,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     ready();
     if (watch && !watchTesting) await startWatchTest();
     btnBp.disabled = !watch;
+    // the watch's 30-second ECGs are fetched by themselves during a tracking: no separate Start watch ECG needed
+    if (watch && !watchEcg.running()) watchEcg.start();
     tick();
   })());
   btnStop.addEventListener('click', () => void finish());
@@ -393,6 +396,12 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       .catch((e: unknown) => log(`The beats couldn’t be saved: ${errorMessage(e)}`));
     store.saveSyncEntry(entry);
     renderHistory();
+    // any watch ECG taken during the tracking and not fetched yet (the watch finishes a strip a few seconds after you lift your finger)
+    if (watch && t0 != null) {
+      const from = t0 - 60_000;
+      void watchEcg.collect(from).then((n) => { if (n) { log(`${n} watch ECG strip${n === 1 ? '' : 's'} from this tracking saved in ECG history.`); renderHistory(); } })
+        .catch((e: unknown) => log(`The watch’s ECG strips couldn’t be fetched: ${errorMessage(e)}. Use D2 Link › Download all data to fetch them.`));
+    }
   void fillBpFromStored();
   onStrap(useStrap); // the strap, if another page already paired it
   // the watch, if D2 Link connected it (now or later)
