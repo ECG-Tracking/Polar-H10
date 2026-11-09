@@ -213,6 +213,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     (timerId != null && t0 != null && r.end > t0) || store.loadSyncHistory().some((e) => r.start < e.start + e.durationS * 1000 && r.end > e.start);
   // ---------- ECG prompts ----------
   let trackEnd: number | null = null;
+  /** True while a stopped tracking is being saved: Start again waits, so the new run can't mix with the old one. */
+  let saving = false;
   let prompts: number[] = [], promptStrips: number[] = [], promptTimer: ReturnType<typeof setTimeout> | null = null, promptEvery = 0;
   const clockS = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false });
   const showPrompts = (): void => {
@@ -301,7 +303,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   const secondsIn = (): number => Math.round(((Date.now() - (t0 ?? Date.now())) / 1000) * 10) / 10;
 
-  const ready = (): void => { btnStart.disabled = t0 != null && timerId != null ? true : !(polar || watch); track.disable(timerId != null); forgetPolar.update(); showWatchParts(); };
+  const ready = (): void => { btnStart.disabled = saving || (t0 != null && timerId != null) ? true : !(polar || watch); track.disable(timerId != null); forgetPolar.update(); showWatchParts(); };
 
   // the ECG is drawn continuously while the strap is connected, as on ECG live
   const drawLoop = (): void => { trace.draw(); drawFrame = polar ? requestAnimationFrame(drawLoop) : 0; };
@@ -470,16 +472,23 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   async function finish(): Promise<void> {
     if (timerId == null) return;
+    try { await finishTracking(); } finally { saving = false; ready(); }
+  }
+
+  async function finishTracking(): Promise<void> {
+    if (timerId == null) return;
     clearInterval(timerId);
     timerId = null;
     trackEnd = Date.now(); // the prompts' cut-off: when Stop took effect, not after the saving below
+    stopPrompts(); // before the first wait, so it can only ever stop this tracking's prompts
+    saving = true;
     btnStop.hidden = true; btnStart.hidden = false; btnStart.textContent = 'Start again';
+    btnStart.disabled = true;
     timer.textContent = 'Done'; // the watch's heartbeat test keeps running for the live values
     const entry = showSummary();
     entry.ecgId = await saveEcg();
     await store.saveSyncTrace({ id: entry.id, polar: polarBeats, watch: watchBeats, polarHr: [...polarSeries], watchHr: [...watchSeries], watchPoor })
       .catch((e: unknown) => log(`The beats couldn’t be saved: ${errorMessage(e)}`));
-    stopPrompts();
     // this tracking's own prompts and times, kept apart from the page's: a new tracking may start while a later check runs
     const thisStart = t0 ?? entry.start, thisEnd = trackEnd, myPrompts = [...prompts], myEvery = promptEvery;
     /** The strips saved in ECG history that started during this tracking (however they arrived). */
@@ -488,11 +497,15 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     // the latest saved copy (blood pressure may have been added since), with this tracking's prompts
     const savePrompts = async (): Promise<void> => {
       if (!myEvery) return;
+      const strips = [...new Set([...promptStrips.filter((x) => x >= thisStart && x < thisEnd), ...await myStrips()])];
+      // read the entry only now, after the wait, and save at once: a blood pressure reading added meanwhile is kept
       const e = store.loadSyncHistory().find((x) => x.id === entry.id) ?? entry;
-      store.saveSyncEntry({ ...e, ecgPrompts: matchPrompts(myPrompts, [...new Set([...promptStrips.filter((x) => x >= thisStart && x < thisEnd), ...await myStrips()])]), promptEveryS: myEvery });
+      store.saveSyncEntry({ ...e, ecgPrompts: matchPrompts(myPrompts, strips), promptEveryS: myEvery });
     };
     store.saveSyncEntry(store.loadSyncHistory().find((x) => x.id === entry.id) ?? entry);
     await savePrompts();
+    saving = false;
+    ready();
     renderHistory();
     // any watch ECG taken during the tracking and not fetched yet: now, and again 45 and 90 s later for one still being
     // recorded at Stop (it ends up to 30 s after, and the watch takes a little longer to save it)

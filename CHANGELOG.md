@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.4 – Start again waits for the last tracking to be saved *(GitHub)*
+
+- **Start again** stays unavailable for the few seconds a stopped tracking takes to save its ECG and beats, so a new tracking can't mix with the one being saved. The prompts of the stopped tracking end the moment you press Stop. If saving fails, Start again still becomes available.
+- The prompt results saved after Stop read the tracking's entry only just before saving, so a blood pressure reading added a moment earlier is kept. Thanks to ChatGPT's review.
+
 ## 9 Nov 2026 – v1.43.3 – Each tracking keeps its own ECG prompt results *(GitHub)*
 
 - The checks after Stop keep to their own tracking. If you start a new tracking within 90 seconds, a late check no longer stops the new tracking's prompts or writes their results into the previous tracking. A late check now counts its tracking's prompts from the strips saved in ECG history, however they arrived.
