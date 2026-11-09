@@ -2,6 +2,7 @@ import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetai
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
+import { scaleNote } from './screenscale';
 import { Plot, LiveTrace, EcgViewer, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
@@ -753,6 +754,8 @@ const charts = [...document.querySelectorAll<HTMLElement>('#view-report .chart')
 const [hrPlot, beatPlot, poincarePlot, qtcPlot] = charts;
 if (!hrPlot || !beatPlot || !poincarePlot || !qtcPlot) throw new Error('report needs four charts');
 const viewer = new EcgViewer($canvas('viewerCanvas'));
+// the same size and calibration control as under the live trace: the only things that change the waves' size here
+$canvas('viewerCanvas').after(Object.assign(scaleNote('Standard ECG scale, as on the live trace: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The waves change size only when you change the size here or calibrate the screen.'), { className: 'scale-note no-print' }));
 let current: CurrentReport | null = null;
 
 const viewerPos = $input('viewerPos');
@@ -763,8 +766,6 @@ viewer.addEventListener('move', () => {
   $('viewerTime').textContent = `${fmtTime(viewer.t0)} / ${fmtTime(viewer.duration)}`;
 });
 viewerPos.addEventListener('input', () => viewer.goTo((Number(viewerPos.value) / 1000) * (viewer.duration - viewer.span)));
-$button('zoomIn').addEventListener('click', () => viewer.zoom(1 / 1.5));
-$button('zoomOut').addEventListener('click', () => viewer.zoom(1.5));
 
 
 /** Works out a saved recording's list summary (HR, HRV, events) without opening it, as opening it would. */
@@ -881,7 +882,7 @@ function showStrip(copy: EcgSummary, event: ReportEvent | null): void {
   const end = strip.start + a.x.length / copy.fs;
   const marks = copy.events.filter((e) => e.type === 'user' && e.t >= strip.start && e.t <= end).map((e) => ({ ...e, t: e.t - strip.start }));
   viewer.load(a, marks);
-  if (event) { viewer.span = Math.min(viewer.duration, 10); viewer.center(event.t - strip.start); }
+  if (event) viewer.center(event.t - strip.start);
   const label = $('viewerLabel');
   label.hidden = false;
   label.textContent = event

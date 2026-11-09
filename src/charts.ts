@@ -1,7 +1,7 @@
 // Canvas charts: line/scatter plots with hover, live ECG sweep, and a zoomable ECG viewer.
 
 import type { Analysis, EventType, Samples } from './dsp';
-import { DEFAULT_PX_PER_MM, ecgSize, pxPerMm, scaleNote } from './screenscale';
+import { DEFAULT_PX_PER_MM, ecgSize, onScaleChange, pxPerMm, scaleNote } from './screenscale';
 
 export function css(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -378,42 +378,45 @@ export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number
 
 export interface ReportEvent { t: number; type: EventType; label: string }
 
-/** Full-session ECG viewer: drag/swipe to pan, wheel/pinch or buttons to zoom. Fires 'move'. */
+/**
+ * Full-session ECG viewer at the calibrated scale (25 mm/s, 10 mm/mV, the screen calibration and the ECG size setting,
+ * as the live trace): drag or swipe to move through it; the mouse wheel scrolls the page, and a sideways scroll (or
+ * Shift + wheel) moves through the ECG. It doesn't zoom, so waves keep their true width. Fires 'move'.
+ */
 export class EcgViewer extends EventTarget {
-  span = 8; // seconds shown
+  /** Seconds shown: as many as the width holds at the calibrated speed. Set by the calibration, never by zooming. */
+  get span(): number {
+    const w = this.canvas.clientWidth || 600;
+    return w / (MM_PER_S * pxPerMm() * ecgSize());
+  }
+  set span(_seconds: number) { /* fixed by the calibration: kept so older callers still work */ }
   t0 = 0; // seconds at the left edge
   duration = 0;
   private analysis: Analysis | null = null;
   private events: readonly ReportEvent[] = [];
-  private range = 1000; // µV half-range
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     super();
     const pointers = new Map<number, number>();
-    let last: number | null = null;
-    canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e.clientX); last = null; });
+    canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, e.clientX); });
     canvas.addEventListener('pointermove', (e) => {
       const prev = pointers.get(e.pointerId);
       if (prev === undefined) return;
       pointers.set(e.pointerId, e.clientX);
-      if (pointers.size === 1) {
-        this.pan(-((e.clientX - prev) / canvas.clientWidth) * this.span);
-      } else if (pointers.size === 2) {
-        const [a = 0, b = 0] = [...pointers.values()];
-        const dist = Math.abs(a - b);
-        if (last) this.zoom(last / Math.max(10, dist));
-        last = dist;
-      }
+      if (pointers.size === 1) this.pan(-((e.clientX - prev) / canvas.clientWidth) * this.span);
     });
-    const end = (e: PointerEvent): void => { pointers.delete(e.pointerId); last = null; };
+    const end = (e: PointerEvent): void => { pointers.delete(e.pointerId); };
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
+    // the wheel scrolls the page as anywhere else; only a sideways scroll (or Shift + wheel) moves through the ECG
     canvas.addEventListener('wheel', (e) => {
+      const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (!sideways) return;
       e.preventDefault();
-      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) this.pan((e.deltaX / canvas.clientWidth) * this.span);
-      else this.zoom(e.deltaY > 0 ? 1.15 : 1 / 1.15);
+      this.pan((sideways / canvas.clientWidth) * this.span);
     }, { passive: false });
     watch(canvas, () => this.draw());
+    onScaleChange(() => { if (canvas.isConnected) this.goTo(this.t0); });
   }
 
   load(analysis: Analysis, events: readonly ReportEvent[]): void {
@@ -421,26 +424,18 @@ export class EcgViewer extends EventTarget {
     const x = analysis.x;
     this.duration = x.length / analysis.fs;
     this.events = events;
-    this.span = Math.min(8, this.duration);
     this.t0 = 0;
-    const s: number[] = [];
-    for (let i = 0; i < x.length; i += Math.max(1, Math.floor(x.length / 5000))) s.push(Math.abs(x[i] ?? 0));
-    s.sort((a, b) => a - b);
-    this.range = Math.max(800, (s[Math.floor(s.length * 0.995)] || 1000) * 1.2);
     this.draw();
   }
 
   pan(dt: number): void { this.goTo(this.t0 + dt); }
 
-  zoom(f: number): void {
-    const mid = this.t0 + this.span / 2;
-    this.span = Math.max(1.5, Math.min(Math.min(60, this.duration || 60), this.span * f));
-    this.goTo(mid - this.span / 2);
-  }
+  /** No zoom: the scale is the calibrated one. Kept so older callers still work. */
+  zoom(_f: number): void { /* fixed scale */ }
 
   goTo(t: number): void {
     if (!this.analysis) return;
-    this.t0 = Math.max(0, Math.min(this.duration - this.span, t));
+    this.t0 = Math.max(0, Math.min(Math.max(0, this.duration - this.span), t));
     this.draw();
     this.dispatchEvent(new Event('move'));
   }
@@ -450,12 +445,12 @@ export class EcgViewer extends EventTarget {
   draw(): void {
     const a = this.analysis;
     if (!a || !this.canvas.clientWidth) return;
+    this.canvas.dataset['size'] = String(ecgSize()); // bigger waves need a taller viewer (styles.css)
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
     const x = a.x, fs = a.fs;
-    const pxPerS = w / this.span;
-    const pxPerMv = (h * 0.85) / ((2 * this.range) / 1000);
+    const mm = pxPerMm() * ecgSize(), pxPerS = MM_PER_S * mm, pxPerMv = MM_PER_MV * mm; // as on paper, whatever the width
     drawEcgGrid(ctx, w, h, pxPerS, pxPerMv, this.t0);
     const i0 = Math.max(0, Math.floor(this.t0 * fs)), i1 = Math.min(x.length - 1, Math.ceil((this.t0 + this.span) * fs));
     const X = (i: number): number => (i / fs - this.t0) * pxPerS;

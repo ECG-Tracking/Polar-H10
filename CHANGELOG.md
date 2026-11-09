@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.43.5 – Recorded ECGs at the calibrated scale; the mouse wheel no longer stretches them *(GitHub)*
+
+- The ECG viewer in ECG reports and in the Combined ECG now uses the same scale as the live trace: 25 mm/s and 10 mm/mV, with your screen calibration and ECG size setting. The QRS and every other wave keep their true width and height, whatever the window width.
+- The mouse wheel no longer zooms the ECG: it scrolls the page as anywhere else. To move through a recording, drag it, scroll sideways (trackpad or Shift + wheel), or use the slider. Pinch-to-zoom and the − / + buttons are removed.
+- The waves change size only when you change the ECG size (Actual, Double or Triple size) or recalibrate the screen. The ECG report now has that control under its viewer too, and the viewer grows taller for the larger sizes.
+
 ## 9 Nov 2026 – v1.43.4 – Start again waits for the last tracking to be saved *(GitHub)*
 
 - **Start again** stays unavailable for the few seconds a stopped tracking takes to save its ECG and beats, so a new tracking can't mix with the one being saved. The prompts of the stopped tracking end the moment you press Stop. If saving fails, Start again still becomes available.
