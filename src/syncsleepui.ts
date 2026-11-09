@@ -336,6 +336,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'combine' && (r.combineRule ?? 1) >= 4 ? `Generated again ${dateTime(r.generatedAt)}, because where the Polar H10 couldn’t tell the stage, a waking the Watch D2 saw now counts`
     : r.changed === 'combine' && (r.combineRule ?? 1) >= 3 ? `Generated again ${dateTime(r.generatedAt)}, because breaks of 1–2 minutes inside a longer block are now part of it, and being awake before falling asleep no longer counts as waking up`
     : r.changed === 'combine' ? `Generated again ${dateTime(r.generatedAt)}, because the combined stages now come from the Polar H10, with the watch filling its gaps`
     : r.changed === 'labels' ? `Generated again ${dateTime(r.generatedAt)}, because you changed how this sleep is counted`
@@ -494,7 +495,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
     const tiles = make('div', 'd2-tiles');
     tiles.append(
-      tile('Times woke up', String(f.awakenings), 'times', 'halfway between the two devices', { range: R.awakenings, value: f.awakenings, text: '0–1 times' }),
+      tile('Times woke up', String(f.awakenings), 'times', 'counted from the combined stages', { range: R.awakenings, value: f.awakenings, text: '0–1 times' }),
       tile('Light sleep', fmt(f.lightPct), '%', fmtHM(f.lightMin), { range: R.lightPct, value: f.lightPct, text: '<55 %' }),
       tile('Avg heart rate', fmt(m.avgHR), 'bpm', `Polar H10 · Watch D2 ${fmt(w.avgHR)} bpm`),
       ...(nap ? [tile('Nap sleep', fmtHM(f.sleepMin), '', '')] : [tile('Night sleep', fmtHM(f.sleepMin), '', '', { range: R.sleepHours, value: f.sleepMin / 60, text: '6–10 h' })]),

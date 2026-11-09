@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 10 Nov 2026 – v1.43.8 – Combined sleep: a waking the watch saw counts where the strap couldn't tell the stage *(GitHub)*
+- Combined sleep report (combine rule 4): where the Polar H10 read a minute as asleep but couldn't tell its stage, the Watch D2's awake now stands. It isn't joined into the sleep block around it, and it counts as a time woke up even if it lasts one minute, as the watch counts it.
+- Example, night of 9–10 Nov: the watch's 1-minute waking at 03:02 was lost; the combined report now shows 2 times woke up, like the watch, instead of 1.
+- Saved reports are generated again, and the earlier version is kept.
+
 ## 9 Nov 2026 – v1.43.7 – Problems is its own section on About *(GitHub)*
 - About: "Problems recorded on this device" is now a separate section with its own heading, like Storage, instead of looking like part of Storage.
 

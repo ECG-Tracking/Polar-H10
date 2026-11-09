@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COMBINE_RULE, buildReports, combine, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, stagesStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
+import { COMBINE_RULE, buildReports, combine, tidyBlocks, compareMinutes, figuresOf, lineUp, midWakes, pairUp, polarStamp, stagesStamp, suggestions, watchStamp, whatChanged, type Minute, type SleepPair, type WatchSleep } from '../src/syncsleep';
 import type { SleepSession } from '../src/store';
 import { SLEEP_METHOD, type Stage } from '../src/sleep';
 
@@ -213,4 +213,18 @@ test('reports made from an older cloud copy keep that copy’s rule version', ()
   assert.equal(buildReports({ id: 'x', polar, watch, start: 0, nap: false }, figures, ['light'], 30, 1).method, 3);
   const { cloudOnly: _c, report: _r, ...own } = polar;
   assert.equal(buildReports({ id: 'x', polar: own, watch, start: 0, nap: false }, figures, ['light'], 30, 1).method, SLEEP_METHOD);
+});
+
+test('rule 4: where the strap has no stage, the watch’s awake minute stands and counts as waking up (night of 9–10 Nov 2026)', () => {
+  const l = 'light' as const, s = 'asleep' as const, A = 'awake' as const;
+  // 02:55–03:04 as recorded: strap light, then asleep with no stage, then light; the watch light with one awake minute
+  const polar = [l, l, s, s, s, s, s, s, l, l, l, l];
+  const watch = [l, l, l, l, l, l, l, A, l, l, l, l];
+  const c = tidyBlocks(combine(polar, watch), (i) => watch[i] === 'awake');
+  assert.equal(c[7], 'awake');
+  assert.equal(c.filter((x) => x === 'awake').length, 1);
+  assert.equal(figuresOf(c, 0, false, undefined, watch).awakenings, 1);
+  // without the watch saying so, a one-minute awake isn't waking up, and the strap's stage still decides elsewhere
+  assert.equal(figuresOf(c, 0, false).awakenings, 0);
+  assert.equal(combine(['light'], ['awake'])[0], 'light');
 });

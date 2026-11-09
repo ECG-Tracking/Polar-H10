@@ -105,10 +105,12 @@ export const WAKE_RUN_MIN = 5;
  * deep against REM follows the strap, which has every heartbeat and the breathing.
  */
 /**
+ * 4 (v1.43.8): where the strap has no stage, the watch's awake stands, isn't joined into the block around it, and counts
+ * as waking up even when it lasts one minute, as the watch counts it;
  * 3 (v1.42.0): short breaks inside a block are joined to it (tidyBlocks) and times woke up are counted from the combined
  * stages; 2 (v1.36.0): the strap's stage stands and the watch fills its gaps; 1: the deeper of the two stages.
  */
-export const COMBINE_RULE = 3;
+export const COMBINE_RULE = 4;
 
 /** The longest break (minutes) that is joined to the block around it. */
 export const SHORT_BREAK_MIN = 2;
@@ -117,7 +119,7 @@ export const SHORT_BREAK_MIN = 2;
  * A 1–2 minute block (missing minutes included) between two parts of one block, each at least 2 minutes long, is part of
  * that block: a brief flicker isn't a stage change, and a minute or two without data isn't a gap in the night.
  */
-export function tidyBlocks(stages: readonly Combined[]): Combined[] {
+export function tidyBlocks(stages: readonly Combined[], keep: (i: number) => boolean = () => false): Combined[] {
   const out = [...stages];
   for (let pass = 0; pass < 10; pass++) {
     const r = runs(out);
@@ -126,6 +128,7 @@ export function tidyBlocks(stages: readonly Combined[]): Combined[] {
       const before = r[k - 1]!, mid = r[k]!, after = r[k + 1]!;
       if (mid.to - mid.from > SHORT_BREAK_MIN || before.value == null || before.value !== after.value) continue;
       if (before.to - before.from < SHORT_BREAK_MIN || after.to - after.from < SHORT_BREAK_MIN) continue;
+      if (mid.value === 'awake' && Array.from({ length: mid.to - mid.from }, (_, j) => keep(mid.from + j)).some(Boolean)) continue;
       for (let i = mid.from; i < mid.to; i++) out[i] = before.value;
       changed = true;
       k++; // the next block has changed length: look again on the next pass
@@ -154,6 +157,8 @@ export function combine(polar: readonly Minute[], watch: readonly Minute[]): Com
   const out: Combined[] = [];
   for (let i = 0; i < n; i++) {
     const p = polar[i] ?? null, w = watch[i] ?? null;
+    // the strap read the minute as asleep but couldn't tell the stage: the watch's awake stands
+    if (p === 'asleep' && w === 'awake') { out.push('awake'); continue; }
     if (split(i)) {
       let from = i, to = i;
       while (from > 0 && split(from - 1)) from--;
@@ -180,17 +185,21 @@ export interface CombinedFigures {
 
 /**
  * Awake spells of 2 minutes or more between falling asleep and the last sleep count as waking up, as in the strap's own
- * analysis: being awake before falling asleep isn't waking up.
+ * analysis, and so does a shorter one the watch reported as awake (the watch counts a single minute): being awake before
+ * falling asleep isn't waking up.
  */
-export function figuresOf(stages: readonly Combined[], startMs: number, nap: boolean, wakes?: number): CombinedFigures {
+export function figuresOf(stages: readonly Combined[], startMs: number, nap: boolean, wakes?: number, watch?: readonly Minute[]): CombinedFigures {
   const count = (s: Exclude<Combined, null>): number => stages.filter((x) => x === s).length;
   const asleep = (x: Combined | undefined): boolean => x === 'deep' || x === 'light' || x === 'rem' || x === 'asleep';
   const first = stages.findIndex(asleep);
   let last = -1;
   for (let i = stages.length - 1; i >= 0; i--) if (asleep(stages[i])) { last = i; break; }
-  let awakenings = 0, run = 0;
+  let awakenings = 0, run = 0, fromWatch = false, counted = false;
   for (let i = first + 1; first >= 0 && i <= last; i++) {
-    if (stages[i] === 'awake') { run++; if (run === 2) awakenings++; } else run = 0;
+    if (stages[i] !== 'awake') { run = 0; fromWatch = false; counted = false; continue; }
+    run++;
+    fromWatch ||= watch?.[i] === 'awake';
+    if (!counted && (run >= 2 || fromWatch)) { awakenings++; counted = true; }
   }
   const deepMin = count('deep'), lightMin = count('light'), remMin = count('rem'), awakeMin = count('awake');
   const sleepMin = deepMin + lightMin + remMin + count('asleep');
@@ -416,7 +425,7 @@ export function parseSleepReportsRow(v: unknown): SavedSleepReports | null {
 
 export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly Stage[], epochS: number, now: number, before?: SavedSleepReports, copies?: { polar: SleepCopy; watch: unknown }): SavedSleepReports {
   const t = lineUp(stages, p.polar.start, epochS, p.watch);
-  const combined = tidyBlocks(combine(t.polar, t.watch));
+  const combined = tidyBlocks(combine(t.polar, t.watch), (i) => t.watch[i] === 'awake');
   const agreement = compareMinutes(t.polar, t.watch);
   const { stages: _stages, ...watch } = p.watch;
   const minutes = (x: number | null, y: number | null): number | null => (x == null || y == null ? null : (y - x) / 60000);
@@ -434,7 +443,7 @@ export function buildReports(p: SleepPair, polar: PolarFigures, stages: readonly
     timelineStart: t.startMs, polarMinutes: t.polar, watchMinutes: t.watch, combined,
     // a copy keeps the rules it was made with, so the device with the raw recording still redoes it
     method: p.polar.cloudOnly ? (p.polar.report as { method?: number } | undefined)?.method ?? 1 : SLEEP_METHOD,
-    combineRule: COMBINE_RULE, stagesStamp: stagesStamp(stages), labels: labelsOf(p.polar), figures: figuresOf(combined, t.startMs, p.nap), agreement, polar, watch,
+    combineRule: COMBINE_RULE, stagesStamp: stagesStamp(stages), labels: labelsOf(p.polar), figures: figuresOf(combined, t.startMs, p.nap, undefined, t.watch), agreement, polar, watch,
     tips: suggestions({
       agreement, polarMin: t.polar.filter((x) => x != null).length, watchMin: t.watch.filter((x) => x != null).length, coverage: polar.coverage,
       sleepDiffMin: watch.sleepMin - polar.sleepMin, onsetDiffMin: minutes(polar.onsetMs, watch.bedMs), wakeDiffMin: minutes(polar.wakeMs, watch.wokeMs),
