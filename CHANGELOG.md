@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.3 – Storage: the browser's allowance, named as such *(GitHub)*
+
+- About › Storage: "Space still available" is now called **Space this browser allows the app**. A note under the tiles explains that it is the browser's allowance for this website, not the computer's free space, since a web page can't see how full the disk is.
+
 ## 9 Nov 2026 – v1.42.2 – Download ECG, and watch strips from a tracking saved by themselves *(GitHub)*
 
 - Synchronised ECG Tracking: the watch's 30-second ECGs used to be fetched only after pressing **Start watch ECG**, so strips taken during a tracking without it never reached ECG history. Now:

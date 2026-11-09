@@ -155,7 +155,7 @@ export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Pro
   const tiles = make('div', 'tiles storage-tiles');
   tiles.appendChild(tile('This app’s data', formatBytes(total), 'Everything listed below'));
   if (estimate?.usage != null) tiles.appendChild(tile('Used on this device', formatBytes(estimate.usage), 'As the browser reports it'));
-  if (left != null) tiles.appendChild(tile('Space still available', formatBytes(left), `Room for about ${ecgHoursIn(left).toLocaleString()} hours of ECG`));
+  if (left != null) tiles.appendChild(tile('Space this browser allows the app', formatBytes(left), `Room for about ${ecgHoursIn(left).toLocaleString()} hours of ECG`));
 
   const what = make('section', 'card');
   what.append(make('h3', '', 'What takes the space'), table(['Data', 'Items', 'Size', 'Share'], rows.map((r) => [
@@ -182,5 +182,7 @@ export async function renderStorage(root: HTMLElement, deps: { loadD2: () => Pro
   refresh.addEventListener('click', () => void renderStorage(root, deps));
   bar.append(make('span', 'muted', `Measured ${new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · measured again every day`), refresh);
 
-  root.replaceChildren(bar, tiles, what, needs, keep);
+  const allowance = left != null ? make('p', 'note', 'Space this browser allows the app is the browser’s allowance for this website, not the computer’s free space: a web page can’t see how full the disk is. The browser sets it from the free space it sees and its own rules, so it can change from day to day, and it gives more when needed as long as the disk has room.') : null;
+
+  root.replaceChildren(bar, tiles, ...(allowance ? [allowance] : []), what, needs, keep);
 }
