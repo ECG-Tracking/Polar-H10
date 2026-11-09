@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 9 Nov 2026 – v1.42.1 – Combined ECG says why it is empty *(GitHub)*
+
+- When a Combined ECG can't be shown, the report now says why instead of always "No ECG strips were taken":
+  - the strips (or the Polar H10's full ECG) are only on the computer or browser that recorded them, because other devices have summaries only;
+  - no watch strips were saved during the tracking, with how to take them;
+  - the strap's ECG isn't on this device;
+  - an error while putting the two together, which was hidden before.
+
 ## 9 Nov 2026 – v1.42.0 – Tidier sleep stages, old versions to the Recovery centre, Synchronised ECG Tracking *(GitHub)*
 
 - **Synchronised ECG Tracking**: Synchronised Tracking is now called Synchronised ECG Tracking everywhere in the app.
