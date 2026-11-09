@@ -430,7 +430,6 @@ button.d2-nav { min-width: 44px; min-height: 40px; font-size: 1.2rem; padding: 0
 .d2-alldata .d2-data { margin-bottom: 12px; }
 .d2-alldata h3 { margin-top: 0; }
 /* "Download all data" is blue (white text ≥ 4.5:1 in both themes) */
-button.primary.d2-blue { background: #1d64c2; border-color: #1d64c2; color: #fff; }
 .d2-acct { margin-top: 10px; }
 .d2-acct summary { cursor: pointer; font-weight: 600; }
 .d2-acct input { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-height: 40px; width: 14em; max-width: 100%; }

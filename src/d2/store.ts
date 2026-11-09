@@ -237,7 +237,7 @@ export interface DownloadLogItem { what: string; count: number | null; note?: st
 export interface DownloadLogEntry {
   at: number; // when the download started, ms since 1970
   user: number;
-  button: 'sleep' | 'all';
+  button: 'sleep' | 'all' | 'ecg';
   via: string; // how the watch was reached
   from: number; to: number; // the period asked for, ms since 1970
   watch: string;

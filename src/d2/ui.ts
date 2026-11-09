@@ -6,7 +6,7 @@ import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cl
 import { renderAllData } from './dataui';
 import { renderGraphs, RANGES, type Range } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
-import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseStressFile, READING_CLASSES } from './extra';
+import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile, READING_CLASSES, type EcgRecording } from './extra';
 import { D2Link, WatchError } from './link';
 import { serialAvailable } from './serial';
 import { connectWatch, disconnectWatch, ensureSetUp, logTo, onWatch, openedWatch, watchName } from './watch';
@@ -41,6 +41,8 @@ export interface D2Deps {
   /** The list of nights was read again: something may have been downloaded, synced or deleted. */
   sleepChanged?: () => void;
   openEcg?: (id: string) => void;
+  /** Saves the watch's 30-second ECGs in ECG history; without it, Download all data leaves them on the watch. */
+  saveEcgs?: (recordings: readonly EcgRecording[]) => Promise<{ saved: number; same: number; short: number }>;
 }
 
 // ---------- what a night shows ----------
@@ -182,10 +184,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const noSerial = el('p', 'd2-warn', 'This browser can’t reach the watch. Use Chrome on an Android phone or on a computer; Safari, Firefox and iPhones can’t connect to a Watch D2.');
   noSerial.hidden = serialAvailable();
   const btnGo = button('Pair & download sleep', 'primary big');
-  const btnAll = button('Pair & download all data', 'primary big d2-blue');
-  btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress and workouts (not ECG recordings)';
+  const btnEcg = button('Pair & download ECG', 'primary big');
+  btnEcg.title = 'The watch’s 30-second ECG recordings, saved in ECG history';
+  const btnAll = button('Pair & download all data', 'primary big');
+  btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress, workouts and the 30-second ECG recordings';
   const goButtons = el('div', 'd2-go');
-  goButtons.append(btnGo, btnAll);
+  goButtons.append(btnGo, btnEcg, btnAll);
   // how to reach the watch: Chrome's Bluetooth (phones, most computers), the D2 Bridge app on a Mac, or a serial port
   type Via = 'bluetooth' | 'mac' | 'system';
   const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
@@ -243,7 +247,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     'Afterwards, the watch’s phone app may need to reconnect to it.',
   ]) steps.appendChild(el('li', '', s));
   help.appendChild(steps);
-  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress and workouts (not ECG recordings); numbers and any text the watch sends sync to your other devices. If the watch refuses something, the connection log shows where it stopped.'));
+  help.appendChild(el('p', 'note', 'D2 Link is experimental: it is built from Gadgetbridge’s open-source description of the watch protocol and has not yet been tested with every Watch D2 firmware. “Download all data” also reads activity, blood pressure, HRV, emotion, stress, workouts and the watch’s 30-second ECG recordings (saved in ECG history); numbers and any text the watch sends sync to your other devices. If the watch refuses something, the connection log shows where it stopped.'));
 
   // download history: when, which button, how, which dates, and what came back
   const history = el('details', 'card d2-history');
@@ -267,7 +271,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       const frontTd = el('td', 'del-col del-front');
       frontTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.appendChild(frontTd);
-      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : e.button === 'ecg' ? 'ECG' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
       const delTd = el('td', 'del-col');
       delTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.append(delTd);
@@ -330,9 +334,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     const paired = store.loadPairing() != null;
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
     btnAll.textContent = paired ? 'Download all data' : 'Pair & download all data';
+    btnEcg.textContent = paired ? 'Download ECG' : 'Pair & download ECG';
+    btnEcg.hidden = !deps.saveEcgs;
     const reachable = via.value === 'mac' || serialAvailable();
     btnGo.disabled = busy || !reachable;
     btnAll.disabled = busy || !reachable;
+    btnEcg.disabled = busy || !reachable;
     via.disabled = busy;
     noSerial.hidden = reachable;
     btnForget.hidden = !paired;
@@ -479,13 +486,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
 
   // ---------- download ----------
   via.addEventListener('change', () => { try { localStorage.setItem('d2link-via', via.value); } catch { /* not kept */ } syncButtons(); });
-  const download = (mode: Via, all = false): void => void (async () => {
+  const download = (mode: Via, all = false, ecgOnly = false): void => void (async () => {
     const period = downloadPeriod(days.value, fromIn.value, toIn.value);
     if ('error' in period) { progress.textContent = period.error; return; }
     syncButtons(true);
     progress.textContent = '';
     const entry: store.DownloadLogEntry = {
-      at: Date.now(), user: deps.user(), button: all ? 'all' : 'sleep', via: via.selectedOptions[0]?.textContent ?? mode,
+      at: Date.now(), user: deps.user(), button: ecgOnly ? 'ecg' : all ? 'all' : 'sleep', via: via.selectedOptions[0]?.textContent ?? mode,
       from: period.start * 1000, to: period.end * 1000, watch: '', items: [], ok: false, result: '',
     };
     setStatus(mode === 'mac' ? 'Connecting through D2 Bridge…' : 'Choose the watch in Chrome’s list…', 'busy');
@@ -499,6 +506,14 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       setStatus(`${name}${w.battery != null ? ` · battery ${w.battery}%` : ''} – downloading…`, 'on');
       const { start, end } = period;
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
+      if (ecgOnly) {
+        const counts = await downloadEcgs(link, start, end, entry.items);
+        progress.textContent = counts ? `${counts}.` : 'The watch has no ECG recordings for this period.';
+        setStatus(`${name} – done`, 'on');
+        entry.ok = true;
+        entry.result = 'Done';
+        return;
+      }
       const file = await link.downloadSleep(start, end, (d, total) => { progress.textContent = `Downloading… ${Math.round((100 * d) / total)}%`; });
       const got = parseSleepFile(file).map((d) => store.nightFromData(d, deps.user(), name));
       const { changed, same } = onlyChanged(got, await store.listAllNights(), (n) => n.id, nightContent);
@@ -571,10 +586,32 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     await step('measurements', async () => readingRecords(await downloadReadings(link, start * 1000, log), user, name));
     await step('stress records', async () => stressRecords(parseStressFile(await link.downloadFile({ name: 'rrisqi_data.bin', type: 0x10, start, end, what: 'stress' })), user, name));
     await step('workouts', async () => workoutRecords(await downloadWorkouts(link, start, end, log), user, name));
+    const ecg = await downloadEcgs(link, start, end, items);
+    if (ecg) parts.push(ecg);
     return parts.join(', ');
   }
 
+  /** The watch's 30-second ECGs, saved in ECG history as from ECG live; returns a summary ('' when there were none). */
+  async function downloadEcgs(link: D2Link, start: number, end: number, items: store.DownloadLogItem[]): Promise<string> {
+    if (!deps.saveEcgs) return '';
+    progress.textContent = 'Downloading ECG recordings…';
+    try {
+      const recs = parseEcgFile(await link.downloadFile({ name: 'ecg_analysis_data.bin', type: 0x18, start: start - 5, end: end + 5, what: 'ECG' }))
+        .filter((r) => r.samples.length > 0 && r.start >= start * 1000 - 5000 && r.start <= end * 1000 + 5000);
+      const n = await deps.saveEcgs(recs);
+      items.push({ what: 'ECG recordings', count: recs.length, nil: n.same });
+      log(`ECG recordings: ${n.saved} saved in ECG history, ${n.same} nil change${n.short ? `, ${n.short} too short to use` : ''}.`);
+      return recs.length ? `${recs.length} ECG recording${recs.length === 1 ? '' : 's'}${nilText(recs.length, n.same)}` : '';
+    } catch (e) {
+      items.push({ what: 'ECG recordings', count: null, note: e instanceof Error ? e.message.replace(/^The watch /, '').replace(/\.$/, '') : String(e) });
+      log(`ECG recordings: not downloaded (${e instanceof Error ? e.message : String(e)}).`);
+      if (e instanceof WatchError && /not connected|disconnected/.test(e.message)) throw e;
+      return '';
+    }
+  }
+
   btnGo.addEventListener('click', () => download(via.value as Via));
+  btnEcg.addEventListener('click', () => download(via.value as Via, false, true));
   btnAll.addEventListener('click', () => download(via.value as Via, true));
 
   btnForget.addEventListener('click', () => {

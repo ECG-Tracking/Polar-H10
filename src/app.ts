@@ -8,7 +8,7 @@ import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
 import { referenceRanges, SOURCES, type ReferenceRanges } from './ranges';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton } from './devicekit';
-import { watchEcgCard } from './watchecg';
+import { saveWatchStrip, watchEcgCard } from './watchecg';
 import type { LiveWatch } from './d2/live';
 import { byId, whenLine, $, $button, $input, $canvas, make, deleteButton, durationSeconds, fmt, metricTile, renderOutliers as renderOutlierBox, download, type MetricRef, type Outlier } from './ui';
 import { errorMessage, errorName } from './util';
@@ -230,6 +230,17 @@ async function openD2(): Promise<void> {
       ecgDuring,
       sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },
       openEcg: (id) => void openReport(id),
+      // the watch's 30-second ECGs, saved in ECG history as from ECG live; during a tracking, as part of it
+      saveEcgs: async (recs) => {
+        const n = { saved: 0, same: 0, short: 0 };
+        const trackings = store.loadSyncHistory().filter((e) => e.user === currentUser);
+        for (const r of recs) {
+          const during = trackings.some((e) => r.start < e.start + e.durationS * 1000 && r.end > e.start);
+          n[(await saveWatchStrip(r, currentUser, settings, during)).result]++;
+        }
+        if (n.saved) historyChanged();
+        return n;
+      },
       showHistory: () => { if (!$('view-d2History').classList.contains('active')) { d2KeepPage = true; show('d2History'); } },
     });
   } catch (err) {
