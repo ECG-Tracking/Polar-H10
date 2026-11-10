@@ -2,6 +2,7 @@
 // Combined and Comparison reports are no longer offered: the two-ECG report holds what they added). Formerly: (Polar H10, D2, Combined,
 // Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
+import { during } from './diagnostics';
 import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { EcgViewer, type ReportEvent } from './charts';
 import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
@@ -217,7 +218,6 @@ export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, 
     polar || e.polar || e.ecgId ? 'Polar H10' : null,
     watch || (e.watch && e.watch.beats > 0) ? 'Watch D2' : null, // a watch that sent no beats (an old stale heart rate) isn't listed
     bp || e.bps?.length || e.bp ? 'BP recorded' : null,
-    e.ecgPrompts?.length ? `ECG prompts ${e.ecgPrompts.filter((p) => p.strip != null).length} of ${e.ecgPrompts.length}` : null,
     `Duration ${mmss(durationS)}`,
   ].filter(Boolean).join(' · ');
 }
@@ -315,6 +315,10 @@ async function fromEcg(e: SyncTrackingEntry, t: SyncTrace): Promise<TrackVersion
 
 /** Adds a version to every tracking whose blood pressure or watch data changed. Says if anything changed. */
 export async function updateTrackingReports(deps: TrackingReportDeps): Promise<boolean> {
+  return during('tracking reports', () => updateTrackingReportsNow(deps));
+}
+
+async function updateTrackingReportsNow(deps: TrackingReportDeps): Promise<boolean> {
   const entries = store.loadSyncHistory();
   if (!entries.length) return false;
   const api = await deps.loadD2().catch(() => null);
@@ -637,7 +641,8 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   }
 
   /** `at` picks an earlier version by when it was generated; without it, the latest. */
-  async function openReport(id: string, kind: Kind, at?: number): Promise<void> {
+  function openReport(id: string, kind: Kind, at?: number): Promise<void> { return during('opening a tracking report', () => openReportNow(id, kind, at)); }
+  async function openReportNow(id: string, kind: Kind, at?: number): Promise<void> {
     deps.show('syncReport');
     reportRoot.replaceChildren(make('div', 'busy', 'Opening the report…'));
     await new Promise((r) => setTimeout(r, 30));

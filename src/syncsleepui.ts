@@ -1,6 +1,7 @@
 // Synchronised Sleep Tracking: the page that records a sleep for both devices, the history of sleeps both measured,
 // and the combined and comparison reports. The Polar H10 and D2 reports are the usual ones, opened from here.
 
+import { during } from './diagnostics';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { ECG_FS, type BatteryDetail, type EcgDetail, type PolarH10 } from './polar';
@@ -288,7 +289,8 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
   }
 
   /** Makes the reports of new sleeps and of sleeps whose recordings changed; each change adds a version. Says if anything changed. */
-  async function updateAll(): Promise<boolean> {
+  function updateAll(): Promise<boolean> { return during('sleep reports', updateAllNow); }
+  async function updateAllNow(): Promise<boolean> {
     if (deps.sleep.isRecording()) return false; // an analysis would hold up the recording
     const pairs = await loadPairs();
     const saved = new Map((await store.listSleepReports(deps.user())).map((r) => [r.id, r]));
@@ -442,7 +444,8 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
   }
 
   /** `at` picks an earlier version by when it was generated; without it, the latest. */
-  async function openReport(id: string, kind: 'combined' | 'comparison', at?: number): Promise<void> {
+  function openReport(id: string, kind: 'combined' | 'comparison', at?: number): Promise<void> { return during('opening a sleep report', () => openReportNow(id, kind, at)); }
+  async function openReportNow(id: string, kind: 'combined' | 'comparison', at?: number): Promise<void> {
     deps.show('syncSleepReport');
     reportRoot.replaceChildren(make('div', 'busy', 'Opening the report…'));
     await new Promise((r) => setTimeout(r, 30));

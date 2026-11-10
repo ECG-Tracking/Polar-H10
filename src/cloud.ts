@@ -8,6 +8,7 @@
 //     Kind 'sleep-reports': each synchronised sleep's four reports with every version, id = its id; the same rule.
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
+import { during } from './diagnostics';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
@@ -121,7 +122,7 @@ export class CloudSync extends EventTarget {
 
   /** One full sync; concurrent calls share the same run. Fires 'synced' when done and 'changed' if local data changed. */
   sync(): Promise<SyncResult> {
-    this.running ??= this.run().finally(() => { this.running = null; });
+    this.running ??= during('cloud sync', () => this.run()).finally(() => { this.running = null; });
     return this.running;
   }
 

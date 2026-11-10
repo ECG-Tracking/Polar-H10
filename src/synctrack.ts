@@ -2,6 +2,7 @@
 // a custom time, or until stopped), plus a blood pressure reading taken on the watch within the hour after the start.
 // The watch is reached through D2 Link (d2link.js); this page only uses what it offers.
 
+import { during } from './diagnostics';
 import { ECG_FS, type EcgDetail, type HrDetail, type PolarH10 } from './polar';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgFilter } from './dsp';
@@ -12,7 +13,6 @@ import { make } from './ui';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
 import { watchEcgCard } from './watchecg';
 import { watchCaptureCard } from './watchcapture';
-import { FIRST_PROMPT_MS, matchPrompts, promptAt, promptSummary } from './ecgprompts';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
@@ -145,22 +145,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const runRow = make('div', 'row');
   runRow.append(btnStart, btnStop);
   const runNote = make('p', 'note', 'Connect at least one device. Sit still and breathe normally.');
-  // ECG prompts: the watch can't be started from the app, so the page asks for each 30-second ECG
-  const promptSel = make('select') as HTMLSelectElement;
-  for (const [v, t] of [['0', 'Off'], ['120', 'Every 2 minutes'], ['180', 'Every 3 minutes'], ['300', 'Every 5 minutes'], ['600', 'Every 10 minutes']] as const) {
-    const o = make('option', '', t) as HTMLOptionElement; o.value = v; promptSel.appendChild(o);
-  }
-  try { promptSel.value = localStorage.getItem('openbeat-ecg-prompts') ?? '0'; } catch { /* default */ }
-  if (!promptSel.value) promptSel.value = '0';
-  promptSel.addEventListener('change', () => { try { localStorage.setItem('openbeat-ecg-prompts', promptSel.value); } catch { /* not kept */ } });
-  const promptLabel = make('label', 'd2-days', 'Watch ECG prompts ');
-  promptLabel.appendChild(promptSel);
-  promptLabel.title = 'The page beeps and asks you to take a 30-second ECG on the watch (fingertip on its lower button)';
-  const promptBox = make('div', 'ecg-prompts');
-  promptBox.hidden = true;
-  const promptNow = make('p', 'ecg-prompt-now'), promptList = make('ul', 'ecg-prompt-list');
-  promptBox.append(promptNow, promptList);
-  runCard.append(durRow, promptLabel, timer, runRow, runNote, promptBox);
+  runCard.append(durRow, timer, runRow, runNote);
 
   // --- live values ---
   const tile = (label: string, unit: string): { el: HTMLElement; value: HTMLElement; sub: HTMLElement } => {
@@ -211,62 +196,11 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   /** A strip belongs to a tracking only when one covers it: the one running now, or one in the history. */
   const inTracking = (r: { start: number; end: number }): boolean =>
     (timerId != null && t0 != null && r.end > t0) || store.loadSyncHistory().some((e) => r.start < e.start + e.durationS * 1000 && r.end > e.start);
-  // ---------- ECG prompts ----------
-  let trackEnd: number | null = null;
+  try { localStorage.removeItem('openbeat-ecg-prompts'); } catch { /* the removed ECG prompts' setting */ }
   /** True while a stopped tracking is being saved: Start again waits, so the new run can't mix with the old one. */
   let saving = false;
-  let prompts: number[] = [], promptStrips: number[] = [], promptTimer: ReturnType<typeof setTimeout> | null = null, promptEvery = 0;
-  const clockS = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false });
-  const showPrompts = (): void => {
-    const matched = matchPrompts(prompts, promptStrips);
-    promptList.replaceChildren(...matched.map((p, i) => make('li', p.strip != null ? 'done' : '', `Prompt ${i + 1} · ${clockS(p.at)} · ${p.strip != null ? `ECG taken at ${clockS(p.strip)}` : i === matched.length - 1 && timerId != null ? 'waiting for the ECG…' : 'missed'}`)));
-  };
-  const promptBeep = (): void => {
-    try {
-      const ctx = new AudioContext();
-      for (let i = 0; i < 3; i++) {
-        const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + i * 0.35;
-        o.frequency.value = 880;
-        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
-        o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.3);
-      }
-      setTimeout(() => void ctx.close(), 1500);
-    } catch { /* no sound here */ }
-  };
-  const nextPrompt = (): void => {
-    if (timerId == null || t0 == null || !promptEvery) return;
-    const due = promptAt(t0, promptEvery * 1000, prompts.length);
-    if (length != null && due > t0 + length * 1000 - 30_000) return; // no prompt too late to finish before the end
-    promptTimer = setTimeout(() => {
-      if (timerId == null) return;
-      prompts.push(Date.now());
-      promptBeep();
-      promptNow.textContent = `ECG prompt ${prompts.length}: take an ECG on the watch now – open its ECG app and keep a fingertip on the lower button for 30 seconds.`;
-      log(`ECG prompt ${prompts.length} at ${clockS(Date.now())}.`);
-      showPrompts();
-      nextPrompt();
-    }, Math.max(0, due - Date.now()));
-  };
-  const startPrompts = (): void => {
-    prompts = []; promptStrips = [];
-    promptEvery = Number(promptSel.value) || 0;
-    promptSel.disabled = true;
-    promptBox.hidden = !promptEvery;
-    promptNow.textContent = promptEvery ? `The first ECG prompt comes ${FIRST_PROMPT_MS / 1000} seconds after the start, then every ${promptEvery / 60} minutes.` : '';
-    promptList.replaceChildren();
-    nextPrompt();
-  };
-  const stopPrompts = (): void => {
-    if (promptTimer) clearTimeout(promptTimer);
-    promptTimer = null;
-    promptSel.disabled = false;
-    if (promptEvery) { promptNow.textContent = `Prompts: ${promptSummary(matchPrompts(prompts, promptStrips))}.`; showPrompts(); }
-  };
-
   const watchEcg = watchEcgCard({
     watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: inTracking, openReport: deps.openEcg,
-    // a strip started after Stop goes into ECG history but doesn't count for this tracking's prompts
-    onStrip: (r) => { if (t0 != null && r.start >= t0 && (trackEnd == null || r.start < trackEnd)) { promptStrips.push(r.start); showPrompts(); } },
   });
   const capture = watchCaptureCard({
     watch: () => watch, log,
@@ -464,23 +398,19 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     btnBp.disabled = !watch;
     // the watch's 30-second ECGs are fetched by themselves during a tracking: no separate Start watch ECG needed
     if (watch && !watchEcg.running()) watchEcg.start();
-    trackEnd = null;
-    startPrompts();
     tick();
   })());
   btnStop.addEventListener('click', () => void finish());
 
   async function finish(): Promise<void> {
     if (timerId == null) return;
-    try { await finishTracking(); } finally { saving = false; ready(); }
+    try { await during('saving the tracking', finishTracking); } finally { saving = false; ready(); }
   }
 
   async function finishTracking(): Promise<void> {
     if (timerId == null) return;
     clearInterval(timerId);
     timerId = null;
-    trackEnd = Date.now(); // the prompts' cut-off: when Stop took effect, not after the saving below
-    stopPrompts(); // before the first wait, so it can only ever stop this tracking's prompts
     saving = true;
     btnStop.hidden = true; btnStart.hidden = false; btnStart.textContent = 'Start again';
     btnStart.disabled = true;
@@ -489,21 +419,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     entry.ecgId = await saveEcg();
     await store.saveSyncTrace({ id: entry.id, polar: polarBeats, watch: watchBeats, polarHr: [...polarSeries], watchHr: [...watchSeries], watchPoor })
       .catch((e: unknown) => log(`The beats couldn’t be saved: ${errorMessage(e)}`));
-    // this tracking's own prompts and times, kept apart from the page's: a new tracking may start while a later check runs
-    const thisStart = t0 ?? entry.start, thisEnd = trackEnd, myPrompts = [...prompts], myEvery = promptEvery;
-    /** The strips saved in ECG history that started during this tracking (however they arrived). */
-    const myStrips = async (): Promise<number[]> => (await store.listSessions(deps.user() as UserNumber).catch(() => []))
-      .filter((x) => x.source === 'watch' && x.start >= thisStart && x.start < thisEnd).map((x) => x.start);
-    // the latest saved copy (blood pressure may have been added since), with this tracking's prompts
-    const savePrompts = async (): Promise<void> => {
-      if (!myEvery) return;
-      const strips = [...new Set([...promptStrips.filter((x) => x >= thisStart && x < thisEnd), ...await myStrips()])];
-      // read the entry only now, after the wait, and save at once: a blood pressure reading added meanwhile is kept
-      const e = store.loadSyncHistory().find((x) => x.id === entry.id) ?? entry;
-      store.saveSyncEntry({ ...e, ecgPrompts: matchPrompts(myPrompts, strips), promptEveryS: myEvery });
-    };
+    const thisStart = t0 ?? entry.start;
     store.saveSyncEntry(store.loadSyncHistory().find((x) => x.id === entry.id) ?? entry);
-    await savePrompts();
     saving = false;
     ready();
     renderHistory();
@@ -513,10 +430,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       if (!watch || t0 !== thisStart || timerId != null) return; // disconnected, or a new tracking has started
       void watchEcg.collect(thisStart - 60_000).then(async (n) => {
         if (n) log(`${n} watch ECG strip${n === 1 ? '' : 's'} from this tracking saved in ECG history.`);
-        await savePrompts(); // a strip that arrived late still counts for its prompt
-        // the page shows this tracking's prompts only while no new tracking has started
-        if (myEvery && t0 === thisStart && timerId == null) promptNow.textContent = `Prompts: ${promptSummary((store.loadSyncHistory().find((x) => x.id === entry.id)?.ecgPrompts) ?? [])}.`;
-        if (n || myEvery) renderHistory();
+        if (n) renderHistory();
       }).catch((e: unknown) => log(`The watch’s ECG strips couldn’t be fetched: ${errorMessage(e)}. Use D2 Link › Download ECG to fetch them.`));
     };
     collect();

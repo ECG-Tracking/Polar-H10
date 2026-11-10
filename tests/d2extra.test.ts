@@ -325,3 +325,19 @@ test('D2 downloads: a failed connection isn’t recorded, but a download that st
   assert.equal(nothingCameBack({ ok: false, items: [{ what: 'sleep records', count: 2 }] }), false);
   assert.equal(nothingCameBack({ ok: true, items: [{ what: 'sleep records', count: 0 }] }), false);
 });
+
+test('D2 link: a message that can’t be sent fails at once and leaves no stray error; one that never sends ends at the time limit', async () => {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (e: unknown): void => { unhandled.push(e); };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    const failing = { onData: null, onClose: null, close: async () => undefined, send: async () => { throw new Error('GATT busy'); } };
+    const link = new D2Link(failing, () => undefined);
+    await assert.rejects(link.request({ service: 0x2c, command: 0x01, tlv: new Tlv().put(1), encrypt: false, sliced: false }, 30, 'the test'), /GATT busy/);
+    const stuck = { onData: null, onClose: null, close: async () => undefined, send: () => new Promise<void>(() => undefined) };
+    const link2 = new D2Link(stuck, () => undefined);
+    await assert.rejects(link2.request({ service: 0x2c, command: 0x01, tlv: new Tlv().put(1), encrypt: false, sliced: false }, 30, 'the test'), /did not answer the test/);
+    await new Promise((r) => setTimeout(r, 80));
+    assert.deepEqual(unhandled, []);
+  } finally { process.off('unhandledRejection', onUnhandled); }
+});
