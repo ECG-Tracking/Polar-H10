@@ -1,5 +1,6 @@
 // Sleep monitor, sleep history and the sleep report.
 
+import { during } from './diagnostics';
 import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } from './devices';
 import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
 import { analyzeSleep, isNap, joinParts, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
@@ -382,7 +383,8 @@ export function initSleep(deps: SleepDeps): {
   const stageKey = (s: Stage): SleepStageKey | null => (s === 'nodata' || s === 'uncertain' ? null : s);
 
   /** `from` is set when another page opened the report: its back button returns there. */
-  async function openReport(id: string, from?: () => void): Promise<void> {
+  function openReport(id: string, from?: () => void): Promise<void> { return during('opening a sleep report', () => openReportNow(id, from)); }
+  async function openReportNow(id: string, from?: () => void): Promise<void> {
     backTo = from ?? null;
     $('btnSleepBack').textContent = from ? '← Back' : '← Sleep history';
     deps.showSleepView('sleepReport');

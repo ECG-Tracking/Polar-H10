@@ -54,12 +54,18 @@ export function watchCaptureCard(deps: CaptureDeps): { el: HTMLElement; update: 
 
   let lines: string[] = [], stop: (() => void) | null = null, count = 0, paused = false, stripsPaused = false, startedAt = 0;
   const stamp = (): string => { const d = new Date(); return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
-  const add = (line: string): void => {
-    lines.push(line);
+  let drawn = 0;
+  const show = (): void => {
+    drawn = 0;
     pre.hidden = false;
     pre.textContent = lines.slice(-SHOWN).join('\n');
     pre.scrollTop = pre.scrollHeight;
     btnSave.disabled = false;
+  };
+  // the screen is updated once a frame at most: a file download from the watch sends hundreds of messages in a burst
+  const add = (line: string): void => {
+    lines.push(line);
+    drawn ||= requestAnimationFrame(show);
   };
   const update = (): void => {
     const w = deps.watch();

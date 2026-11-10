@@ -1,6 +1,7 @@
 // Sync & backups (as in Portfolio Optimizer): download a backup of the account and restore one; export this device's copy
 // and the cloud copy side by side; make the cloud copy match this device; or put back an earlier cloud copy.
 
+import { during } from './diagnostics';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { current, historyChanged, supabase } from './account';
 import * as store from './store';
@@ -107,6 +108,10 @@ async function fillTrackingBp(d2: D2Api | null): Promise<void> {
 }
 
 export async function makeBackup(d2: D2Api | null): Promise<AccountBackup> {
+  return during('making a backup', () => makeBackupNow(d2));
+}
+
+async function makeBackupNow(d2: D2Api | null): Promise<AccountBackup> {
   await fillTrackingBp(d2); // so the backup's tracking history is up to date
   return { app: 'OpenBeat ECG', kind: 'openbeat-account-backup', v: 1, ...(await collect(true, d2)) };
 }

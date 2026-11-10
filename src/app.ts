@@ -16,7 +16,7 @@ import { errorMessage, errorName } from './util';
 import { initSleep } from './sleepui';
 import { renderRecovery } from './recovery';
 import { startVersionTidying } from './oldversions';
-import { clearProblems, notePage, problems, startDiagnostics } from './diagnostics';
+import { clearProblems, during, notePage, problems, startDiagnostics } from './diagnostics';
 import { parseEcgSummary, withoutShape, base64ToInt16, type EcgSummary } from './summary';
 import { current as account, historyChanged, supabase } from './account';
 import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stays in d2link.js
@@ -781,7 +781,11 @@ function redrawHistorySoon(): void {
   historyRedraw = setTimeout(() => { historyRedraw = null; if ($('view-history').classList.contains('active')) void renderHistory(); }, 300);
 }
 
-async function summarise(id: string, redraw = true): Promise<void> {
+function summarise(id: string, redraw = true): Promise<void> {
+  return during('ECG report', () => summariseNow(id, redraw));
+}
+
+async function summariseNow(id: string, redraw = true): Promise<void> {
   const { session, samples } = await store.loadSession(id);
   if (!session || !samples || session.summary || session.cloudOnly) return;
   const analysis = analyze(samples, { fs: session.fs, notch: settings.notch, qtcFormula: settings.qtcFormula, ignoreShape: session.ignoreShape === true });

@@ -88,15 +88,23 @@ export class D2Link {
 
   /** Sends a request and waits for the watch's answer to the same service and command. */
   async request(pkt: OutPacket, timeoutMs = 5000, what = 'the request'): Promise<Tlv> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const answer = new Promise<InPacket>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         this.waiters = this.waiters.filter((x) => x.timer !== timer);
         reject(new WatchError(`The watch did not answer ${what}.`));
       }, timeoutMs);
       this.waiters.push({ service: pkt.service, command: pkt.command, resolve, reject, timer });
     });
-    await this.send(pkt);
-    const p = await answer;
+    // the waiting stops with the request: a message that couldn't be sent no longer leaves a timer whose error nobody
+    // receives, and one whose sending never finishes still ends at the time limit
+    answer.catch(() => undefined);
+    const sent = this.send(pkt).catch((e: unknown) => {
+      clearTimeout(timer);
+      this.waiters = this.waiters.filter((x) => x.timer !== timer);
+      throw e;
+    });
+    const p = await Promise.race([sent.then(() => answer), answer]);
     if (!p.tlv) throw new WatchError(`Unexpected answer to ${what}.`);
     return p.tlv;
   }

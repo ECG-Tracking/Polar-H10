@@ -10,6 +10,29 @@ const BEAT_MS = 2000, PAUSE_MS = 5000;
 export interface Problem { at: number; kind: 'stopped' | 'pause' | 'error'; page: string; version: string; detail: string }
 
 let page = 'start';
+/** What the app is doing now (see `busy`), and everything it did since the last heartbeat. */
+const active = new Map<number, string>();
+let seen = new Set<string>();
+let nextId = 1;
+/** Time that isn't a hang: the page was hidden, or the print dialog or an alert/confirm box was open. */
+let excused = false;
+
+/**
+ * Marks a piece of work that may take a while, so a pause can say what was going on; call the returned function when it
+ * ends. Only a short name of the work is kept, never any data.
+ */
+export function busy(label: string): () => void {
+  const id = nextId++;
+  active.set(id, label);
+  seen.add(label);
+  return () => { active.delete(id); };
+}
+
+/** Runs `work` marked as `label` (see `busy`). */
+export async function during<T>(label: string, work: () => Promise<T>): Promise<T> {
+  const done = busy(label);
+  try { return await work(); } finally { done(); }
+}
 /** The page now open (called whenever the page changes). */
 export function notePage(p: string): void { page = p; }
 
@@ -29,11 +52,25 @@ export function startDiagnostics(): void {
   const last = read<{ at: number; page: string; version?: string } | null>(ALIVE, null);
   if (last && Date.now() - last.at > 3 * BEAT_MS) record('stopped', 'The app stopped without closing normally (for example Chrome had to be quit while it wasn’t responding).', last.at, last.page, last.version ?? 'unknown');
   let tick = Date.now();
+  // a hidden page's timers are slowed by the browser, and the print dialog and alert/confirm boxes stop the page on
+  // purpose: none of these is a hang (before v1.43.9 they were recorded as one)
+  addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') excused = true; });
+  addEventListener('beforeprint', () => { excused = true; });
+  addEventListener('afterprint', () => { excused = true; });
+  for (const k of ['alert', 'confirm', 'prompt'] as const) {
+    const original = window[k].bind(window) as (...a: unknown[]) => unknown;
+    (window as unknown as Record<string, unknown>)[k] = (...a: unknown[]): unknown => { try { return original(...a); } finally { excused = true; } };
+  }
   setInterval(() => {
     const now = Date.now();
-    // the page was stuck if this ran much later than planned; a tab in the background or a sleeping computer is not
+    // the page was stuck if this ran much later than planned
     const gap = now - tick;
-    if (gap > PAUSE_MS + BEAT_MS && gap < 10 * 60_000 && document.visibilityState === 'visible') record('pause', `The page didn’t respond for ${Math.round((now - tick - BEAT_MS) / 1000)} s.`, tick);
+    if (gap > PAUSE_MS + BEAT_MS && gap < 10 * 60_000 && !excused && document.visibilityState === 'visible') {
+      const doing = [...new Set([...seen, ...active.values()])];
+      record('pause', `The page didn’t respond for ${Math.round((gap - BEAT_MS) / 1000)} s.${doing.length ? ` Working on: ${doing.join(', ')}.` : ''}`, tick);
+    }
+    excused = document.visibilityState !== 'visible';
+    seen = new Set(active.values());
     tick = now;
     write(ALIVE, { at: now, page, version: versionText() });
   }, BEAT_MS);

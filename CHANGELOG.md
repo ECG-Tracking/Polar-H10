@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 10 Nov 2026 – v1.43.9 – Watch ECG prompts removed; watch download errors handled; a more accurate hang record *(GitHub)*
+- Synchronised ECG Tracking: the watch ECG prompts (the beep every few minutes, and "ECG prompts X of Y" in the history) are removed. Watch ECGs taken during a tracking are still fetched by themselves.
+- Watch: a message to the watch that couldn't be sent now fails at once. Before, its "the watch did not answer" error went off a few seconds later with nothing to catch it (the "Unhandled" lines in About › Problems). A message whose sending never finishes now ends at the time limit instead of holding up every later download.
+- About › Problems: time with the page hidden, the print dialog open, or an alert or confirm box waiting is no longer recorded as the page not responding (several earlier entries were these). A real pause now says what the app was working on (for example "saving the tracking" or "watch ECG check").
+- Watch message capture: the screen updates at most once a frame, so a burst of messages during a download doesn't slow the page.
+
 ## 10 Nov 2026 – v1.43.8 – Combined sleep: a waking the watch saw counts where the strap couldn't tell the stage *(GitHub)*
 - Combined sleep report (combine rule 4): where the Polar H10 read a minute as asleep but couldn't tell its stage, the Watch D2's awake now stands. It isn't joined into the sleep block around it, and it counts as a time woke up even if it lasts one minute, as the watch counts it.
 - Example, night of 9–10 Nov: the watch's 1-minute waking at 03:02 was lost; the combined report now shows 2 times woke up, like the watch, instead of 1.
