@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 11 Nov 2026 – v1.44.0 – Breathing, movement and heart-rate strips under a sleep's ECG *(GitHub)*
+- ECG history › an ECG recorded with a sleep (Sleep monitor, and Synchronised Sleep Tracking's Polar H10 part): under the ECG are three more strips from the same moments, all recorded by the Polar H10:
+  - **Breathing**: the chest's rise and fall from the strap's accelerometer. In each minute it uses the direction that moves most with the breathing, and it is turned so a breath always goes the same way.
+  - **Movement**: how far the chest's acceleration is from its average over the second around it.
+  - **Heart rate**: each beat's rate, with missed or extra beats left out.
+- One slider moves all four together. Dragging a strip, or scrolling it sideways, moves the ECG as well. The strips have the same width in seconds as the ECG, at its calibrated speed.
+- Each strip's scale is set by the minute around it, so it doesn't jump as you move. A moment without a reading from the strap is left empty.
+- The strips need the sleep's raw data, so they show on the device that recorded it.
+
 ## 10 Nov 2026 – v1.43.9 – Watch ECG prompts removed; watch download errors handled; a more accurate hang record *(GitHub)*
 - Synchronised ECG Tracking: the watch ECG prompts (the beep every few minutes, and "ECG prompts X of Y" in the history) are removed. Watch ECGs taken during a tracking are still fetched by themselves.
 - Watch: a message to the watch that couldn't be sent now fails at once. Before, its "the watch did not answer" error went off a few seconds later with nothing to catch it (the "Unhandled" lines in About › Problems). A message whose sending never finishes now ends at the time limit instead of holding up every later download.

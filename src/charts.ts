@@ -495,6 +495,175 @@ export class EcgViewer extends EventTarget {
   }
 }
 
+// ---------- The Polar H10's other signals under its ECG ----------
+
+/** What ChestStrips draws: the signals of a sleep recording (see chestsignals.ts). */
+export interface ChestStripData {
+  fs: number; breathing: Float32Array; movement: Float32Array; beatT: Float64Array; hr: Float32Array;
+}
+
+/**
+ * Breathing, movement and heart-rate strips under the recorded ECG, showing the same seconds at the same width: they
+ * follow the ECG viewer's position, and dragging one of them moves the ECG too (one slider for all).
+ */
+export class ChestStrips {
+  private data: ChestStripData | null = null;
+  /** Seconds to add to a time in the ECG to get the same moment in the sleep recording. */
+  private offsetS = 0;
+  private readonly rows: { canvas: HTMLCanvasElement; value: HTMLElement; draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void }[] = [];
+
+  /** The ECG viewer's window, in seconds of the ECG: its left edge and how many seconds it shows. */
+  private get t0(): number { return this.view().t0; }
+  private get span(): number { return this.view().span; }
+
+  constructor(private readonly box: HTMLElement, private readonly view: () => { t0: number; span: number }, private readonly pan: (dt: number) => void) {
+    const row = (title: string, help: string, draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void): void => {
+      const fig = document.createElement('figure');
+      fig.className = 'chest-strip';
+      const cap = document.createElement('figcaption');
+      const name = document.createElement('span');
+      name.textContent = title;
+      const value = document.createElement('span');
+      value.className = 'muted';
+      cap.append(name, value);
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('aria-label', help);
+      fig.append(cap, canvas);
+      box.appendChild(fig);
+      this.rows.push({ canvas, value, draw });
+      this.drag(canvas);
+      watch(canvas, () => this.drawOne(this.rows.find((r) => r.canvas === canvas)!));
+    };
+    row('Breathing (chest rise and fall)', 'Breathing from the chest strap’s movement, at the same moments as the ECG above', (ctx, w, h) => this.drawWave(ctx, w, h, 'breathing'));
+    row('Movement', 'Body movement from the chest strap, at the same moments as the ECG above', (ctx, w, h) => this.drawWave(ctx, w, h, 'movement'));
+    row('Heart rate (each beat)', 'Heart rate of each beat from the chest strap, at the same moments as the ECG above', (ctx, w, h) => this.drawHr(ctx, w, h));
+  }
+
+  /** The signals to show (null: none, the strips are hidden), and where the ECG starts in the sleep recording. */
+  set(data: ChestStripData | null, offsetS = 0): void {
+    this.data = data;
+    this.offsetS = offsetS;
+    this.box.hidden = !data;
+    this.drawAll();
+  }
+
+  /** Draws again: call when the ECG viewer moves. */
+  redraw(): void { this.drawAll(); }
+
+  private drawAll(): void { if (this.data) for (const r of this.rows) this.drawOne(r); }
+
+  private drawOne(r: (typeof this.rows)[number]): void {
+    if (!this.data || !r.canvas.clientWidth) return;
+    const surface = setup(r.canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    // a faint second grid, as under the ECG: one line a second
+    ctx.strokeStyle = css('--chart-grid') || css('--grid'); ctx.lineWidth = 1;
+    const pxPerS = w / this.span;
+    for (let s = Math.ceil(this.t0); s <= this.t0 + this.span; s++) {
+      const x = Math.round((s - this.t0) * pxPerS) + 0.5;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+    }
+    r.value.textContent = '';
+    r.draw(ctx, w, h);
+  }
+
+  /** Breathing goes up and down around a middle line; movement rises from the bottom. Scaled to the minute around. */
+  private drawWave(ctx: CanvasRenderingContext2D, w: number, h: number, which: 'breathing' | 'movement'): void {
+    const d = this.data!, v = d[which], fs = d.fs;
+    const from = this.t0 + this.offsetS, to = from + this.span;
+    const i0 = Math.max(0, Math.floor(from * fs)), i1 = Math.min(v.length - 1, Math.ceil(to * fs));
+    // the scale comes from the 30 s on each side, so it doesn't jump as the strip moves
+    const w0 = Math.max(0, Math.floor((from - 30) * fs)), w1 = Math.min(v.length - 1, Math.ceil((to + 30) * fs));
+    let top = 0;
+    for (let i = w0; i <= w1; i++) { const x = Math.abs(v[i] ?? NaN); if (x > top) top = x; }
+    const row = this.rows[which === 'breathing' ? 0 : 1]!;
+    let any = false;
+    for (let i = i0; i <= i1; i++) if (Number.isFinite(v[i])) { any = true; break; }
+    if (!any || i1 < i0) { this.noReading(ctx, w, h, row); return; }
+    top = Math.max(top, which === 'breathing' ? 5 : 20); // a still chest stays a flat line, not magnified noise
+    const mid = which === 'breathing' ? h / 2 : h - 4;
+    const scale = which === 'breathing' ? (h / 2 - 6) / top : (h - 10) / top;
+    if (which === 'breathing') {
+      ctx.strokeStyle = css('--line'); ctx.beginPath(); ctx.moveTo(0, mid + 0.5); ctx.lineTo(w, mid + 0.5); ctx.stroke();
+    }
+    ctx.strokeStyle = css(which === 'breathing' ? '--accent' : '--ink-2');
+    ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let pen = false;
+    for (let i = i0; i <= i1; i++) {
+      const y = v[i] ?? NaN;
+      if (!Number.isFinite(y)) { pen = false; continue; }
+      const X = (i / fs - from) * (w / this.span), Y = mid - y * scale;
+      if (pen) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); pen = true; }
+    }
+    ctx.stroke();
+    row.value.textContent = which === 'breathing' ? ` · scale ±${Math.round(top)} mG` : ` · scale 0–${Math.round(top)} mG`;
+  }
+
+  /** Each beat's heart rate as a step line, scaled to the minute around. */
+  private drawHr(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const d = this.data!, row = this.rows[2]!;
+    const from = this.t0 + this.offsetS, to = from + this.span;
+    const first = lowerBound(d.beatT, from - 30), last = lowerBound(d.beatT, to + 30);
+    let lo = Infinity, hi = -Infinity;
+    for (let k = first; k < last; k++) { const v = d.hr[k] ?? NaN; if (v < lo) lo = v; if (v > hi) hi = v; }
+    const a = Math.max(0, lowerBound(d.beatT, from) - 1), b = Math.min(d.beatT.length, lowerBound(d.beatT, to) + 1);
+    if (!(hi >= lo) || b - a < 2) { this.noReading(ctx, w, h, row); return; }
+    lo = Math.floor(lo - 3); hi = Math.ceil(hi + 3);
+    const Y = (v: number): number => h - 6 - ((v - lo) / (hi - lo)) * (h - 18);
+    const X = (t: number): number => (t - from) * (w / this.span);
+    ctx.strokeStyle = css('--series-1'); ctx.fillStyle = css('--series-1'); ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let k = a; k < b; k++) {
+      const x = X(d.beatT[k] ?? 0), y = Y(d.hr[k] ?? 0);
+      if (k === a) ctx.moveTo(x, y); else { ctx.lineTo(x, Y(d.hr[k - 1] ?? 0)); ctx.lineTo(x, y); }
+    }
+    ctx.stroke();
+    ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let k = a; k < b; k++) {
+      const x = X(d.beatT[k] ?? 0), y = Y(d.hr[k] ?? 0);
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 2 * Math.PI); ctx.fill();
+      if (this.span <= 15) { ctx.fillStyle = css('--muted'); ctx.fillText(String(Math.round(d.hr[k] ?? 0)), x, y - 4); ctx.fillStyle = css('--series-1'); }
+    }
+    row.value.textContent = ` · ${lo}–${hi} bpm`;
+  }
+
+  private noReading(ctx: CanvasRenderingContext2D, w: number, h: number, row: (typeof this.rows)[number]): void {
+    ctx.fillStyle = css('--muted'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('No reading from the strap at this moment', w / 2, h / 2);
+    row.value.textContent = '';
+  }
+
+  /** Dragging a strip, or scrolling it sideways, moves the ECG and every strip together. */
+  private drag(canvas: HTMLCanvasElement): void {
+    let last: number | null = null;
+    canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); last = e.clientX; });
+    canvas.addEventListener('pointermove', (e) => {
+      if (last == null) return;
+      const dx = e.clientX - last;
+      last = e.clientX;
+      this.pan(-(dx / canvas.clientWidth) * this.span);
+    });
+    const end = (): void => { last = null; };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+    canvas.addEventListener('wheel', (e) => {
+      const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (!sideways) return;
+      e.preventDefault();
+      this.pan((sideways / canvas.clientWidth) * this.span);
+    }, { passive: false });
+  }
+}
+
+/** The first index whose value is at least `t` (the array is in order). */
+function lowerBound(a: Float64Array, t: number): number {
+  let lo = 0, hi = a.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if ((a[m] ?? 0) < t) lo = m + 1; else hi = m; }
+  return lo;
+}
+
 // ---------- Sleep charts ----------
 
 export type SleepStageKey = 'deep' | 'light' | 'rem' | 'awake';

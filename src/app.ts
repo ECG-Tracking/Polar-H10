@@ -1,9 +1,10 @@
 import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
+import { chestSignals, type ChestSignals } from './chestsignals';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { scaleNote } from './screenscale';
-import { Plot, LiveTrace, EcgViewer, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
+import { Plot, LiveTrace, EcgViewer, ChestStrips, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
@@ -758,11 +759,30 @@ const [hrPlot, beatPlot, poincarePlot, qtcPlot] = charts;
 if (!hrPlot || !beatPlot || !poincarePlot || !qtcPlot) throw new Error('report needs four charts');
 const viewer = new EcgViewer($canvas('viewerCanvas'));
 // the same size and calibration control as under the live trace: the only things that change the waves' size here
-$canvas('viewerCanvas').after(Object.assign(scaleNote('Standard ECG scale, as on the live trace: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The waves change size only when you change the size here or calibrate the screen.'), { className: 'scale-note no-print' }));
+$('chestStrips').after(Object.assign(scaleNote('Standard ECG scale, as on the live trace: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The waves change size only when you change the size here or calibrate the screen.'), { className: 'scale-note no-print' }));
 let current: CurrentReport | null = null;
+// a sleep recording's breathing, movement and heart rate, under its ECG at the same moments; one slider moves them all
+const chest = new ChestStrips($('chestStrips'), () => ({ t0: viewer.t0, span: viewer.span }), (dt) => viewer.pan(dt));
+let chestFor: string | null = null, chestCache: { sleepId: string; data: ChestSignals } | null = null;
+
+/** Shows the strips under the ECG when it was recorded with a sleep whose raw data is on this device. */
+async function showChest(session: Session | null): Promise<void> {
+  chestFor = session?.id ?? null;
+  chest.set(null);
+  const sleepId = session?.sleepId;
+  if (!session || !sleepId) return;
+  let data = chestCache?.sleepId === sleepId ? chestCache.data : null;
+  const { session: night, signals } = await store.loadSleep(sleepId).catch(() => ({ session: undefined, signals: undefined }));
+  if (chestFor !== session.id || !night || !signals) return;
+  data ??= await during('breathing and movement strips', async () => chestSignals({ durationS: night.durationS, ...signals }));
+  chestCache = { sleepId, data };
+  if (chestFor !== session.id) return;
+  chest.set(data, (session.start - night.start) / 1000);
+}
 
 const viewerPos = $input('viewerPos');
 viewer.addEventListener('move', () => {
+  chest.redraw();
   if (!viewer.duration) return;
   const span = Math.max(0.001, viewer.duration - viewer.span);
   viewerPos.value = String(Math.round((viewer.t0 / span) * 1000));
@@ -862,10 +882,12 @@ async function openReport(id: string): Promise<void> {
   charts.forEach((p) => p.draw());
   viewer.load(analysis, events);
   viewer.dispatchEvent(new Event('move'));
+  void showChest(session);
 }
 
 /** A recording synced from another device: its stored results, the first 30 s and the event strips. */
 async function openSummaryCopy(session: Session): Promise<void> {
+  void showChest(null); // a copy has no raw sleep data
   if (session.id !== ignoreShapeFor) ignoreShapeFor = null;
   const busy = $('reportBusy'), body = $('reportBody');
   const stored = parseEcgSummary(await store.loadSummaryCopy(session.id));

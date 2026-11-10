@@ -212,6 +212,10 @@ button.recording { background: var(--ink); border-color: var(--ink); color: var(
 .viewer canvas { width: 100%; height: 260px; display: block; touch-action: pan-y; cursor: grab; }
 .viewer canvas[data-size="2"] { height: 400px; }
 .viewer canvas[data-size="3"] { height: 560px; }
+.chest-strips { display: grid; gap: 6px; margin-top: 8px; }
+.chest-strip { margin: 0; }
+.chest-strip figcaption { font-size: 0.85rem; color: var(--ink-2); margin: 0 0 2px; }
+.viewer .chest-strip canvas { height: 90px; }
 .viewer-bar { margin-top: 8px; }
 .viewer-bar input { flex: 1; }
 .viewer-bar button { min-width: 44px; }
