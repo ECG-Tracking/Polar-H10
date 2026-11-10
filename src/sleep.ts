@@ -92,7 +92,7 @@ interface AccFeatures {
 }
 
 /** Zero-phase 0.1–0.7 Hz band-pass, the breathing band. */
-function breathingBand(x: Float64Array, fs: number): Float64Array {
+export function breathingBand(x: Float64Array, fs: number): Float64Array {
   const y = new Float64Array(x.length);
   const run = (from: Float64Array, to: Float64Array, reverse: boolean): void => {
     const hp = new Biquad('highpass', 0.1, fs), lp = new Biquad('lowpass', 0.7, fs);
