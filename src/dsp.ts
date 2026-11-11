@@ -157,8 +157,9 @@ export function detectQRS(x: Float64Array, fs: number): QrsDetection {
   let lastIdx = -Infinity;
   let skipped: number[] = [];
   for (const p of cands) {
-    // no beat for 3 s: the threshold was set too high (after a spike), so it comes down until beats are found again
-    if (p - Math.max(lastIdx, 0) > 3 * fs && qrs.length < 2) { spki *= 0.5; npki *= 0.5; }
+    // no beat for 3 s: the threshold was set too high by a spike (at the start, or the strap knocked later on), so it
+    // comes down until beats are found again; otherwise one spike would hide every beat after it
+    if (p - Math.max(lastIdx, 0) > 3 * fs) { spki *= 0.5; npki *= 0.5; }
     const thr1 = npki + 0.25 * (spki - npki);
     const v = at(mwi, p);
     if (v > thr1 && p - lastIdx > refractory) {

@@ -257,6 +257,14 @@ export class Plot {
 
 // The standard clinical ECG: 25 mm/s and 10 mm/mV. A small square stands for 1 mm: on paper exactly, on a screen once it is calibrated.
 const MM_PER_S = 25, MM_PER_MV = 10;
+/** Every ECG strip is 4 big squares tall (20 mm, ±1 mV about the middle): the user's ECGs never go beyond that. */
+export const STRIP_BIG_SQUARES = 4;
+const BIG_SQUARE_MM = 5;
+/** Sets an ECG canvas to 4 big squares tall at the screen calibration and the ECG size setting. */
+function stripHeight(canvas: HTMLCanvasElement, mm: number): void {
+  const px = `${Math.round(STRIP_BIG_SQUARES * BIG_SQUARE_MM * mm)}px`;
+  if (canvas.style.height !== px) canvas.style.height = px;
+}
 export const PX_PER_S = MM_PER_S * DEFAULT_PX_PER_MM;
 export const PX_PER_MV = MM_PER_MV * DEFAULT_PX_PER_MM;
 export const ECG_SCALE_NOTE = 'Standard ECG scale: speed 25 mm/s, height 10 mm/mV. One small square is 0.04 s and 0.1 mV; one large square is 0.2 s and 0.5 mV. The box at the left is the calibration mark: 1 mV tall and 0.2 s wide.';
@@ -311,6 +319,7 @@ export class LiveTrace {
     this.canvas.dataset['size'] = String(ecgSize()); // bigger waves need a taller trace (styles.css)
     // the page's width, never the picture's: a canvas without a CSS width would grow to its own pixels and be stretched
     if (!this.canvas.style.width) this.canvas.style.width = '100%';
+    stripHeight(this.canvas, pxPerMm() * ecgSize());
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
@@ -347,9 +356,9 @@ function drawEcgGrid(ctx: CanvasRenderingContext2D, w: number, h: number, pxPerS
   drawSet(0.2, 0.5, major);
 }
 
-const STRIP_S = 6, STRIP_MV = 4, STRIP_SHARPNESS = 3;
+const STRIP_S = 6, STRIP_MV = (STRIP_BIG_SQUARES * BIG_SQUARE_MM) / MM_PER_MV, STRIP_SHARPNESS = 3;
 
-/** A strip for the printed report, `t` seconds into `x`, 161 × 40 mm on paper at the standard scale (see .event-strip). */
+/** A strip for the printed report, `t` seconds into `x`, 161 × 20 mm on paper at the standard scale (see .event-strip). */
 export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number, t: number): void {
   painters.set(canvas, () => drawEventStrip(canvas, x, fs, t));
   const w = CAL_MARGIN + STRIP_S * PX_PER_S, h = STRIP_MV * PX_PER_MV;
@@ -445,7 +454,8 @@ export class EcgViewer extends EventTarget {
   draw(): void {
     const a = this.analysis;
     if (!a || !this.canvas.clientWidth) return;
-    this.canvas.dataset['size'] = String(ecgSize()); // bigger waves need a taller viewer (styles.css)
+    this.canvas.dataset['size'] = String(ecgSize());
+    stripHeight(this.canvas, pxPerMm() * ecgSize());
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;

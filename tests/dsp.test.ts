@@ -35,6 +35,16 @@ for (const [scenario, seed] of [['rest', 7], ['workout', 7], ['workout', 11]] as
   });
 }
 
+test('a big spike partway through (the strap knocked) doesn’t hide the beats after it', () => {
+  const { raw, truth } = simulate('rest', 300, 7);
+  // 2 s of a ±15 mV swing at 60 s, as when the strap is knocked
+  for (let i = 60 * FS; i < 62 * FS; i++) raw[i] = (i % 26 < 13 ? 15000 : -15000);
+  const a = analyze(raw, { fs: FS });
+  const after = truth.filter((t) => t.t > 70);
+  const found = after.filter((t) => a.beats.some((b) => Math.abs(b.t - t.t) < 0.05));
+  assert.ok(found.length >= after.length * 0.98, `found ${found.length} of ${after.length} beats after the spike`);
+});
+
 test('rest metrics are physiological', () => {
   const { raw } = simulate('rest', 300, 7);
   const m = sessionMetrics(analyze(raw, { fs: FS }), 300, PROFILE);

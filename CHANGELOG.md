@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 12 Nov 2026 – v1.44.3 – Combined ECG fixed after a spike in the strap's ECG; ECG strips 4 big squares tall *(GitHub)*
+- Fix: a large spike partway through a Polar H10 ECG made the beat detection stop finding beats for the rest of the recording. A spike can come from the strap being knocked or moved. The detector only recovered from a spike at the very start. Now, after 3 s with no beat, it lowers its threshold until it finds beats again. This affected:
+  - the Combined ECG, which couldn't line up the watch's strips. This happened for the trackings of 11 Nov 15:52 and 12 Nov 07:03.
+  - the Polar H10 report's figures, and any other ECG with such a spike.
+- Combined ECG: when the tracking's Polar H10 ECG has been deleted, the page now says it is in the Bin and can be restored from there.
+- Every ECG strip on screen (live, ECG history, the Combined ECG and the watch's strips) is now 4 big squares tall: 20 mm, ±1 mV about the middle. The printed event strips are 20 mm tall too.
+
 ## 11 Nov 2026 – v1.44.2 – Heart-rate chart removed from Synchronised ECG Tracking *(GitHub)*
 - Synchronised ECG Tracking: the "Heart rate: Polar H10 and Watch D2" chart is removed. It was redrawn as a new picture every second during a tracking, which grew with its length. The heart rate is still kept with the tracking for its reports.
 
