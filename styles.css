@@ -216,6 +216,9 @@ button.recording { background: var(--ink); border-color: var(--ink); color: var(
 .chest-strip { margin: 0; }
 .chest-strip figcaption { font-size: 0.85rem; color: var(--ink-2); margin: 0 0 2px; }
 .viewer .chest-strip canvas { height: 90px; }
+.viewer .stage-strip canvas { height: 19px; cursor: grab; touch-action: pan-y; }
+.stage-strips { margin: 0 0 8px; }
+.viewer .strip-cap { font-size: 0.85rem; color: var(--ink-2); margin: 0 0 2px; }
 .viewer-bar { margin-top: 8px; }
 .viewer-bar input { flex: 1; }
 .viewer-bar button { min-width: 44px; }

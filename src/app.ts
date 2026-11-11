@@ -4,7 +4,7 @@ import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices'
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { scaleNote } from './screenscale';
-import { Plot, LiveTrace, EcgViewer, ChestStrips, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
+import { Plot, LiveTrace, EcgViewer, ChestStrips, StageStrips, type StageTrack, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
@@ -27,7 +27,8 @@ import { trackingLine } from './syncreports';
 import { updateTrackingReports } from './syncreports';
 import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
-import { overlapMs } from './syncsleep';
+import { overlapMs, type Minute } from './syncsleep';
+import { analyzeSleep, EPOCH_S } from './sleep';
 import { initBackups } from './backups';
 import { initLocate } from './locate';
 import { renderStorage } from './storageuse';
@@ -763,26 +764,45 @@ $('chestStrips').after(Object.assign(scaleNote('Standard ECG scale, as on the li
 let current: CurrentReport | null = null;
 // a sleep recording's breathing, movement and heart rate, under its ECG at the same moments; one slider moves them all
 const chest = new ChestStrips($('chestStrips'), () => ({ t0: viewer.t0, span: viewer.span }), (dt) => viewer.pan(dt));
-let chestFor: string | null = null, chestCache: { sleepId: string; data: ChestSignals } | null = null;
+let chestFor: string | null = null, chestCache: { sleepId: string; data: ChestSignals; polarStages: StageTrack } | null = null;
+// the night's sleep stages from both devices, above the ECG at the same moments
+const stagesStrip = new StageStrips($('stageStrips'), () => ({ t0: viewer.t0, span: viewer.span }), (dt) => viewer.pan(dt));
 
 /** Shows the strips under the ECG when it was recorded with a sleep whose raw data is on this device. */
 async function showChest(session: Session | null): Promise<void> {
   chestFor = session?.id ?? null;
   chest.set(null);
+  stagesStrip.set(null);
   const sleepId = session?.sleepId;
   if (!session || !sleepId) return;
-  let data = chestCache?.sleepId === sleepId ? chestCache.data : null;
+  const cached = chestCache?.sleepId === sleepId ? chestCache : null;
   const { session: night, signals } = await store.loadSleep(sleepId).catch(() => ({ session: undefined, signals: undefined }));
-  if (chestFor !== session.id || !night || !signals) return;
-  data ??= await during('breathing and movement strips', async () => chestSignals({ durationS: night.durationS, ...signals }));
-  chestCache = { sleepId, data };
+  if (chestFor !== session.id || !night) return;
+  const offsetS = (session.start - night.start) / 1000;
+  // the Watch D2's stages (and the strap's, when its raw data isn't here) from the night's synchronised sleep report
+  const report = (await store.listSleepReports(night.user).catch(() => [])).find((r) => r.polarId === sleepId);
+  const minutes = (m: readonly Minute[] | undefined): StageTrack | null => (report && m?.some((x) => x)
+    ? { startS: (report.timelineStart - night.start) / 1000, stepS: 60, stages: m } : null);
+  let polarStages = cached?.polarStages ?? null, data = cached?.data ?? null;
+  if (signals && !cached) {
+    const sleep = { durationS: night.durationS, ...signals };
+    data = await during('breathing and movement strips', async () => chestSignals(sleep));
+    polarStages = await during('sleep stages for the ECG', async () => {
+      const a = analyzeSleep(sleep, { onsetUnknown: night.onsetUnknown === true });
+      return { startS: 0, stepS: EPOCH_S, stages: a.stages.map((x) => (x === 'nodata' ? null : x === 'uncertain' ? 'asleep' : x)) };
+    });
+    chestCache = { sleepId, data, polarStages };
+  }
   if (chestFor !== session.id) return;
-  chest.set(data, (session.start - night.start) / 1000);
+  const polar = polarStages ?? minutes(report?.polarMinutes), wrist = minutes(report?.watchMinutes);
+  if (polar || wrist) stagesStrip.set({ polar, watch: wrist }, offsetS);
+  if (data) chest.set(data, offsetS);
 }
 
 const viewerPos = $input('viewerPos');
 viewer.addEventListener('move', () => {
   chest.redraw();
+  stagesStrip.redraw();
   if (!viewer.duration) return;
   const span = Math.max(0.001, viewer.duration - viewer.span);
   viewerPos.value = String(Math.round((viewer.t0 / span) * 1000));

@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 12 Nov 2026 – v1.44.4 – Sleep stages above a sleep's ECG *(GitHub)*
+- ECG history › an ECG recorded with a sleep (Sleep monitor, and Synchronised Sleep Tracking's Polar H10 part): above the ECG are two strips, each one big square tall, with the sleep stage at the same moments as colour blocks:
+  - **Polar H10**: from the night's own sleep analysis.
+  - **Watch D2**: from the night's synchronised sleep report.
+- Each strip's caption names the stage at the middle of the window, so the colour isn't the only way to tell. "Asleep (stage not known)" is grey. A device with no stages for that night says so.
+- The strips move with the ECG and its slider, and dragging them moves everything together.
+- The "ECG" heading has moved inside the box, just above the ECG strip, in the same style as the other strips' captions.
+
 ## 12 Nov 2026 – v1.44.3 – Combined ECG fixed after a spike in the strap's ECG; ECG strips 4 big squares tall *(GitHub)*
 - Fix: a large spike partway through a Polar H10 ECG made the beat detection stop finding beats for the rest of the recording. A spike can come from the strap being knocked or moved. The detector only recovered from a spike at the very start. Now, after 3 s with no beat, it lowers its threshold until it finds beats again. This affected:
   - the Combined ECG, which couldn't line up the watch's strips. This happened for the trackings of 11 Nov 15:52 and 12 Nov 07:03.

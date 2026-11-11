@@ -216,9 +216,10 @@
           <figure class="chart"><figcaption>RR vs QTc</figcaption><canvas></canvas></figure>
         </div>
 
-        <h3>ECG</h3>
         <div class="card viewer">
           <p class="muted viewer-label" id="viewerLabel" hidden></p>
+          <div id="stageStrips" class="chest-strips stage-strips" hidden></div>
+          <p class="strip-cap">ECG</p>
           <canvas id="viewerCanvas" aria-label="Recorded ECG at the calibrated scale; drag, or scroll sideways, to move through it"></canvas>
           <div id="chestStrips" class="chest-strips" hidden></div>
           <div class="row viewer-bar no-print">

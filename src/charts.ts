@@ -516,6 +516,107 @@ export interface ChestStripData {
  * Breathing, movement and heart-rate strips under the recorded ECG, showing the same seconds at the same width: they
  * follow the ECG viewer's position, and dragging one of them moves the ECG too (one slider for all).
  */
+/** One device's sleep stages: `startS` seconds from the start of the sleep recording, one stage every `stepS` seconds. */
+export interface StageTrack { startS: number; stepS: number; stages: readonly (SleepStageKey | 'asleep' | null)[] }
+
+/**
+ * The night's sleep stages from the Polar H10 and from the Watch D2, as colour blocks one big square tall above a sleep's
+ * ECG, at the same moments; dragging one moves the ECG and every strip.
+ */
+export class StageStrips {
+  private tracks: { polar: StageTrack | null; watch: StageTrack | null } | null = null;
+  /** Seconds to add to a time in the ECG to get the same moment in the sleep recording. */
+  private offsetS = 0;
+  private readonly rows: { canvas: HTMLCanvasElement; value: HTMLElement; which: 'polar' | 'watch'; name: string }[] = [];
+
+  constructor(private readonly box: HTMLElement, private readonly view: () => { t0: number; span: number }, private readonly pan: (dt: number) => void) {
+    for (const [which, name] of [['polar', 'Sleep stages: Polar H10'], ['watch', 'Sleep stages: Watch D2']] as const) {
+      const fig = document.createElement('figure');
+      fig.className = 'chest-strip stage-strip';
+      const cap = document.createElement('figcaption');
+      const title = document.createElement('span');
+      title.textContent = name;
+      const value = document.createElement('span');
+      value.className = 'muted';
+      cap.append(title, value);
+      const canvas = document.createElement('canvas');
+      canvas.setAttribute('aria-label', `${name}, at the same moments as the ECG below`);
+      fig.append(cap, canvas);
+      box.appendChild(fig);
+      const row = { canvas, value, which, name };
+      this.rows.push(row);
+      this.drag(canvas);
+      watch(canvas, () => this.drawOne(row));
+    }
+  }
+
+  /** The stages to show (null: none, the strips are hidden), and where the ECG starts in the sleep recording. */
+  set(tracks: { polar: StageTrack | null; watch: StageTrack | null } | null, offsetS = 0): void {
+    this.tracks = tracks;
+    this.offsetS = offsetS;
+    this.box.hidden = !tracks;
+    this.redraw();
+  }
+
+  /** Draws again: call when the ECG viewer moves. */
+  redraw(): void { if (this.tracks) for (const r of this.rows) this.drawOne(r); }
+
+  private drawOne(r: (typeof this.rows)[number]): void {
+    if (!this.tracks) return;
+    // one big square tall (5 mm) at the screen calibration and the ECG size setting, as the ECG's grid
+    const px = `${Math.round(5 * pxPerMm() * ecgSize())}px`;
+    if (r.canvas.style.height !== px) r.canvas.style.height = px;
+    if (!r.canvas.clientWidth) return;
+    const surface = setup(r.canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    const { t0, span } = this.view();
+    const from = t0 + this.offsetS, to = from + span, pxPerS = w / span;
+    const track = this.tracks[r.which];
+    const at = (t: number): SleepStageKey | 'asleep' | null => {
+      if (!track) return null;
+      return track.stages[Math.floor((t - track.startS) / track.stepS)] ?? null;
+    };
+    let any = false;
+    if (track) {
+      const k0 = Math.max(0, Math.floor((from - track.startS) / track.stepS)), k1 = Math.min(track.stages.length - 1, Math.floor((to - track.startS) / track.stepS));
+      for (let k = k0; k <= k1; k++) {
+        const st = track.stages[k];
+        if (!st) continue;
+        any = true;
+        const a = Math.max(0, (track.startS + k * track.stepS - from) * pxPerS), b = Math.min(w, (track.startS + (k + 1) * track.stepS - from) * pxPerS);
+        ctx.fillStyle = css(st === 'asleep' ? '--muted' : STAGE_COLOR_VAR[st]);
+        ctx.fillRect(Math.round(a), 0, Math.max(1, Math.round(b) - Math.round(a)), h);
+      }
+      // a change of stage inside the window: a thin surface gap marks the boundary
+      ctx.fillStyle = css('--surface');
+      for (let k = k0 + 1; k <= k1; k++) {
+        if (track.stages[k] && track.stages[k - 1] && track.stages[k] !== track.stages[k - 1]) ctx.fillRect(Math.round((track.startS + k * track.stepS - from) * pxPerS) - 1, 0, 2, h);
+      }
+    }
+    // the stage at the middle of the window, in words, so the colour isn't the only way to tell
+    const mid = at(from + span / 2);
+    r.value.textContent = !track ? ' · no sleep stages from this device for this night'
+      : !any ? ' · no stage at this moment'
+      : ` · ${mid === 'asleep' ? 'Asleep (stage not known)' : mid ? STAGE_LABEL[mid] : 'no stage'} at the middle`;
+  }
+
+  /** Dragging a strip moves the ECG and every strip together. */
+  private drag(canvas: HTMLCanvasElement): void {
+    let last: number | null = null;
+    canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); last = e.clientX; });
+    canvas.addEventListener('pointermove', (e) => {
+      if (last == null) return;
+      const dx = e.clientX - last;
+      last = e.clientX;
+      this.pan(-(dx / canvas.clientWidth) * this.view().span);
+    });
+    const end = (): void => { last = null; };
+    canvas.addEventListener('pointerup', end);
+    canvas.addEventListener('pointercancel', end);
+  }
+}
+
 export class ChestStrips {
   private data: ChestStripData | null = null;
   /** Seconds to add to a time in the ECG to get the same moment in the sleep recording. */
