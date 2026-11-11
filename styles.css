@@ -250,7 +250,7 @@ legend { font-size: 0.85rem; color: var(--ink-2); padding: 0 4px; }
 .print-only { display: none; }
 .event-strip { break-inside: avoid; margin-top: 3mm; }
 .event-strip p { margin: 0 0 1mm; font-size: 0.85rem; font-weight: 600; }
-.event-strip canvas { width: 161mm; height: 40mm; display: block; }
+.event-strip canvas { width: 161mm; height: 20mm; display: block; }
 @media print {
   .print-only { display: block; }
   .app-nav, .app-topbar, .no-print, #view-live, #view-history, #view-settings { display: none !important; }

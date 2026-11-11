@@ -51,7 +51,11 @@ async function whyNoStrips(e: SyncTrackingEntry, failed: string | null): Promise
   if (strips.length && strips.every((s) => s.cloudOnly)) return `The watch took ${strips.length} ECG strip${strips.length === 1 ? '' : 's'} during this tracking, but only their summaries are on this device. Their full ECG is kept on the computer or browser that recorded them: open the Combined ECG there.`;
   if (!strips.length) return 'No ECG strips from the watch were saved during this tracking. During a tracking, press Start watch ECG on this page, then take 30-second ECGs on the watch (fingertip on its lower button) until you stop. Each one appears here within seconds.';
   const polar = e.ecgId ? (await store.loadSession(e.ecgId).catch(() => ({ session: undefined, samples: undefined }))) : null;
-  if (!polar?.session) return 'The Polar H10 ECG of this tracking isn’t on this device, so the watch’s strips have nothing to be lined up with.';
+  if (!polar?.session) {
+    const binned = e.ecgId && (await store.listBin().catch(() => [])).some((b) => b.kind === 'ecg' && b.session.id === e.ecgId);
+    if (binned) return 'The Polar H10 ECG of this tracking was deleted: it is in the Bin. Restore it from the Bin and the Combined ECG can be made.';
+    return 'The Polar H10 ECG of this tracking isn’t on this device, so the watch’s strips have nothing to be lined up with.';
+  }
   if (!polar.samples) return 'Only a summary of the Polar H10 ECG is on this device. Its full ECG is on the computer or browser that recorded it: open the Combined ECG there.';
   return 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.';
 }
