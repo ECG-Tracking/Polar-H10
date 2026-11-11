@@ -170,9 +170,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const trace = new LiveTrace(canvas, ECG_FS);
 
   // --- 5. heart rate from both, over the tracking ---
-  const chartCard = make('div', 'card');
-  const chartBox = make('div');
-  chartCard.append(make('h3', 'sync-h', 'Heart rate: Polar H10 and Watch D2'), chartBox);
 
   // --- 6. blood pressure ---
 
@@ -196,7 +193,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   const capture = watchCaptureCard({
     watch: () => watch, log,
   });
-  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, chartCard, summary, capture.el);
+  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, summary, capture.el);
   showWatchParts();
 
   // ---------- state ----------
@@ -312,7 +309,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     const left = length == null ? null : Math.max(0, length - s);
     timer.textContent = left == null ? mmss(s) : mmss(Math.ceil(left));
     if (polarHrNow != null && polar) polarSeries.push([s, polarHrNow]);
-    drawChart();
     if (left != null && left <= 0) void finish();
   }
   const liveTimer = setInterval(tick, 1000);
@@ -486,38 +482,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     } catch { /* D2 Link not available */ }
   }
 
-  // ---------- chart ----------
-  function drawChart(): void {
-    const W = 600, H = 180, L = 40, R = 8, T = 8, B = 22;
-    const all = [...polarSeries, ...watchSeries].map((p) => p[1]);
-    const lo = Math.max(30, Math.floor((Math.min(...all, 60) - 5) / 10) * 10), hi = Math.ceil((Math.max(...all, 100) + 5) / 10) * 10;
-    const elapsed = t0 != null ? (Date.now() - t0) / 1000 : 0;
-    const span = length ?? Math.max(60, Math.ceil(elapsed / 60) * 60); // until stopped: the axis grows a minute at a time
-    const x = (s: number): number => L + (s / span) * (W - L - R);
-    const y = (v: number): number => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-    const ns = 'http://www.w3.org/2000/svg';
-    const svgEl = document.createElementNS(ns, 'svg');
-    svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    svgEl.setAttribute('class', 'd2-trend');
-    const add = (tag: string, attrs: Record<string, string | number>, text?: string): void => {
-      const e = document.createElementNS(ns, tag);
-      for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
-      if (text) e.textContent = text;
-      svgEl.appendChild(e);
-    };
-    for (let v = lo; v <= hi; v += (hi - lo) / 4) { add('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'd2-row' }); add('text', { x: L - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'd2-axis' }, String(Math.round(v))); }
-    const step = [10, 30, 60, 120, 300, 600, 900, 1800, 3600].find((v) => span / v <= 7) ?? 3600;
-    for (let s = 0; s <= span; s += step) add('text', { x: x(s), y: H - 6, 'text-anchor': 'middle', class: 'd2-axis' }, span <= 120 ? `${s} s` : mmss(s));
-    const line = (pts: [number, number][], color: string): void => {
-      if (pts.length > 1) add('path', { d: pts.map((p, i) => `${i ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(''), fill: 'none', stroke: color, 'stroke-width': 2 });
-    };
-    line(polarSeries, 'var(--accent)');
-    line(watchSeries, 'var(--series-1)');
-    const legend = make('div', 'row wrap d2-graph-legend');
-    for (const [n, c] of [['Polar H10', 'var(--accent)'], ['Watch D2', 'var(--series-1)']] as const) { const i = make('span'); const d = make('i'); d.style.background = c; i.append(d, n); legend.appendChild(i); }
-    chartBox.replaceChildren(legend, svgEl);
-  }
-  drawChart();
 
   return {
     openPair: reports.openPair,

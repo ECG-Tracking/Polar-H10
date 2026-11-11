@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 11 Nov 2026 – v1.44.2 – Heart-rate chart removed from Synchronised ECG Tracking *(GitHub)*
+- Synchronised ECG Tracking: the "Heart rate: Polar H10 and Watch D2" chart is removed. It was redrawn as a new picture every second during a tracking, which grew with its length. The heart rate is still kept with the tracking for its reports.
+
 ## 11 Nov 2026 – v1.44.1 – Synchronised ECG Tracking asks the watch only for its ECG strips, after Stop *(GitHub)*
 - Synchronised ECG Tracking: the watch ECG strip display ("ECG from the Watch D2") is removed from the page, and nothing is downloaded from the watch's ECG during the tracking. Take the watch ECGs as usual; they are fetched afterwards.
 - Stop downloads every Watch D2 ECG strip from the tracking's period (start to Stop, plus a strip begun up to a minute before the start), then again 45 and 90 s later for one still finishing. A line under Start again says how many strips it found on the watch and how many it saved new in ECG history (the rest were already there).
