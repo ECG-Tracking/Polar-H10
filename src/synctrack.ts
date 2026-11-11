@@ -1,27 +1,26 @@
-// Synchronised ECG tracking: the Polar H10's ECG and the Watch D2's heartbeats side by side for a chosen time (1, 3 or 5 min,
-// a custom time, or until stopped), plus a blood pressure reading taken on the watch within the hour after the start.
+// Synchronised ECG tracking: the Polar H10's ECG for a chosen time (1, 3 or 5 min, a custom time, or until stopped), with
+// the Watch D2's ECG strips taken meanwhile (downloaded after Stop) and a blood pressure reading taken on the watch
+// within the hour around the start.
 // The watch is reached through D2 Link (d2link.js); this page only uses what it offers.
 
 import { during } from './diagnostics';
 import { ECG_FS, type EcgDetail, type HrDetail, type PolarH10 } from './polar';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgFilter } from './dsp';
-import { hrFrom, rmssd, sdnn, usable, type TimedBeat } from './synccompare';
+import { rmssd, sdnn, usable, type TimedBeat } from './synccompare';
 import { initSyncReports } from './syncreports';
 import { LiveTrace } from './charts';
 import { make } from './ui';
 import { H10_RESTART_TIP, connectionLog, forgetStrapButton, trackFor } from './devicekit';
-import { watchEcgCard } from './watchecg';
+import { collectStrips } from './watchecg';
 import { watchCaptureCard } from './watchcapture';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { historyChanged } from './account';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
-import type { Beat, BloodPressure, LiveWatch } from './d2/live';
+import type { LiveWatch } from './d2/live';
 
-/** The watch's heartbeat test runs about a minute (as in Gadgetbridge); for longer tracking it is started again. */
-export const WATCH_TEST_S = 55;
 export const BP_WINDOW_MS = 3600000;
 
 export interface SyncDeps {
@@ -69,6 +68,7 @@ export const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(Math.
 const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const r0 = (v: number | null): string => (v == null ? '--' : String(Math.round(v)));
 const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+const clockOf = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour12: false });
 
 // ---------- the page ----------
 
@@ -76,7 +76,7 @@ const clock = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour
 export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised ECG Tracking'), make('p', 'note',
-    'The Polar H10’s ECG and the Watch D2’s heartbeats side by side. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start.'));
+    'The Polar H10’s ECG, with the Watch D2’s 30-second ECGs taken meanwhile: they are downloaded after Stop. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start; it is added to the tracking once D2 Link has downloaded it.'));
 
   // --- 1. Polar H10 ---
   const polarCard = make('div', 'card connect');
@@ -111,7 +111,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   btnWatchForget.hidden = true;
   watchRow.append(btnWatch, viaLabel, btnWatchOff, btnWatchForget);
   const acctSlot = make('div');
-  watchCard.append(watchStatus, watchRow, make('p', 'note', 'Switch off Bluetooth on the phone the watch is connected to. On a Mac, open the D2 Bridge app first. The watch only shares live heartbeats and blood pressure with its own account: enter its watch account ID below (D2 Link’s pairing and ID are used here too).'), acctSlot);
+  watchCard.append(watchStatus, watchRow, make('p', 'note', 'Switch off Bluetooth on the phone the watch is connected to. On a Mac, open the D2 Bridge app first. The watch only shares its data with its own account: enter its watch account ID below (D2 Link’s pairing and ID are used here too).'), acctSlot);
   /** The watch account ID box and Forget pairing come from D2 Link, which loads on its own. */
   const showWatchParts = (): void => void deps.loadD2().then((api) => {
     if (!acctSlot.firstChild) acctSlot.appendChild(api.accountBox(deps.account()));
@@ -144,8 +144,11 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   btnStop.hidden = true;
   const runRow = make('div', 'row');
   runRow.append(btnStart, btnStop);
+  // after Stop: the download of every watch ECG strip from the tracking's period, and how it went
+  const lastEcgText = make('p', 'note last-ecg');
+  lastEcgText.hidden = true;
   const runNote = make('p', 'note', 'Connect at least one device. Sit still and breathe normally.');
-  runCard.append(durRow, timer, runRow, runNote);
+  runCard.append(durRow, timer, runRow, lastEcgText, runNote);
 
   // --- live values ---
   const tile = (label: string, unit: string): { el: HTMLElement; value: HTMLElement; sub: HTMLElement } => {
@@ -155,12 +158,9 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     return { el, value, sub };
   };
   const tPolarHr = tile('Polar heart rate', 'bpm'), tPolarHrv = tile('Polar RMSSD', 'ms');
-  const tWatchHr = tile('Watch heart rate', 'bpm'), tWatchRr = tile('Watch beat interval', 'ms');
-  const tWatchHrv = tile('Watch RMSSD', 'ms'), tWatchSqi = tile('Watch signal', '');
-  const tBp = tile('Blood pressure (watch)', 'mmHg');
   tPolarHr.el.classList.add('hero');
   const tiles = make('div', 'tiles');
-  tiles.append(tPolarHr.el, tPolarHrv.el, tWatchHr.el, tWatchRr.el, tWatchHrv.el, tWatchSqi.el, tBp.el);
+  tiles.append(tPolarHr.el, tPolarHrv.el);
 
   // --- 4. ECG as on ECG live ---
   const traceCard = make('div', 'card trace');
@@ -175,12 +175,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   chartCard.append(make('h3', 'sync-h', 'Heart rate: Polar H10 and Watch D2'), chartBox);
 
   // --- 6. blood pressure ---
-  const bpCard = make('div', 'card');
-  const bpText = make('p', '', 'Start the tracking first.');
-  const btnBp = make('button', '', 'Check the watch for blood pressure now') as HTMLButtonElement;
-  btnBp.disabled = true;
-  const bpList = make('div');
-  bpCard.append(make('h3', 'sync-h', 'Blood pressure'), bpText, btnBp, bpList);
 
   const summary = make('div', 'card');
   summary.hidden = true;
@@ -199,40 +193,27 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   try { localStorage.removeItem('openbeat-ecg-prompts'); } catch { /* the removed ECG prompts' setting */ }
   /** True while a stopped tracking is being saved: Start again waits, so the new run can't mix with the old one. */
   let saving = false;
-  const watchEcg = watchEcgCard({
-    watch: () => watch, user: deps.user, settings: deps.settings, log, syncTracking: inTracking, openReport: deps.openEcg,
-  });
   const capture = watchCaptureCard({
     watch: () => watch, log,
-    pauseHeartbeats: async () => { watchTesting = false; await watch?.stopHeartbeats().catch(() => undefined); log('Watch heartbeat test paused for the capture.'); },
-    resumeHeartbeats: async () => { if (watch && !watchTesting) await startWatchTest(); },
-    pauseStripChecks: () => { const on = watchEcg.running(); if (on) watchEcg.stop(); return on; },
-    resumeStripChecks: (fromMs) => { watchEcg.start(fromMs); },
   });
-  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, watchEcg.el, chartCard, bpCard, summary, capture.el);
+  root.append(polarCard, watchCard, logs.el, runCard, tiles, traceCard, chartCard, summary, capture.el);
   showWatchParts();
 
   // ---------- state ----------
   let polar: PolarH10 | null = null, watch: LiveWatch | null = null;
   let attached: PolarH10 | null = null; // the strap this page listens to
   let filter = new EcgFilter(ECG_FS, deps.notch());
-  let t0: number | null = null, timerId: ReturnType<typeof setInterval> | null = null, bpTimer: ReturnType<typeof setInterval> | null = null;
+  let t0: number | null = null, timerId: ReturnType<typeof setInterval> | null = null;
   let polarRr: number[] = [], watchRr: number[] = [];
   let polarBeats: TimedBeat[] = [], watchBeats: TimedBeat[] = [], watchPoor = 0; // kept with the tracking for its reports
   let polarHrNow: number | null = null;
   const polarSeries: [number, number][] = [], watchSeries: [number, number][] = [];
-  let lastSqi: number | null = null;
-  let bpReadings: BloodPressure[] = [];
   let length: number | null = 60; // seconds of the current tracking; null = until stopped
-  let watchTestAt = 0, restarting = false, watchTesting = false; // the watch's heartbeat test: last started (ms), running
   let drawFrame = 0;
   let ecgChunks: Int16Array[] = [], ecgN = 0;
   // the latest beats of each device, shown live whether or not tracking is running
   const LIVE_BEATS = 30;
-  let polarLive: number[] = [], watchLive: number[] = [];
-  /** When the watch last sent a beat: its heart rate only counts while beats keep coming (a stale one was once kept for minutes). */
-  let watchBeatAt = 0;
-  const WATCH_FRESH_MS = 10000;
+  let polarLive: number[] = [];
   const keepLast = (a: number[], add: readonly number[]): number[] => [...a, ...add].slice(-LIVE_BEATS);
 
   const secondsIn = (): number => Math.round(((Date.now() - (t0 ?? Date.now())) / 1000) * 10) / 10;
@@ -291,7 +272,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   // ---------- Watch D2 ----------
   let joining = false;
-  /** Connects, or joins the connection D2 Link already has; live heartbeats start straight away. */
+  /** Connects, or joins the connection D2 Link already has. */
   async function joinWatch(api: D2Api): Promise<void> {
     if (watch || joining) return;
     joining = true;
@@ -299,17 +280,12 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     btnWatch.disabled = true;
     try {
       const w = await api.connectLive({ account: deps.account(), user: deps.user(), via: via.value === 'mac' ? 'mac' : 'bluetooth', profile: deps.profile(), log });
-      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; watchEcg.update(); capture.update(); watchTesting = false; watchLive = []; lastSqi = null; watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; btnBp.disabled = true; ready(); };
+      w.onClose = () => { log('Watch D2 disconnected.'); watch = null; capture.update(); watchDot.className = 'dot'; watchText.textContent = 'Watch D2: disconnected'; btnWatch.hidden = false; btnWatchOff.hidden = true; ready(); };
       watch = w;
-      watchEcg.update();
       capture.update();
-      if (timerId != null) watchEcg.start(); // joined during a tracking: its ECG strips are fetched too
       watchDot.className = 'dot on';
       watchText.textContent = `${w.name}: connected${w.battery != null ? ` · battery ${w.battery}%` : ''}`;
       btnWatch.hidden = true; btnWatchOff.hidden = false;
-      btnBp.disabled = t0 == null;
-      await startWatchTest(); // live heartbeats straight away, before any tracking
-      void fillBpHistory();
     } catch (err) {
       watchDot.className = 'dot';
       watchText.textContent = errorName(err) === 'NotFoundError' ? 'Watch D2: no watch chosen' : `Watch D2: ${errorMessage(err)}`;
@@ -319,63 +295,23 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     ready();
   }
   btnWatch.addEventListener('click', () => void deps.loadD2().then(joinWatch).catch((err: unknown) => { watchText.textContent = `Watch D2: ${errorMessage(err)}`; }));
-  btnWatchOff.addEventListener('click', () => void (async () => { watchTesting = false; await watch?.stopHeartbeats(); await watch?.close(); })());
+  btnWatchOff.addEventListener('click', () => void watch?.close());
 
   // ---------- live values (from connection) and the tracking ----------
-  const onBeats = (beats: Beat[]): void => {
-    for (const b of beats) {
-      lastSqi = b.sqi;
-      tWatchRr.value.textContent = String(b.rri);
-      if (b.sqi === 0) { if (timerId != null) watchPoor++; continue; }
-      watchLive = keepLast(watchLive, [b.rri]);
-      watchBeatAt = Date.now();
-      if (timerId != null) { watchRr.push(b.rri); watchBeats.push([secondsIn(), b.rri]); }
-    }
-  };
-
-  async function startWatchTest(): Promise<void> {
-    if (!watch) return;
-    try {
-      await watch.startHeartbeats(onBeats);
-      watchTesting = true;
-      watchTestAt = Date.now();
-      log('Watch heartbeat test started.');
-    } catch (e) {
-      watchTesting = false;
-      log(`Watch heartbeat test didn’t start: ${errorMessage(e)}`);
-      watchText.textContent = `Watch D2: no live heartbeats – ${errorMessage(e)}`;
-    }
-  }
-
-  /** The watch's test stops after about a minute, so it is started again while the watch is connected. */
-  async function keepWatchTest(): Promise<void> {
-    if (!watch || !watchTesting || restarting || Date.now() - watchTestAt < WATCH_TEST_S * 1000) return;
-    restarting = true;
-    try { await watch.stopHeartbeats(); await watch.startHeartbeats(onBeats); } catch (e) { log(`Watch heartbeat test couldn’t continue: ${errorMessage(e)}`); }
-    watchTestAt = Date.now();
-    restarting = false;
-  }
+  // The watch is not asked for heart rate during a tracking (its heartbeat test is never started here): its ECG strips
+  // are downloaded after Stop, and its readings come from D2 Link's downloads.
 
   /** Every second: the live tiles (whenever a device is connected) and, while tracking, the timer and the chart. */
   function tick(): void {
-    void keepWatchTest();
     const tracking = timerId != null && t0 != null;
-    const fresh = Date.now() - watchBeatAt < WATCH_FRESH_MS;
-    const wHr = fresh ? hrFrom(watchLive) : null;
     tPolarHr.value.textContent = r0(polar ? polarHrNow : null);
     tPolarHrv.value.textContent = r0(polar ? rmssd(tracking ? polarRr : polarLive) : null);
     tPolarHrv.sub.textContent = tracking ? `${usable(polarRr).length} beats tracked` : polar ? 'last 30 beats' : '';
-    tWatchHr.value.textContent = r0(watch ? wHr : null);
-    tWatchHrv.value.textContent = r0(watch ? rmssd(tracking ? watchRr : watchLive) : null);
-    tWatchSqi.value.textContent = !watch || lastSqi == null ? '--' : lastSqi === 0 ? 'poor' : 'good';
-    tWatchSqi.sub.textContent = tracking ? `${usable(watchRr).length} beats tracked` : watch && watchTesting ? 'live' : '';
-    if (!watch) tWatchRr.value.textContent = '--';
     if (!tracking || t0 == null) return;
     const s = (Date.now() - t0) / 1000;
     const left = length == null ? null : Math.max(0, length - s);
     timer.textContent = left == null ? mmss(s) : mmss(Math.ceil(left));
     if (polarHrNow != null && polar) polarSeries.push([s, polarHrNow]);
-    if (wHr != null && watch) watchSeries.push([s, wHr]);
     drawChart();
     if (left != null && left <= 0) void finish();
   }
@@ -384,20 +320,14 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   btnStart.addEventListener('click', () => void (async () => {
     t0 = Date.now();
     length = durationS();
-    watchTestAt = 0;
+    lastEcgText.hidden = true; // the last tracking's download line
     ecgChunks = []; ecgN = 0;
-    polarRr = []; watchRr = []; polarBeats = []; watchBeats = []; watchPoor = 0; polarSeries.length = 0; watchSeries.length = 0; lastSqi = null; bpReadings = [];
+    polarRr = []; watchRr = []; polarBeats = []; watchBeats = []; watchPoor = 0; polarSeries.length = 0; watchSeries.length = 0;
     summary.hidden = true;
     btnStart.hidden = true; btnStop.hidden = false;
-    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. A blood pressure reading from the watch counts from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)}.`;
-    bpText.textContent = `Readings taken on the watch from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)} count. The watch is checked every minute while it is connected.`;
-    bpList.replaceChildren();
+    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. A blood pressure reading taken on the watch from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)} is added to this tracking once D2 Link has downloaded it.`;
     timerId = setInterval(() => undefined, 1 << 30); // marks tracking as running; the live timer does the work
     ready();
-    if (watch && !watchTesting) await startWatchTest();
-    btnBp.disabled = !watch;
-    // the watch's 30-second ECGs are fetched by themselves during a tracking: no separate Start watch ECG needed
-    if (watch && !watchEcg.running()) watchEcg.start();
     tick();
   })());
   btnStop.addEventListener('click', () => void finish());
@@ -414,7 +344,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     saving = true;
     btnStop.hidden = true; btnStart.hidden = false; btnStart.textContent = 'Start again';
     btnStart.disabled = true;
-    timer.textContent = 'Done'; // the watch's heartbeat test keeps running for the live values
+    timer.textContent = 'Done';
     const entry = showSummary();
     entry.ecgId = await saveEcg();
     await store.saveSyncTrace({ id: entry.id, polar: polarBeats, watch: watchBeats, polarHr: [...polarSeries], watchHr: [...watchSeries], watchPoor })
@@ -424,41 +354,40 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     saving = false;
     ready();
     renderHistory();
-    // any watch ECG taken during the tracking and not fetched yet: now, and again 45 and 90 s later for one still being
-    // recorded at Stop (it ends up to 30 s after, and the watch takes a little longer to save it)
-    const collect = (): void => {
-      if (!watch || t0 !== thisStart || timerId != null) return; // disconnected, or a new tracking has started
-      void watchEcg.collect(thisStart - 60_000).then(async (n) => {
-        if (n) log(`${n} watch ECG strip${n === 1 ? '' : 's'} from this tracking saved in ECG history.`);
-        if (n) renderHistory();
-      }).catch((e: unknown) => log(`The watch’s ECG strips couldn’t be fetched: ${errorMessage(e)}. Use D2 Link › Download ECG to fetch them.`));
-    };
-    collect();
-    setTimeout(collect, 45_000);
-    setTimeout(collect, 90_000);
-  void fillBpFromStored();
-  onStrap(useStrap); // the strap, if another page already paired it
-  // the watch, if D2 Link connected it (now or later)
-  void deps.loadD2().then((api) => api.onWatch((w) => { if (w && !watch && !joining) void joinWatch(api); })).catch(() => undefined);
-  // recordings saved before ECG history noted synchronised ECG tracking: mark them now
-  void (async () => {
-    // watch strips saved on this page outside any tracking (before v1.42.9 every one was marked as tracked)
-    for (const s of await store.listSessions(deps.user() as UserNumber).catch(() => [])) {
-      if (s.source !== 'watch' || !s.syncTracking || s.cloudOnly || inTracking({ start: s.start, end: s.start + s.durationS * 1000 })) continue;
-      const { syncTracking: _t, ...rest } = s;
-      await store.updateSession(rest).catch(() => undefined);
-    }
-    for (const e of store.loadSyncHistory()) {
-      if (!e.ecgId) continue;
+    // Stop downloads every watch ECG strip from the tracking's period (one started up to a minute before the start still
+    // overlaps it): now, and again 45 and 90 s later for one still being recorded at Stop (it ends up to 30 s after, and
+    // the watch takes a little longer to save it)
+    const thisEnd = thisStart + entry.durationS * 1000;
+    let downloaded = 0;
+    const period = `${clockOf(thisStart)} to ${clockOf(thisEnd)}`;
+    const collect = async (last: boolean): Promise<void> => {
+      if (t0 !== thisStart || timerId != null) return; // a new tracking has started
+      lastEcgText.hidden = false;
+      if (!watch) { lastEcgText.textContent = `Watch ECG strips from ${period}: the watch isn’t connected. Connect it and use D2 Link › Download ECG to fetch them.`; return; }
+      if (!downloaded) lastEcgText.textContent = `Downloading the watch’s ECG strips from ${period}…`;
       try {
-        const { session } = await store.loadSession(e.ecgId);
-        if (session && !session.syncTracking) await store.updateSession({ ...session, syncTracking: true });
-        if (session && !session.summary) await deps.summarise(e.ecgId); // saved before the summary was made on saving
-      } catch { /* deleted */ }
-    }
-  })();
+        const { saved, found } = await collectStrips(watch, thisStart - 60_000, thisEnd, deps.user(), deps.settings(), inTracking, log);
+        downloaded += saved;
+        // strips from then that were saved another way (D2 Link) count as this tracking's too
+        for (const x of await store.listSessions(deps.user() as UserNumber).catch(() => [])) {
+          if (x.source !== 'watch' || x.syncTracking || x.cloudOnly || !(x.start < thisEnd && x.start + x.durationS * 1000 > thisStart)) continue;
+          await store.updateSession({ ...x, syncTracking: true }).catch(() => undefined);
+        }
+        if (t0 !== thisStart || timerId != null) return;
+        const strips = (k: number): string => `${k} strip${k === 1 ? '' : 's'}`;
+        lastEcgText.textContent = `Watch ECG from ${period}: found ${strips(found)} on the watch, saved ${downloaded} new in ECG history${found > downloaded ? ` (${found - downloaded} already there)` : ''}.`
+          + (last ? '' : ' Checking again shortly for a strip still finishing at Stop…');
+        log(lastEcgText.textContent);
+        if (saved) { historyChanged(); renderHistory(); }
+      } catch (e) {
+        lastEcgText.textContent = `The watch’s ECG strips from ${period} couldn’t be downloaded: ${errorMessage(e)}.${last ? ' Use D2 Link › Download ECG to fetch them.' : ' Trying again shortly…'}`;
+      }
+    };
+    void collect(false);
+    setTimeout(() => void collect(false), 45_000);
+    setTimeout(() => void collect(true), 90_000);
+    void fillBpFromStored(); // blood pressure already on this device for the new tracking
     ready();
-    startBpChecks();
   }
 
   /** The strap's ECG from the tracking goes into ECG history, like a recording on ECG live. */
@@ -544,48 +473,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
   })();
 
   // ---------- blood pressure ----------
-  async function checkBp(): Promise<void> {
-    if (!watch || t0 == null) return;
-    btnBp.disabled = true;
-    try {
-      const found = await watch.bloodPressureSince(t0 - BP_WINDOW_MS);
-      const inHour = found.filter((b) => b.at <= (t0 ?? 0) + BP_WINDOW_MS);
-      if (inHour.length) {
-        bpReadings = inHour;
-        // every reading within the hour goes into this tracking's history entry
-        const e = store.loadSyncHistory().find((x) => x.id === `t${t0}`);
-        if (e && JSON.stringify(store.syncBps(e)) !== JSON.stringify(inHour)) { store.saveSyncEntry({ ...e, bp: inHour[0] ?? null, bps: inHour }); renderHistory(); }
-      }
-      showBp();
-    } catch (e) {
-      log(`Blood pressure check failed: ${errorMessage(e)}`);
-    }
-    btnBp.disabled = !watch;
-  }
-
-  function showBp(): void {
-    if (!bpReadings.length) { bpList.replaceChildren(make('p', 'muted', `No reading yet (checked at ${clock(Date.now())}).`)); return; }
-    const last = bpReadings[bpReadings.length - 1]!;
-    tBp.value.textContent = `${r0(last.systolic)}/${r0(last.diastolic)}`;
-    tBp.sub.textContent = `pulse ${r0(last.pulse)} · ${clock(last.at)}`;
-    bpList.replaceChildren(...bpReadings.map((b) => make('p', 'sync-bp', `${clock(b.at)}: ${r0(b.systolic)}/${r0(b.diastolic)} mmHg, pulse ${r0(b.pulse)} bpm`)));
-    if (t0 != null) bpText.textContent = `Reading${bpReadings.length > 1 ? 's' : ''} from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)}:`;
-  }
-
-  /** Readings taken within the hour after recent trackings (last two days) that the history doesn't have yet. */
-  async function fillBpHistory(): Promise<void> {
-    if (!watch) return;
-    const recent = store.loadSyncHistory().filter((e) => e.user === deps.user() && e.start > Date.now() - 2 * 86400000 && e.id !== `t${t0}`);
-    if (!recent.length) return;
-    try {
-      const changed = withReadings(recent, await watch.bloodPressureSince(Math.min(...recent.map((e) => e.start)) - BP_WINDOW_MS));
-      for (const e of changed) store.saveSyncEntry(e);
-      if (changed.length) { log(`Blood pressure added to ${changed.length} earlier tracking${changed.length === 1 ? '' : 's'} in the history.`); renderHistory(); }
-    } catch (e) {
-      log(`Couldn’t check earlier trackings for blood pressure: ${errorMessage(e)}`);
-    }
-  }
-
+  // The watch isn't asked for readings here: those D2 Link has downloaded fill in each tracking's history entry.
   /** Readings already on this device (downloaded by D2 Link or here) fill in the history, without the watch. */
   async function fillBpFromStored(): Promise<void> {
     const entries = store.loadSyncHistory().filter((e) => e.user === deps.user() && e.id !== `t${timerId != null ? t0 : ''}`);
@@ -595,21 +483,8 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       const changed = withReadings(entries, await api.backup.storedBloodPressure(deps.account()));
       for (const e of changed) store.saveSyncEntry(e);
       if (changed.length) renderHistory();
-    } catch { /* D2 Link not available: the watch fills them in when it connects */ }
+    } catch { /* D2 Link not available */ }
   }
-
-  function startBpChecks(): void {
-    if (bpTimer) clearInterval(bpTimer);
-    const start = t0;
-    if (start == null) return;
-    void checkBp();
-    bpTimer = setInterval(() => {
-      // keeps checking for the whole hour, so later readings are added too
-      if (Date.now() > start + BP_WINDOW_MS + 60000) { if (bpTimer) clearInterval(bpTimer); bpTimer = null; return; }
-      void checkBp();
-    }, 60000);
-  }
-  btnBp.addEventListener('click', () => void checkBp());
 
   // ---------- chart ----------
   function drawChart(): void {
@@ -651,7 +526,6 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
       if (drawFrame) cancelAnimationFrame(drawFrame);
       clearInterval(liveTimer);
       if (timerId) clearInterval(timerId);
-      if (bpTimer) clearInterval(bpTimer);
       void disconnectStrap();
       void watch?.close();
     },

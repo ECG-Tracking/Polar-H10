@@ -711,3 +711,5 @@ details > summary { list-style-position: inside; }
 .capture-count { align-self: center; font-variant-numeric: tabular-nums; }
 .storage-box { margin-top: 20px; }
 .problems-box { margin-top: 24px; }
+/* Synchronised ECG Tracking: after Stop, the download of the tracking's watch ECG strips */
+.last-ecg { margin: 8px 0 0; }
