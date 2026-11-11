@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 11 Nov 2026 – v1.44.1 – Synchronised ECG Tracking asks the watch only for its ECG strips, after Stop *(GitHub)*
+- Synchronised ECG Tracking: the watch ECG strip display ("ECG from the Watch D2") is removed from the page, and nothing is downloaded from the watch's ECG during the tracking. Take the watch ECGs as usual; they are fetched afterwards.
+- Stop downloads every Watch D2 ECG strip from the tracking's period (start to Stop, plus a strip begun up to a minute before the start), then again 45 and 90 s later for one still finishing. A line under Start again says how many strips it found on the watch and how many it saved new in ECG history (the rest were already there).
+- Strips from that period saved another way (D2 Link) are marked as the tracking's too.
+- The watch is no longer asked for heart rate: its heartbeat test isn't started, and the Watch heart rate, beat interval, RMSSD and signal tiles are removed. The tracking's watch figures come from the ECG strips and D2 Link's downloads.
+- The watch is no longer asked for blood pressure readings: the minute-by-minute checks for an hour, the check when the watch connects and the "Check the watch for blood pressure now" button are removed, with the blood pressure tile and card. A reading taken within an hour of the start is still added to the tracking from D2 Link's downloads.
+- Watch message capture: the options to pause the strip checks and the heartbeat test are removed, as neither runs during a tracking now. The capture only listens.
+- Fix: every Stop repeated part of the page's start-up. It added another listener for the watch connecting and reloaded every earlier tracking's ECG. That work grew with each tracking; it now runs once, when the page opens.
+
 ## 11 Nov 2026 – v1.44.0 – Breathing, movement and heart-rate strips under a sleep's ECG *(GitHub)*
 - ECG history › an ECG recorded with a sleep (Sleep monitor, and Synchronised Sleep Tracking's Polar H10 part): under the ECG are three more strips from the same moments, all recorded by the Polar H10:
   - **Breathing**: the chest's rise and fall from the strap's accelerometer. In each minute it uses the direction that moves most with the breathing, and it is turned so a breath always goes the same way.

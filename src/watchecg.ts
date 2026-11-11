@@ -106,6 +106,22 @@ export async function saveWatchStrip(r: WatchRecording, user: number, s: StripSe
   return { result: 'saved', session, metrics: m, events: a.events.length, uv, sourceFs };
 }
 
+/**
+ * Downloads every watch ECG that started from `sinceMs` up to `untilMs` and saves the new ones in ECG history, with no
+ * display (Synchronised ECG Tracking, after Stop): `found` the watch had in that time, `saved` new in ECG history.
+ */
+export async function collectStrips(w: LiveWatch, sinceMs: number, untilMs: number, user: number, s: StripSettings, syncTracking: (r: WatchRecording) => boolean, log: (line: string) => void): Promise<{ saved: number; found: number }> {
+  const all = (await during('watch ECG check', () => w.ecgSince(sinceMs))).filter((r) => r.start < untilMs);
+  let saved = 0;
+  for (const r of all) {
+    const got = await during('saving a watch ECG', () => saveWatchStrip(r, user, s, syncTracking(r)));
+    if (got.result === 'saved') saved++;
+    else if (got.result === 'short') log(`A watch ECG from ${clock(r.start)} is too short to use.`);
+  }
+  if (saved) historyChanged();
+  return { saved, found: all.length };
+}
+
 export interface WatchEcgDeps {
   /** The connected watch, or null. */
   watch: () => LiveWatch | null;
@@ -119,7 +135,7 @@ export interface WatchEcgDeps {
 }
 
 /** The "ECG from the Watch D2" card: instructions, Start and Stop, the strip on screen, its results and the saved strips. */
-export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void; start: (fromMs?: number) => void; running: () => boolean; collect: (sinceMs: number) => Promise<number> } {
+export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () => void; update: () => void; start: (fromMs?: number) => void; running: () => boolean; collect: (sinceMs: number, untilMs?: number) => Promise<{ saved: number; found: number }> } {
   const card = make('div', 'card watch-ecg');
   const steps = make('ol', 'd2-steps');
   for (const line of [
@@ -254,14 +270,17 @@ export function watchEcgCard(deps: WatchEcgDeps): { el: HTMLElement; stop: () =>
     void poll();
   };
   btnStart.addEventListener('click', () => start());
-  /** One check now for every ECG since `sinceMs` not saved yet (at the end of a tracking); returns how many were new. */
-  const collect = async (sinceMs: number): Promise<number> => {
+  /**
+   * One check now for every ECG that started from `sinceMs` up to `untilMs` (at the end of a tracking, or for the last
+   * tracking's period): `found` the watch had in that time, `saved` new in ECG history (the others were already there).
+   */
+  const collect = async (sinceMs: number, untilMs = Infinity): Promise<{ saved: number; found: number }> => {
     const w = deps.watch();
-    if (!w) return 0;
+    if (!w) return { saved: 0, found: 0 };
     const before = strips;
-    const found = (await during('watch ECG check', () => w.ecgSince(sinceMs))).filter((r) => !seen.has(r.start));
-    for (const r of found) { seen.add(r.start); await save(r); }
-    return strips - before;
+    const all = (await during('watch ECG check', () => w.ecgSince(sinceMs))).filter((r) => r.start < untilMs);
+    for (const r of all) { if (seen.has(r.start)) continue; seen.add(r.start); await save(r); }
+    return { saved: strips - before, found: all.length };
   };
   const stop = (): void => {
     running = false;
