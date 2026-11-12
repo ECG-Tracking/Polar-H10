@@ -418,6 +418,30 @@ export function quietSettling(raw: Samples, fs: number): Samples {
   return out;
 }
 
+/**
+ * How much the ECG moves between the heartbeats in the 10 s around a sample: its total up-and-down travel per second,
+ * leaving out 80 ms either side of each beat, as a multiple of a typical R wave. A clean ECG's P and T waves give about
+ * 2–6; interference from poor skin contact or movement 10 and more (measured on Polar H10 and Watch D2 recordings).
+ */
+const NOISY = 10;
+function noiseLevel(x: Float64Array, rs: readonly number[], fs: number, rAmp: number): (at: number) => number {
+  const n = x.length, qrs = Math.round(0.08 * fs), half = 5 * fs;
+  const nearBeat = new Uint8Array(n);
+  for (const r of rs) for (let i = Math.max(0, r - qrs); i <= Math.min(n - 1, r + qrs); i++) nearBeat[i] = 1;
+  const travel = new Float64Array(n + 1), count = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const ok = i > 0 && !nearBeat[i] && !nearBeat[i - 1];
+    travel[i + 1] = (travel[i] ?? 0) + (ok ? Math.abs(at(x, i) - at(x, i - 1)) : 0);
+    count[i + 1] = (count[i] ?? 0) + (ok ? 1 : 0);
+  }
+  return (r: number): number => {
+    if (!(rAmp > 0)) return 0;
+    const lo = Math.max(0, r - half), hi = Math.min(n, r + half);
+    const c = (count[hi] ?? 0) - (count[lo] ?? 0);
+    return c ? (((travel[hi] ?? 0) - (travel[lo] ?? 0)) / (c / fs)) / rAmp : 0;
+  };
+}
+
 /** Analyse a recording of µV samples. */
 export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
   const fs = opts.fs || 130;
@@ -477,6 +501,12 @@ export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
     const to = beats[k + 1]?.r ?? Math.min(raw.length - 1, b.r + Math.round(1.5 * fs));
     if (looksLikeConnectionError(raw, x, from, to, fs, rAmp)) { b.flags = ['artifact']; artifacts++; }
   });
+  // a flagged beat inside interference (poor skin contact, movement) is most likely the interference, not an event
+  const noise = noiseLevel(x, beats.map((b) => b.r), fs, rAmp);
+  for (const b of beats) {
+    if (!b.flags.length || b.flags.includes('artifact')) continue;
+    if (noise(b.r) >= NOISY) { b.flags = ['artifact']; artifacts++; }
+  }
 
   // per-beat measurements
   const qtc = opts.qtcFormula === 'fridericia'
