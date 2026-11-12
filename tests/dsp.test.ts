@@ -45,6 +45,18 @@ test('a big spike partway through (the strap knocked) doesn’t hide the beats a
   assert.ok(found.length >= after.length * 0.98, `found ${found.length} of ${after.length} beats after the spike`);
 });
 
+test('beats flagged inside interference (poor skin contact) are interference, not events', () => {
+  const { raw } = simulate('rest', 120, 7);
+  // 40–80 s: rough interference as large as the heartbeats, as from a dry or loose strap
+  let seed = 3;
+  const rand = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 - 0.5; };
+  for (let i = 40 * FS; i < 80 * FS; i++) raw[i] = (raw[i] ?? 0) + Math.round(rand() * 1600);
+  const a = analyze(raw, { fs: FS });
+  const inNoise = a.events.filter((e) => e.t > 42 && e.t < 78);
+  assert.equal(inNoise.length, 0, `${inNoise.length} events reported inside the interference`);
+  assert.ok(a.artifacts > 0, 'the interference is marked as such');
+});
+
 test('rest metrics are physiological', () => {
   const { raw } = simulate('rest', 300, 7);
   const m = sessionMetrics(analyze(raw, { fs: FS }), 300, PROFILE);

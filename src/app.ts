@@ -815,6 +815,28 @@ viewerPos.addEventListener('input', () => viewer.goTo((Number(viewerPos.value) /
 /** Works out a saved recording's list summary (HR, HRV, events) without opening it, as opening it would. */
 /** Watch strips whose blank heart rate was already worked out again on this visit. */
 const retriedBlank = new Set<string>();
+
+/**
+ * v1.44.6: beats flagged inside interference are now interference, not events. The ECGs of the last 7 days have their
+ * history row's figures worked out again once on this device, one at a time in the background, so their event counts
+ * match their reports.
+ */
+const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v1';
+async function redoRecentSummaries(): Promise<void> {
+  try { if (localStorage.getItem(NOISE_REDONE_KEY)) return; } catch { return; }
+  const since = Date.now() - 7 * 86400_000;
+  for (const user of store.USERS) {
+    const recent = (await store.listSessions(user).catch(() => [])).filter((s) => !s.cloudOnly && s.summary && s.start >= since);
+    for (const s of recent) {
+      await new Promise((r) => setTimeout(r, 1500)); // between recordings, so the page stays responsive
+      await store.updateSession({ ...s, summary: null });
+      await summarise(s.id, false).catch(() => undefined);
+    }
+  }
+  try { localStorage.setItem(NOISE_REDONE_KEY, String(Date.now())); } catch { /* storage blocked */ }
+  redrawHistorySoon();
+}
+setTimeout(() => void redoRecentSummaries(), 10_000);
 let historyRedraw: ReturnType<typeof setTimeout> | null = null;
 /** One redraw of ECG history for any number of changes close together, never one per change. */
 function redrawHistorySoon(): void {

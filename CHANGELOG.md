@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 12 Nov 2026 – v1.44.6 – Interference in the Polar H10 ECG is no longer counted as abnormal beats *(GitHub)*
+- Fix: since v1.44.3 the beat detection keeps finding beats after a spike. In a stretch with interference it also marked much of the interference as abnormal beats (premature beats, pauses, irregular shape). Interference comes from poor skin contact or movement at the strap. A flagged beat is now counted as interference instead of an event when the ECG between the heartbeats moves at least 10 times a typical R wave per second over the 10 s around it.
+  - This level was measured on your recordings. A clean ECG's P and T waves give about 2–6.
+  - Interference is shown as such, and is left out of the event count and the heart-rate variability.
+- Checked on your recordings:
+  - Clean recordings are unchanged.
+  - 12 Nov 07:34: events fell from 116 to 3; 07:03: from 183 to 21; 12:45: from 213 to 70.
+  - Night of 12 Nov: events fell from 6,091 to 1,539. Night of 10 Nov: from 3,972 to 1,655.
+  - The Watch D2's strips keep all their events.
+- Each device works out again, once, the history-list figures of its ECGs from the last 7 days. It does them one at a time in the background, starting 10 s after the page opens, so their event counts match the reports.
+
 ## 12 Nov 2026 – v1.44.5 – Combined sleep follows the Watch D2; Polar H10 sleep stages method 5 *(GitHub)*
 - Synchronised Sleep Tracking › Combined report (combine rule 5): the Watch D2's stage now stands wherever the watch has one, awake included. The Polar H10 fills in the minutes the watch has no reading for, and names the stage where the watch says only asleep. Earlier combined reports are generated again; "How the two are combined" explains the new rule.
 - Polar H10 sleep stages, method 5. The changes come from comparing 8 nights minute by minute with the Watch D2's stages, using the strap's ECG, breathing, movement and heart rate:
