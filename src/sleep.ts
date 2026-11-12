@@ -7,7 +7,15 @@ import { Biquad, median } from './dsp';
 
 export const EPOCH_S = 30;
 /** Raised when the stages are worked out differently, so reports made before can be generated again. */
-export const SLEEP_METHOD = 4;
+export const SLEEP_METHOD = 5;
+/**
+ * 5 (v1.44.5): heart rate, its spread and the breathing are averaged over 3.5 minutes either side before they are
+ * compared (a stage lasts minutes, not 30 s); faster breathing counts towards REM; a stage other than light needs
+ * stronger evidence (1.4 rather than 1.2); and beats the strap's own intervals miss come from the night's ECG (sleepecg.ts).
+ * Checked against the Watch D2 on 8 nights: it agreed with the watch on every night at least as well as method 4.
+ */
+const SMOOTH_EPOCHS = 7;
+const STAGE_EVIDENCE = 1.4;
 const LOCAL_REACH = 90; // epochs either side: 45 min
 const MIN_BOUT_EPOCHS = 10; // 5 min
 const NIGHT_PULL = 0.5; // how far the time of night moves the deep and REM scores, at its strongest
@@ -378,6 +386,15 @@ export function quietWakeSpells(zHr: readonly (number | null)[], asleep: readonl
   return runs(zHr.map((z, e) => (asleep[e] ?? false) && z != null && z >= QUIET_WAKE_Z)).filter((r) => r.value && r.to - r.from >= min).length;
 }
 
+/** Each value averaged with the SMOOTH_EPOCHS on each side that have one; null where none has. */
+function smooth(a: readonly (number | null)[]): (number | null)[] {
+  return a.map((_, e) => {
+    let sum = 0, n = 0;
+    for (let k = e - SMOOTH_EPOCHS; k <= e + SMOOTH_EPOCHS; k++) { const v = a[k]; if (finite(v)) { sum += v; n++; } }
+    return n ? sum / n : null;
+  });
+}
+
 export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean } = {}): SleepAnalysis {
   const nE = Math.max(1, Math.floor(data.durationS / EPOCH_S));
   const acc = accFeatures(data, nE);
@@ -425,10 +442,11 @@ export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean 
   const sleepMask = Array.from({ length: nE }, (_, e) => inPeriod(e) && asleep(e));
 
   // ---- stages: estimated from heart rate, HRV and breathing, relative to the surrounding 90 minutes ----
-  const zHR = localZ(heart.hr, sleepMask);
-  const zVar = localZ(heart.hrVar, sleepMask);
+  const zHR = localZ(smooth(heart.hr), sleepMask);
+  const zVar = localZ(smooth(heart.hrVar), sleepMask);
+  const zRate = localZ(smooth(acc.breathing), sleepMask); // breathing is faster in REM sleep
   const zRm = localZ(heart.rmssd, sleepMask);
-  const zChest = zScores(acc.breathCv, sleepMask), zHeart = zScores(heart.rrBreathCv, sleepMask);
+  const zChest = zScores(smooth(acc.breathCv), sleepMask), zHeart = zScores(smooth(heart.rrBreathCv), sleepMask);
   const zCv = zChest.map((c, e) => { const h = zHeart[e] ?? null; return c != null && h != null ? (c + h) / 2 : c ?? h; });
   const periodE = Math.max(1, wakeIdx - onset);
   // over a whole night, deep sleep is likelier early and REM late; short sleep has no such pattern
@@ -444,8 +462,8 @@ export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean 
     const minutesAsleep = ((e - onset) * EPOCH_S) / 60;
     const early = nightLong ? EARLY_REM_PULL * Math.max(0, 1 - minutesAsleep / EARLY_REM_MIN) : 0;
     const deep = weighted([[hr, -1], [breath, -1], [hrv, 0.5], [hrSpread, -0.5]]) + NIGHT_PULL * (1 - 2 * through);
-    const rem = weighted([[hr, 1], [hrSpread, 1], [breath, 1], [hrv, -0.3]]) + NIGHT_PULL * (2 * through - 1) - early;
-    if (deep > 1.2 || rem > 1.2) return deep >= rem ? 'deep' : 'rem'; // the stronger evidence decides
+    const rem = weighted([[hr, 1], [hrSpread, 1], [breath, 1], [hrv, -0.3], [zRate[e], 1]]) + NIGHT_PULL * (2 * through - 1) - early;
+    if (deep > STAGE_EVIDENCE || rem > STAGE_EVIDENCE) return deep >= rem ? 'deep' : 'rem'; // the stronger evidence decides
     return 'light';
   });
   // smooth sleep stages without moving awake/no-data epochs
@@ -495,7 +513,7 @@ export function analyzeSleep(data: SleepData, options: { onsetUnknown?: boolean 
     coverage: share((e) => finite(heart.hr[e]) && finite(acc.activity[e])),
     rrPct: share((e) => finite(heart.hr[e])), hrvPct: share((e) => finite(heart.rmssd[e])),
     movementPct: share((e) => finite(acc.activity[e])), breathingPct: share((e) => finite(acc.breathCv[e]) || finite(heart.rrBreathCv[e])),
-    uncertainMin: toMin(uncertainE), quietWakes: quietWakeSpells(zHR, sleepMask),
+    uncertainMin: toMin(uncertainE), quietWakes: quietWakeSpells(localZ(heart.hr, sleepMask), sleepMask),
   };
   const metrics: SleepMetrics = { ...partial, score: sleepE ? sleepScore(partial) : 0 };
   return { stages, hr: heart.hr, breathing: acc.breathing, activity: acc.activity, metrics };

@@ -14,6 +14,7 @@ import * as store from './store';
 import type { Session, Settings, SleepSession, UserEvent, UserNumber } from './store';
 import { buildEcgSummary, buildSleepReport, parseEcgSummary, parseSleepReport, SUMMARY_LEVEL } from './summary';
 import { SLEEP_METHOD } from './sleep';
+import { sleepData } from './sleepecg';
 import { mergeTrace, parseTrackingRow, planCloudCopies } from './synccompare';
 import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
 import { errorMessage } from './util';
@@ -431,7 +432,7 @@ export class CloudSync extends EventTarget {
         continue;
       }
       const { signals } = await store.loadSleep(n.id);
-      const report = signals ? buildSleepReport({ durationS: n.durationS, ...signals }, n.ecgId, n.onsetUnknown === true) : n.report;
+      const report = signals ? buildSleepReport(await sleepData(n, signals), n.ecgId, n.onsetUnknown === true) : n.report;
       if (report == null) continue;
       const ins = await this.client.from(SLEEP_TABLE).upsert({ id: n.id, user_no: n.user, started_at: n.start, duration_s: n.durationS, source: n.source, report });
       if (ins.error) throw new Error(ins.error.message);
