@@ -9,6 +9,7 @@ import { EcgFilter } from './dsp';
 import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
 import { checkRange, fmtRange, sleepRanges, personalRange, SLEEP_SOURCES } from './ranges';
 import * as store from './store';
+import { sleepData } from './sleepecg';
 import type { Session, SleepSession, UserNumber } from './store';
 import { H10_RESTART_TIP, forgetStrapButton, trackFor } from './devicekit';
 import { $, $button, $canvas, make, deleteButton, fmt, fmtHM, renderOutliers, download, whenLine, type Outlier, type MetricRef } from './ui';
@@ -403,7 +404,7 @@ export function initSleep(deps: SleepDeps): {
       analysis = toAnalysis(report);
     } else {
       if (!signals) { busy.textContent = 'Recording not found.'; return; }
-      const data: SleepData = { durationS: session.durationS, ...signals };
+      const data: SleepData = await sleepData(session, signals); // the strap's beats, filled in from the night's ECG
       analysis = analyzeSleep(data, { onsetUnknown: session.onsetUnknown === true });
       const m = analysis.metrics;
       session.summary = { sleepMin: m.sleepMin, score: m.score, awakenings: m.awakenings, avgHR: m.avgHR, avgHrv: m.avgHrv, breathingRate: m.breathingRate };

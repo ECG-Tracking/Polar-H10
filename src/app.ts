@@ -29,6 +29,7 @@ import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
 import { overlapMs, type Minute } from './syncsleep';
 import { analyzeSleep, EPOCH_S } from './sleep';
+import { sleepData } from './sleepecg';
 import { initBackups } from './backups';
 import { initLocate } from './locate';
 import { renderStorage } from './storageuse';
@@ -785,7 +786,7 @@ async function showChest(session: Session | null): Promise<void> {
     ? { startS: (report.timelineStart - night.start) / 1000, stepS: 60, stages: m } : null);
   let polarStages = cached?.polarStages ?? null, data = cached?.data ?? null;
   if (signals && !cached) {
-    const sleep = { durationS: night.durationS, ...signals };
+    const sleep = await sleepData(night, signals); // the strap's beats, filled in from the night's ECG
     data = await during('breathing and movement strips', async () => chestSignals(sleep));
     polarStages = await during('sleep stages for the ECG', async () => {
       const a = analyzeSleep(sleep, { onsetUnknown: night.onsetUnknown === true });

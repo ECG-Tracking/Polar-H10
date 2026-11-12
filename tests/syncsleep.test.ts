@@ -38,18 +38,11 @@ test('both recordings are put on one clock, minute by minute', () => {
   assert.deepEqual(t.watch, [null, 'light', 'deep', 'awake']);
 });
 
-test('combining: the strap’s stage stands, and the watch fills its gaps', () => {
-  const p: Minute[] = ['deep', 'light', 'deep', 'rem', null, 'light', 'asleep'];
-  const w: Minute[] = ['deep', 'rem', 'light', 'deep', 'light', null, 'rem'];
-  assert.deepEqual(combine(p, w), ['deep', 'light', 'deep', 'rem', 'light', 'light', 'rem']);
-});
-
-test('combining: a brief stir is sleep, a sustained one is awake, on either device', () => {
-  const brief = combine(['light', 'awake', 'awake', 'light'], ['light', 'light', 'rem', 'light']);
-  assert.deepEqual(brief, ['light', 'light', 'rem', 'light']);
-  const long: Minute[] = Array(5).fill('awake');
-  assert.deepEqual(combine(long, Array(5).fill('deep')), Array(5).fill('awake'));
-  assert.deepEqual(combine(Array(5).fill('deep'), long), Array(5).fill('awake'));
+test('combining (rule 5): the watch’s stage stands, and the strap fills its gaps', () => {
+  const p: Minute[] = ['deep', 'light', 'deep', 'rem', null, 'light', 'asleep', 'awake', 'light'];
+  const w: Minute[] = ['deep', 'rem', 'light', 'deep', 'light', null, 'rem', 'light', 'awake'];
+  assert.deepEqual(combine(p, w), ['deep', 'rem', 'light', 'deep', 'light', 'light', 'rem', 'light', 'awake']);
+  assert.deepEqual(combine(['awake', null], [null, null]), ['awake', null], 'only the strap: its stage, awake included');
 });
 
 test('combining: a nap minute from the watch takes the strap\'s stage', () => {
@@ -215,7 +208,7 @@ test('reports made from an older cloud copy keep that copy’s rule version', ()
   assert.equal(buildReports({ id: 'x', polar: own, watch, start: 0, nap: false }, figures, ['light'], 30, 1).method, SLEEP_METHOD);
 });
 
-test('rule 4: where the strap has no stage, the watch’s awake minute stands and counts as waking up (night of 9–10 Nov 2026)', () => {
+test('rules 4–5: the watch’s awake minute stands and counts as waking up (night of 9–10 Nov 2026)', () => {
   const l = 'light' as const, s = 'asleep' as const, A = 'awake' as const;
   // 02:55–03:04 as recorded: strap light, then asleep with no stage, then light; the watch light with one awake minute
   const polar = [l, l, s, s, s, s, s, s, l, l, l, l];
@@ -226,5 +219,5 @@ test('rule 4: where the strap has no stage, the watch’s awake minute stands an
   assert.equal(figuresOf(c, 0, false, undefined, watch).awakenings, 1);
   // without the watch saying so, a one-minute awake isn't waking up, and the strap's stage still decides elsewhere
   assert.equal(figuresOf(c, 0, false).awakenings, 0);
-  assert.equal(combine(['light'], ['awake'])[0], 'light');
+  assert.equal(combine(['light'], ['awake'])[0], 'awake', 'rule 5: the watch’s awake stands');
 });

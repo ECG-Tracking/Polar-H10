@@ -8,8 +8,9 @@ import { ECG_FS, type BatteryDetail, type EcgDetail, type PolarH10 } from './pol
 import { EcgFilter } from './dsp';
 import { LiveTrace, Hypnogram, drawDonut, fmtClock, STAGE_COLOR_VAR, STAGE_LABEL, type SleepStageKey } from './charts';
 import { checkRange, fmtRange, sleepRanges, type Range } from './ranges';
-import { analyzeSleep, EPOCH_S, type SleepAnalysis, type SleepData, type Stage } from './sleep';
+import { analyzeSleep, EPOCH_S, type SleepAnalysis, type Stage } from './sleep';
 import * as store from './store';
+import { sleepData } from './sleepecg';
 import { buildReports, pairUp, whatChanged, type Known, type PastSleepReports, type PolarFigures, type SavedSleepReports, type SleepCopy, type SleepPair, type WatchSleep } from './syncsleep';
 import { fromAnalysis, parseSleepReport, toAnalysis } from './summary';
 import { fmt, fmtHM, make, whenLine } from './ui';
@@ -251,7 +252,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
       const report = parseSleepReport(session.report);
       if (report) a = toAnalysis(report);
     } else if (signals) {
-      a = analyzeSleep({ durationS: session.durationS, ...signals } satisfies SleepData, { onsetUnknown: session.onsetUnknown === true });
+      a = analyzeSleep(await sleepData(session, signals), { onsetUnknown: session.onsetUnknown === true });
     }
     if (!a) return null;
     const m = a.metrics;
@@ -338,6 +339,7 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
 
   const madeText = (r: PastSleepReports): string => (r.changed === 'new'
     ? `Generated ${dateTime(r.generatedAt)}`
+    : r.changed === 'combine' && (r.combineRule ?? 1) >= 5 ? `Generated again ${dateTime(r.generatedAt)}, because the Watch D2’s stages now stand and the Polar H10 fills in where the watch has none`
     : r.changed === 'combine' && (r.combineRule ?? 1) >= 4 ? `Generated again ${dateTime(r.generatedAt)}, because where the Polar H10 couldn’t tell the stage, a waking the Watch D2 saw now counts`
     : r.changed === 'combine' && (r.combineRule ?? 1) >= 3 ? `Generated again ${dateTime(r.generatedAt)}, because breaks of 1–2 minutes inside a longer block are now part of it, and being awake before falling asleep no longer counts as waking up`
     : r.changed === 'combine' ? `Generated again ${dateTime(r.generatedAt)}, because the combined stages now come from the Polar H10, with the watch filling its gaps`
@@ -514,10 +516,9 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
     about.appendChild(make('summary', '', 'How the two are combined'));
     const ul = make('ul');
     for (const line of [
-      'The two recordings are lined up minute by minute on the clock. Where only one device has data, that device is used.',
-      'Where both give the same stage, that stage is used.',
-      'Where one says awake and the other asleep, it counts as awake if it lasts 5 minutes or more; a shorter stir counts as sleep.',
-      'Where both say asleep but differ, deep or REM is used over light, because light is what both tend to fall back on. Deep against REM follows the strap, which has every heartbeat and your breathing.',
+      'The two recordings are lined up minute by minute on the clock.',
+      'The Watch D2’s stage is used wherever it has one, awake included.',
+      'The Polar H10 fills in the minutes the watch has no reading for, and names the stage where the watch says only asleep.',
       'Heart rate, HRV and breathing come from the strap, and SpO₂ from the watch. The watch’s figures are shown beside them.',
       'This combining rule has not been checked against a sleep study, so treat the result as a third estimate, not a more accurate one. Not a medical device.',
     ]) ul.appendChild(make('li', '', line));

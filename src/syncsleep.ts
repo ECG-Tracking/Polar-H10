@@ -96,21 +96,19 @@ export function lineUp(stages: readonly Stage[], polarStart: number, epochS: num
 
 // ---------- combining ----------
 
-/** Shorter awake/asleep disagreements are read as sleep: a brief stir on one device isn't time awake. */
-export const WAKE_RUN_MIN = 5;
 
 /**
- * The combined sleep. Where the devices agree, that stage. Where one is awake and the other asleep: awake if it lasts
- * WAKE_RUN_MIN minutes or more. Where both are asleep: deep or REM wins over light, as light is what both fall back on;
- * deep against REM follows the strap, which has every heartbeat and the breathing.
+ * The combined sleep: the Watch D2's stage stands wherever it has one; the Polar H10 fills the minutes the watch has no
+ * reading for, and names the stage where the watch says only "asleep".
  */
 /**
+ * 5 (v1.44.5): the watch's stage stands and the strap fills its gaps;
  * 4 (v1.43.8): where the strap has no stage, the watch's awake stands, isn't joined into the block around it, and counts
  * as waking up even when it lasts one minute, as the watch counts it;
  * 3 (v1.42.0): short breaks inside a block are joined to it (tidyBlocks) and times woke up are counted from the combined
  * stages; 2 (v1.36.0): the strap's stage stands and the watch fills its gaps; 1: the deeper of the two stages.
  */
-export const COMBINE_RULE = 4;
+export const COMBINE_RULE = 5;
 
 /** The longest break (minutes) that is joined to the block around it. */
 export const SHORT_BREAK_MIN = 2;
@@ -149,32 +147,12 @@ function runs<T>(a: readonly T[]): { value: T; from: number; to: number }[] {
 }
 
 export function combine(polar: readonly Minute[], watch: readonly Minute[]): Combined[] {
-  const n = polar.length;
-  const split = (i: number): boolean => {
+  return polar.map((_, i): Combined => {
     const p = polar[i] ?? null, w = watch[i] ?? null;
-    return p != null && w != null && (p === 'awake') !== (w === 'awake');
-  };
-  const out: Combined[] = [];
-  for (let i = 0; i < n; i++) {
-    const p = polar[i] ?? null, w = watch[i] ?? null;
-    // the strap read the minute as asleep but couldn't tell the stage: the watch's awake stands
-    if (p === 'asleep' && w === 'awake') { out.push('awake'); continue; }
-    if (split(i)) {
-      let from = i, to = i;
-      while (from > 0 && split(from - 1)) from--;
-      while (to < n - 1 && split(to + 1)) to++;
-      if (to - from + 1 >= WAKE_RUN_MIN) { out.push('awake'); continue; }
-      const stage = p === 'awake' ? w : p;
-      out.push(stage == null || stage === 'awake' ? 'light' : stage);
-      continue;
-    }
-    // the strap decides the stage; the watch only fills the minutes the strap has no reading or no stage for
-    const a = p ?? w;
-    const b = w ?? p;
-    if (a == null || b == null) { out.push(null); continue; }
-    out.push(a === 'asleep' ? b : a); // asleep with no stage stays that way when neither device supplied one
-  }
-  return out;
+    if (w == null) return p; // the watch has nothing: the strap's stage, if it has one
+    if (w === 'asleep' && p != null && p !== 'awake') return p; // asleep with no stage on the watch: the strap names it
+    return w;
+  });
 }
 
 export interface CombinedFigures {

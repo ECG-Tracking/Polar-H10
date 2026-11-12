@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 12 Nov 2026 – v1.44.5 – Combined sleep follows the Watch D2; Polar H10 sleep stages method 5 *(GitHub)*
+- Synchronised Sleep Tracking › Combined report (combine rule 5): the Watch D2's stage now stands wherever the watch has one, awake included. The Polar H10 fills in the minutes the watch has no reading for, and names the stage where the watch says only asleep. Earlier combined reports are generated again; "How the two are combined" explains the new rule.
+- Polar H10 sleep stages, method 5. The changes come from comparing 8 nights minute by minute with the Watch D2's stages, using the strap's ECG, breathing, movement and heart rate:
+  - **ECG fill-in:** where the strap's own beat intervals are unusable for 30 s (poor skin contact), the beats this app finds in the night's ECG take their place. On the poorer recent nights this raised the usable heart data from about 55 % to about 80 % of the night. Time with an unnamed stage ("asleep, stage not known") fell from up to 3 hours a night to 20 minutes or less.
+  - **Smoothing:** heart rate, its spread and the breathing are averaged over 3.5 minutes either side before they are compared. A stage lasts minutes: the watch's stages last 13–15 minutes (median), while 30-second values made our stages flicker.
+  - **Breathing rate:** faster breathing now counts towards REM. Among the strap's signals, it was the clearest sign of the watch's REM.
+  - **Threshold:** a stage other than light now needs slightly stronger evidence (1.4 instead of 1.2), which keeps the share of light sleep close to the watch's.
+  - **Result:** agreement with the watch beyond chance (kappa) rose from 0.07 to 0.11. It was at least as good on 7 of the 8 nights; on 12 Nov it dropped from 0.09 to 0.00.
+  - **Reports:** Polar H10 sleep reports are generated again with the new method.
+- The two devices still agree only a little more than chance, so neither should be taken as exact. The watch is not a sleep study either, so matching it more closely doesn't by itself make the strap's stages more accurate. The changes above were kept only where they also fit how sleep is known to work.
+
 ## 12 Nov 2026 – v1.44.4 – Sleep stages above a sleep's ECG *(GitHub)*
 - ECG history › an ECG recorded with a sleep (Sleep monitor, and Synchronised Sleep Tracking's Polar H10 part): above the ECG are two strips, each one big square tall, with the sleep stage at the same moments as colour blocks:
   - **Polar H10**: from the night's own sleep analysis.
