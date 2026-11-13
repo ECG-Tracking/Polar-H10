@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EcgSimulator, type Scenario } from '../src/sim';
-import { analyze, cleanInterval, delineate, disturbed, hrSeries, sessionMetrics } from '../src/dsp';
+import { analyze, cleanInterval, delineate, disturbed, hrSeries, sessionMetrics, type Analysis } from '../src/dsp';
 import { CAL_MARGIN, ECG_SCALE_NOTE, PX_PER_MV, PX_PER_S } from '../src/charts';
 
 const FS = 130;
@@ -86,6 +86,28 @@ test('T-wave direction is read where the T wave normally is, not from a bigger n
   }
   const m = sessionMetrics(analyze(raw, { fs: FS }), 120, PROFILE);
   assert.ok(m.tPositive >= 90, `T wave positive ${m.tPositive.toFixed(0)} %`);
+});
+
+test('QT: with the median beat’s T wave too flat, single beats are used only when they agree; otherwise none is shown', () => {
+  const make = (tPeakMs: (k: number) => number): Analysis => {
+    const x = new Float64Array(FS * 60);
+    const beats = Array.from({ length: 59 }, (_, k) => {
+      const r = (k + 1) * FS;
+      return { t: r / FS, r, rr: k ? 1000 : null, flags: [], m: {
+        onset: r - 6, offset: r + 6, tPeak: r + Math.round((tPeakMs(k) / 1000) * FS), tEnd: null, qrs: 90, qt: 300 + tPeakMs(k) - 200, qtc: 300 + tPeakMs(k) - 200,
+        tAmp: 30, jAmp: 0, st60: 0, rAmp: 200, sAmp: 0, iso: 0,
+      } };
+    });
+    return { fs: FS, x, beats, events: [], artifacts: 0, template: null, templateMeasure: null, polarity: 1, templatePre: 0.25 } as unknown as Analysis;
+  };
+  const steady = sessionMetrics(make((k) => 200 + (k % 3) * 10), 60, PROFILE);
+  assert.equal(steady.qtFrom, 'beats');
+  assert.ok(Math.abs(steady.qt - 310) <= 10);
+  let seed = 5;
+  const rand = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const noise = sessionMetrics(make(() => 180 + 200 * rand()), 60, PROFILE);
+  assert.equal(noise.qtFrom, 'none');
+  assert.ok(Number.isNaN(noise.qt) && Number.isNaN(noise.qtc), 'no QT from noise');
 });
 
 test('rest metrics are physiological', () => {

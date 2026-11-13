@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 13 Nov 2026 – v1.44.9 – No QT from noise when the T wave is too flat *(GitHub)*
+- Fix: QT and QTc are measured on the median beat. When its T wave was too small to measure (under 40 µV), the app measured QT on each beat instead and took the median. On a single beat the noise can be bigger than such a T wave, so that QT measured noise. On 13 Nov 18:39 the watch showed QTc 526 ms this way; its single-beat QTs ranged from 392 to 569 ms.
+- QT and QTc now come from single beats only when those agree: a T wave on at least half the beats, peaking in much the same place (the middle half within 60 ms). Otherwise they show "--", "T wave too flat to measure reliably".
+- On 13 Nov 18:39 the watch now shows "--", and the strap keeps QTc 373 ms from single beats that agree. The figure's note says where QT came from: the median beat, single beats, or neither.
+- On your other recordings QT still comes from the median beat and is unchanged.
+- The figures of each device's ECGs from the last 7 days are worked out again, once, in the background.
+
 ## 13 Nov 2026 – v1.44.8 – T wave positive: each beat read where its T wave is *(GitHub)*
 - **T wave positive** (the share of beats whose T wave points up) now reads each beat's T-wave direction from its biggest deflection within ±40 ms of where the median beat's T wave peaks. Before, it took the biggest deflection anywhere after the QRS. When the T wave is small, that could be noise or the next beat's P wave, pointing either way.
 - On 13 Nov 18:39 the watch's figure goes from 61 % to 63 % and the strap's stays at 100 %. On single watch beats the noise there is about twice the T wave's height (21 µV in the median beat, which is upright), so a third of the beats still read downward.

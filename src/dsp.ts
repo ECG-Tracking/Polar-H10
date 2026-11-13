@@ -780,6 +780,8 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
   qtc: number;
   qt: number;
   tPositive: number;
+  /** Where QT and QTc come from: the median beat, single beats that agree (the median beat's T wave too flat), or nowhere (the T wave too flat to measure reliably). */
+  qtFrom: 'median' | 'beats' | 'none';
   tAmp: number; // µV, median T-wave peak vs the PR baseline (negative = T points down)
   trRatio: number; // median of |T| / R wave per beat
   jPoint: number;
@@ -800,6 +802,14 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
   const clean = calmCount >= MIN_CALM_BEATS ? beats.flatMap((b, k) => (!calm[k] && b.m ? [b.m] : [])) : [];
   const pick = (f: (m: BeatMeasure) => number | null | undefined): number[] => clean.map(f).filter(finite);
   const tVals = pick((m) => m.tAmp);
+  // QT from the median beat; when its T wave is too flat for that, from single beats only when they agree: a T wave on at
+  // least half of them, peaking in much the same place (the middle half within 60 ms). Otherwise the T wave is too flat to
+  // measure reliably, and single beats would measure noise.
+  const tPeaksMs = beats.flatMap((b, k) => (!calm[k] && b.m?.qt != null && b.m.tPeak > 0 ? [((b.m.tPeak - b.r) / fs) * 1000] : [])).sort((p, q) => p - q);
+  const measurable = beats.filter((b, k) => !calm[k] && b.m).length;
+  const spread = tPeaksMs.length ? (tPeaksMs[Math.floor(0.75 * (tPeaksMs.length - 1))] ?? 0) - (tPeaksMs[Math.floor(0.25 * (tPeaksMs.length - 1))] ?? 0) : Infinity;
+  const qtFrom: SessionMetrics['qtFrom'] = analysis.templateMeasure?.qt ? 'median'
+    : clean.length && tPeaksMs.length >= 0.5 * measurable && spread <= 60 ? 'beats' : 'none';
   // T-wave direction near where the T wave normally is; the biggest bump anywhere after the QRS where that isn't known
   const tDirs = pick((m) => m.tNear ?? m.tAmp);
   const hr = hrSeries(beats, durationS);
@@ -810,8 +820,9 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     beatCount: beats.length,
     ...hrvStats(beats),
     qrs: tm?.qrs ?? median(pick((m) => m.qrs)),
-    qtc: tm?.qtc ?? median(pick((m) => m.qtc)),
-    qt: tm?.qt ?? median(pick((m) => m.qt)),
+    qtc: qtFrom === 'median' ? tm?.qtc ?? NaN : qtFrom === 'beats' ? median(pick((m) => m.qtc)) : NaN,
+    qt: qtFrom === 'median' ? tm?.qt ?? NaN : qtFrom === 'beats' ? median(pick((m) => m.qt)) : NaN,
+    qtFrom,
     tPositive: tDirs.length ? (100 * tDirs.filter((v) => v > 0).length) / tDirs.length : NaN,
     tAmp: median(tVals),
     trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.rAmp > 0 ? [Math.abs(m.tAmp) / m.rAmp] : []))),
