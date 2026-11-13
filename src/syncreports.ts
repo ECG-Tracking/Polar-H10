@@ -3,10 +3,10 @@
 // Comparison). Versions are generated from the tracking's beats and ECG, and again when blood pressure or the watch's data changes.
 
 import { during } from './diagnostics';
-import { analyze, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
+import { analyze, cleanInterval, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { EcgViewer, type ReportEvent } from './charts';
 import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
-import { agreedEvents, beatAgreement, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
+import { agreedEvents, beatAgreement, flaggedOnEither, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
 import * as store from './store';
 import type { SyncBp, SyncTrackingEntry } from './store';
@@ -98,7 +98,9 @@ async function gatherStrips(e: SyncTrackingEntry): Promise<Strips | null> {
   }
   const profile = { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex };
   const metrics = (a: Analysis): SessionMetrics => sessionMetrics(a, a.x.length / a.fs, profile);
-  return { damaged, joined, joinedM: metrics(joined.watchA), set, watchM: set ? metrics(set.watchA) : null, polarM: set ? metrics(set.polarA) : null };
+  // the figures leave out every heartbeat either device flagged (the events are counted separately)
+  const both = set ? flaggedOnEither(set.watchA, set.polarA) : null;
+  return { damaged, joined, joinedM: metrics(joined.watchA), set, watchM: both ? metrics(both.watchA) : null, polarM: both ? metrics(both.polarA) : null };
 }
 
 /** Over 1 % of samples at the 16-bit limit: cut off. */
@@ -311,7 +313,7 @@ async function fromEcg(e: SyncTrackingEntry, t: SyncTrace): Promise<TrackVersion
     const s = store.loadSettings(e.user);
     const a = analyze(samples, { fs: session.fs, notch: s.notch, qtcFormula: s.qtcFormula });
     const { hr, ...ecg } = sessionMetrics(a, session.durationS, { hrRest: s.hrRest, hrMax: s.hrMax, sex: s.sex });
-    if (!t.polar.length) t.polar = a.beats.flatMap((b): TimedBeat[] => (b.rr && !b.flags.length ? [[b.t, b.rr]] : []));
+    if (!t.polar.length) t.polar = a.beats.flatMap((b, k): TimedBeat[] => (b.rr && cleanInterval(a.beats, k) ? [[b.t, b.rr]] : []));
     if (!t.polarHr.length) t.polarHr = hr.flatMap((v, i): HrPoint[] => (v == null ? [] : [[i, v]]));
     return ecg;
   } catch { return null; } // the ECG was deleted

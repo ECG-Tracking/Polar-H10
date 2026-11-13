@@ -2,7 +2,7 @@ import { ECG_FS, bluetoothAvailable, type PolarH10, type EcgDetail, type HrDetai
 import { chestSignals, type ChestSignals } from './chestsignals';
 import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices';
 import { EcgSimulator, type Scenario } from './sim';
-import { EcgFilter, analyze, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
+import { EcgFilter, analyze, disturbed, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { scaleNote } from './screenscale';
 import { Plot, LiveTrace, EcgViewer, ChestStrips, StageStrips, type StageTrack, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
@@ -821,7 +821,7 @@ const retriedBlank = new Set<string>();
  * history row's figures worked out again once on this device, one at a time in the background, so their event counts
  * match their reports.
  */
-const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v1';
+const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v2'; // v2 (v1.44.7): figures leave out beats disturbed by events
 async function redoRecentSummaries(): Promise<void> {
   try { if (localStorage.getItem(NOISE_REDONE_KEY)) return; } catch { return; }
   const since = Date.now() - 7 * 86400_000;
@@ -1138,7 +1138,8 @@ function renderCharts(analysis: Analysis, m: SessionMetrics, maxSeen: number, is
   });
 
   // RR vs QTc
-  const qpts = beats.flatMap((b): Point[] => (b.m?.qtc && b.rr ? [[b.rr, b.m.qtc]] : []));
+  const calm = disturbed(beats);
+  const qpts = beats.flatMap((b, k): Point[] => (!calm[k] && b.m?.qtc && b.rr ? [[b.rr, b.m.qtc]] : []));
   const qStride = Math.max(1, Math.ceil(qpts.length / 4000));
   qtcPlot?.set({
     type: 'scatter', points: qpts.filter((_, i) => i % qStride === 0),

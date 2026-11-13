@@ -347,10 +347,44 @@ export interface Beat {
   flags: BeatFlag[];
   localMedian?: number;
   corr?: number;
+  /** How closely the whole beat (QRS and T wave) matches the median beat, -1 to 1. */
+  shapeMatch?: number;
   m: BeatMeasure | null;
 }
 
 export interface DetectedEvent { t: number; type: BeatFlag }
+
+/** A beat next to an event whose whole beat matches the median beat less than this may have had its shape changed by it. */
+export const NEIGHBOUR_MATCH = 0.9;
+/** Fewer undisturbed beats than this: no median beat and no wave figures, rather than ones from a beat or two. */
+export const MIN_CALM_BEATS = 10;
+
+/**
+ * Beats whose waves an event (or interference) disturbs: the flagged beat itself, and the beat just before or after it
+ * when its shape is abnormal: its whole beat, T wave included, matches the median beat less than NEIGHBOUR_MATCH and
+ * worse than 9 in 10 of the recording's ordinary beats (on a noisy recording even ordinary beats match less well).
+ * Only events are counted from these; the wave figures, the median beat and the RR vs QTc chart leave them out.
+ */
+export function disturbed(beats: readonly Pick<Beat, 'flags' | 'shapeMatch'>[]): Uint8Array {
+  const out = new Uint8Array(beats.length);
+  // ordinary: not flagged and not next to a flagged beat
+  const ordinary = beats.flatMap((b, k) => (!b.flags.length && !beats[k - 1]?.flags.length && !beats[k + 1]?.flags.length && b.shapeMatch != null ? [b.shapeMatch] : []))
+    .sort((a, b) => a - b);
+  const usual = ordinary[Math.floor(0.1 * (ordinary.length - 1))] ?? NEIGHBOUR_MATCH;
+  const limit = Math.min(NEIGHBOUR_MATCH, usual);
+  const odd = (b: Pick<Beat, 'shapeMatch'> | undefined): boolean => b?.shapeMatch != null && b.shapeMatch < limit;
+  beats.forEach((b, k) => {
+    if (!b.flags.length) return;
+    out[k] = 1;
+    if (k > 0 && odd(beats[k - 1])) out[k - 1] = 1;
+    if (k + 1 < beats.length && odd(beats[k + 1])) out[k + 1] = 1;
+  });
+  return out;
+}
+
+/** The interval ending at beat k is a normal heart's: neither it nor the beat before it is flagged. */
+export const cleanInterval = (beats: readonly Pick<Beat, 'flags' | 'rr'>[], k: number): boolean =>
+  !!beats[k]?.rr && !beats[k]!.flags.length && !!beats[k - 1] && !beats[k - 1]!.flags.length;
 
 export interface Analysis {
   fs: number;
@@ -488,6 +522,7 @@ export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
       const w = beatWindow(x, b.r, fs);
       if (!w) continue;
       b.corr = corr(w.subarray(c - qrsHalf, c + qrsHalf + 1), tq);
+      b.shapeMatch = corr(w, tpl);
       if (b.corr < 0.7 && !opts.ignoreShape && !b.flags.includes('shape')) b.flags.push('shape');
     }
   }
@@ -526,10 +561,21 @@ export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
   // a premature beat usually also fails the shape test; report it once
   const dedup = events.filter((e, i) => !(e.type === 'shape' && events[i - 1]?.t === e.t));
 
+  // the median beat shown and measured: from beats no event or interference disturbed (the one above, used for the shape
+  // check, could only leave out beats with an odd interval)
+  const calm = disturbed(beats);
+  const calmWins = beats.filter((b, k) => !calm[k] && b.rr).filter((_, i, a) => i % Math.max(1, Math.floor(a.length / 300)) === 0)
+    .map((b) => beatWindow(x, b.r, fs)).filter((w): w is Float64Array => w !== null);
+  const calmFirst = calmWins[0];
+  if (calmFirst && calmWins.length >= 3 && beats.filter((_, k) => !calm[k]).length >= MIN_CALM_BEATS) {
+    const tpl = new Float64Array(calmFirst.length);
+    for (let i = 0; i < tpl.length; i++) tpl[i] = median(calmWins.map((w) => at(w, i)));
+    template = tpl;
+  } else template = null; // every beat disturbed: no median beat, rather than one with events in it
   let templateMeasure: BeatMeasure | null = null;
   if (template) {
     const c = Math.round(TEMPLATE_PRE * fs);
-    const rr = median(normal.map((b) => b.rr).filter(finite)) / 1000;
+    const rr = median(beats.filter((_, k) => !calm[k]).map((b) => b.rr).filter(finite)) / 1000;
     const padded = new Float64Array(template.length + 2 * fs);
     padded.set(template, fs);
     const tm = delineate(padded, c + fs, fs, rr, rr, polarity);
@@ -656,7 +702,7 @@ export function hrSeries(beats: readonly Beat[], durationS: number): (number | n
   const win: { t: number; rr: number }[] = [];
   for (let t = 1; t <= Math.floor(durationS); t++) {
     for (let b = beats[k]; b && b.t <= t; b = beats[++k]) {
-      if (b.rr && b.rr > 250 && b.rr < 2500 && !b.flags.includes('shape')) win.push({ t: b.t, rr: b.rr });
+      if (b.rr && b.rr > 250 && b.rr < 2500 && cleanInterval(beats, k)) win.push({ t: b.t, rr: b.rr });
     }
     while ((win[0]?.t ?? Infinity) < t - 5) win.shift();
     out.push(win.length ? 60000 / mean(win.map((b) => b.rr)) : null);
@@ -732,7 +778,9 @@ export interface SessionMetrics extends HrvStats, TrainingStats {
 /** Everything the report needs. */
 export function sessionMetrics(analysis: Analysis, durationS: number, profile: TrainingProfile): SessionMetrics {
   const { beats, fs, x } = analysis;
-  const clean = beats.flatMap((b) => (!b.flags.length && b.m ? [b.m] : []));
+  const calm = disturbed(beats);
+  const calmCount = beats.filter((_, k) => !calm[k]).length;
+  const clean = calmCount >= MIN_CALM_BEATS ? beats.flatMap((b, k) => (!calm[k] && b.m ? [b.m] : [])) : [];
   const pick = (f: (m: BeatMeasure) => number | null | undefined): number[] => clean.map(f).filter(finite);
   const tVals = pick((m) => m.tAmp);
   const hr = hrSeries(beats, durationS);

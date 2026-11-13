@@ -3,7 +3,7 @@
 // can't be used in up to half of a night while the ECG's beats, found by this app, still can. So where the strap's
 // intervals are unusable for a 30-second stretch, the beats found in the night's ECG take their place.
 
-import { analyze } from './dsp';
+import { analyze, cleanInterval } from './dsp';
 import { EPOCH_S, type SleepData } from './sleep';
 import * as store from './store';
 import type { SleepSession, SleepSignals } from './store';
@@ -21,12 +21,11 @@ export function ecgBeats(x: Int16Array, fs: number, offsetS: number): EcgBeats {
   const piece = Math.round(PIECE_S * fs);
   for (let o = 0; o < x.length; o += piece) {
     const a = analyze(x.subarray(o, Math.min(x.length, o + piece)), { fs });
-    let prev: number | null = null;
-    for (const b of a.beats) {
-      if (b.flags.includes('artifact')) { prev = null; continue; } // no interval across a beat that isn't there
-      if (prev != null) { t.push(offsetS + o / fs + b.t); rr.push((b.t - prev) * 1000); }
-      prev = b.t;
-    }
+    // a normal heart's intervals only: none ending at, or just after, an event or interference
+    a.beats.forEach((b, k) => {
+      const p = a.beats[k - 1];
+      if (p && cleanInterval(a.beats, k)) { t.push(offsetS + o / fs + b.t); rr.push((b.t - p.t) * 1000); }
+    });
   }
   return { t: Float64Array.from(t), rr: Float32Array.from(rr) };
 }
