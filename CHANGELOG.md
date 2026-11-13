@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 13 Nov 2026 – v1.44.8 – T wave positive: each beat read where its T wave is *(GitHub)*
+- **T wave positive** (the share of beats whose T wave points up) now reads each beat's T-wave direction from its biggest deflection within ±40 ms of where the median beat's T wave peaks. Before, it took the biggest deflection anywhere after the QRS. When the T wave is small, that could be noise or the next beat's P wave, pointing either way.
+- On 13 Nov 18:39 the watch's figure goes from 61 % to 63 % and the strap's stays at 100 %. On single watch beats the noise there is about twice the T wave's height (21 µV in the median beat, which is upright), so a third of the beats still read downward.
+- The figures of each device's ECGs from the last 7 days are worked out again, once, in the background, so the trend chart uses the same method.
+
 ## 13 Nov 2026 – v1.44.7 – Figures leave out waveforms disturbed by events *(GitHub)*
 - Only the event count uses event beats. They are now left out of every other figure listed below. An event is a premature beat, a pause, an irregular shape or interference. The beat just before or after an event is left out too when the event changed its shape. That is when its whole beat, T wave included, matches the median beat less than 90 % and worse than 9 in 10 of the recording's ordinary beats.
 - **Wave figures** (QRS, QT, QTc, T wave positive, T-wave amplitude, T/R ratio, J point, ST at J+60 ms, R and S amplitude): measured from undisturbed beats only. With fewer than 10 undisturbed beats they show "--" rather than figures from a beat or two.
