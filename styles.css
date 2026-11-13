@@ -716,3 +716,31 @@ details > summary { list-style-position: inside; }
 .problems-box { margin-top: 24px; }
 /* Synchronised ECG Tracking: after Stop, the download of the tracking's watch ECG strips */
 .last-ecg { margin: 8px 0 0; }
+
+/* ---------- BP and ECG ---------- */
+.viewer .bp-strip canvas { cursor: default; }
+.bp-card { margin-bottom: 12px; }
+/* the table: as in Stock Portfolio Optimizer (sort ⇅ ▲ ▼, move < >, remove ×, fold − / +) */
+.coltable-tools { gap: 8px; margin-bottom: 10px; align-items: center; }
+.coltable-tools select { max-width: 320px; }
+.table-container { background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line); overflow: auto; max-height: 75vh; }
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.data-table th { position: sticky; top: 0; z-index: 2; background: var(--raised); color: var(--ink-2); padding: 0.8rem 1.9rem 0.8rem 0.85rem; font-weight: 600; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.05em; vertical-align: bottom; border-bottom: 2px solid var(--line); white-space: nowrap; }
+.data-table td { padding: 0.7rem 0.85rem; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: middle; white-space: nowrap; }
+.data-table tbody tr:nth-child(even) td { background: var(--raised); }
+.data-table tbody tr { cursor: pointer; }
+.data-table tbody tr:hover td { background: var(--accent-soft); }
+.data-table tbody tr.picked td { background: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); }
+.col-header-controls { display: flex; gap: 0.3rem; margin-top: 0.5rem; text-transform: none; letter-spacing: normal; }
+.col-ctrl-btn { background: transparent; border: 1px solid var(--line); color: var(--ink-2); width: 22px; height: 22px; min-height: 0; border-radius: 4px; font-size: 0.85rem; font-weight: 700; cursor: pointer; line-height: 1; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.col-ctrl-btn:hover:not(:disabled) { background: var(--accent-soft); }
+.col-ctrl-btn:disabled { opacity: 0.25; cursor: not-allowed; }
+.col-ctrl-remove { color: var(--critical); }
+.col-ctrl-sort-active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+th.col-collapsible { position: sticky; }
+.col-collapse-btn { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; min-height: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; font-size: 0.85rem; font-weight: 700; line-height: 1; background: transparent; border: 1px solid var(--line); color: var(--ink-2); text-transform: none; letter-spacing: 0; }
+.col-collapse-btn:hover { background: var(--accent-soft); color: var(--ink); }
+th.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !important; overflow: hidden; font-size: 0; color: transparent; }
+th.col-collapsed > :not(.col-collapse-btn) { display: none; }
+th.col-collapsed .col-collapse-btn { position: static; margin: 6px auto; display: flex; color: var(--warn); }
+td.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !important; overflow: hidden; font-size: 0; color: transparent; }

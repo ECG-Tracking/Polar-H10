@@ -4,6 +4,21 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.0 – BP and ECG page; blood pressure graph above the ECG *(GitHub)*
+- **Blood pressure graph above the ECG:** shown in an ECG report (ECG history) and in a tracking's Combined ECG, above the strips.
+  - It shows the Watch D2's readings from an hour before the recording to an hour after it.
+  - Each reading is a bar from diastolic to systolic, labelled with its time, the reading and the pulse.
+  - The recording's own time is shaded, and the part the ECG shows is marked: the mark moves with the slider.
+  - It is two big squares tall, twice a sleep-stage strip. With no readings in that time there is no graph.
+- **New page "BP and ECG"**, under ECG history and trending:
+  - **Trending:** "Show the last" a period, as on ECG history and trending, with a graph for each ticked figure: systolic, diastolic, pulse, and each ECG figure from the Polar H10 or the Watch D2.
+  - **The picked reading's blood pressure graph with its ECGs:** for a reading from a synchronised tracking, the tracking's Watch D2 strips and Polar H10 ECG with their slider and events, as in its Combined ECG. Otherwise the ECGs taken within an hour can be opened from there.
+  - **A table with one row for each blood pressure reading in the period**, latest on top; click a row to show it above.
+  - **Table columns at first:** Date and time, BP reading, HRV score, QRS duration, T-wave positive, T-wave amplitude, T/R ratio, QTc and Events, all from the Polar H10.
+  - **More columns** can be added from "Columns": each figure from the Watch D2, pulse, mean heart rate, RMSSD, SDNN, QT, and which ECGs a reading has.
+  - **Column headers, as in Stock Portfolio Optimizer:** sort (⇅, ▲, ▼; a third press clears it), move left or right, remove (×, added back from Columns) and fold away for now (− / +). The choices are kept on this device, and "Reset columns" brings back the first ones.
+- **Where a reading's ECG figures come from:** the synchronised tracking it belongs to (within an hour of the tracking). Otherwise the nearest Polar H10 ECG within an hour (not one recorded with a sleep) and the watch strips within an hour. For the watch, the figure is the median of the strips, and their events are added up. "--" where there is none.
+
 ## 13 Nov 2026 – v1.44.9 – No QT from noise when the T wave is too flat *(GitHub)*
 - Fix: QT and QTc are measured on the median beat. When its T wave was too small to measure (under 40 µV), the app measured QT on each beat instead and took the median. On a single beat the noise can be bigger than such a T wave, so that QT measured noise. On 13 Nov 18:39 the watch showed QTc 526 ms this way; its single-beat QTs ranged from 392 to 569 ms.
 - QT and QTc now come from single beats only when those agree: a T wave on at least half the beats, peaking in much the same place (the middle half within 60 ms). Otherwise they show "--", "T wave too flat to measure reliably".
