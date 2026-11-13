@@ -821,7 +821,7 @@ const retriedBlank = new Set<string>();
  * history row's figures worked out again once on this device, one at a time in the background, so their event counts
  * match their reports.
  */
-const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v2'; // v2 (v1.44.7): figures leave out beats disturbed by events
+const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v3'; // v2 (v1.44.7): figures leave out beats disturbed by events; v3 (v1.44.8): T-wave direction
 async function redoRecentSummaries(): Promise<void> {
   try { if (localStorage.getItem(NOISE_REDONE_KEY)) return; } catch { return; }
   const since = Date.now() - 7 * 86400_000;

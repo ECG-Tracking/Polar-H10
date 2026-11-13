@@ -224,6 +224,8 @@ export interface BeatMeasure {
   qt: number | null; // ms
   qtc?: number; // ms
   tAmp: number | null; // µV
+  /** The biggest deflection within ±40 ms of where the median beat's T wave peaks, µV: this beat's T-wave direction. */
+  tNear?: number | null;
   jAmp: number;
   st60: number;
   rAmp: number; // the tallest upward wave of the QRS, 0 if there is none
@@ -587,6 +589,21 @@ export function analyze(input: Samples, opts: AnalyzeOptions = {}): Analysis {
       if (tm.qt) tm.qtc = qtc(tm.qt, rr);
     }
     templateMeasure = tm;
+    // each beat's T-wave direction: its biggest deflection within ±40 ms of where the median beat's T wave peaks (the
+    // biggest anywhere after the QRS can be noise or the next P wave when the T wave is small)
+    if (tm && tm.tPeak > 0) {
+      const at0 = tm.tPeak - c, w = Math.round(0.04 * fs);
+      for (const b of beats) {
+        if (!b.m) continue;
+        let best = 0;
+        for (let i = b.r + at0 - w; i <= b.r + at0 + w; i++) {
+          if (i < 0 || i >= x.length) continue;
+          const v = at(x, i) - b.m.iso;
+          if (Math.abs(v) > Math.abs(best)) best = v;
+        }
+        b.m.tNear = best;
+      }
+    }
   }
 
   return { fs, x, beats, events: dedup, artifacts, template, templateMeasure, polarity, templatePre: TEMPLATE_PRE };
@@ -783,6 +800,8 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
   const clean = calmCount >= MIN_CALM_BEATS ? beats.flatMap((b, k) => (!calm[k] && b.m ? [b.m] : [])) : [];
   const pick = (f: (m: BeatMeasure) => number | null | undefined): number[] => clean.map(f).filter(finite);
   const tVals = pick((m) => m.tAmp);
+  // T-wave direction near where the T wave normally is; the biggest bump anywhere after the QRS where that isn't known
+  const tDirs = pick((m) => m.tNear ?? m.tAmp);
   const hr = hrSeries(beats, durationS);
   // timing comes from the median beat when it can be measured: noise moves each beat's markers, not the median beat's
   const tm = analysis.templateMeasure;
@@ -793,7 +812,7 @@ export function sessionMetrics(analysis: Analysis, durationS: number, profile: T
     qrs: tm?.qrs ?? median(pick((m) => m.qrs)),
     qtc: tm?.qtc ?? median(pick((m) => m.qtc)),
     qt: tm?.qt ?? median(pick((m) => m.qt)),
-    tPositive: tVals.length ? (100 * tVals.filter((v) => v > 0).length) / tVals.length : NaN,
+    tPositive: tDirs.length ? (100 * tDirs.filter((v) => v > 0).length) / tDirs.length : NaN,
     tAmp: median(tVals),
     trRatio: median(clean.flatMap((m) => (m.tAmp != null && m.rAmp > 0 ? [Math.abs(m.tAmp) / m.rAmp] : []))),
     jPoint: median(pick((m) => m.jAmp)),

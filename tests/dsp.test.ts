@@ -75,6 +75,19 @@ test('figures other than the event count leave out event beats, and a beat besid
   assert.ok(hr.every((v) => Math.abs(v - 60) < 0.5), hr.join(', '));
 });
 
+test('T-wave direction is read where the T wave normally is, not from a bigger noise bump later in the beat', () => {
+  const { raw, truth } = simulate('rest', 120, 7);
+  // noise: a sharp bump 450–520 ms after each beat, bigger than the T wave, pointing up or down at random
+  let seed = 11;
+  const rand = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (const b of truth) {
+    const i = Math.round((b.t + 0.45 + 0.07 * rand()) * FS), sign = rand() < 0.5 ? -1 : 1;
+    for (let k = -2; k <= 2; k++) if (raw[i + k] != null) raw[i + k] = (raw[i + k] ?? 0) + sign * 450 * (1 - Math.abs(k) / 3);
+  }
+  const m = sessionMetrics(analyze(raw, { fs: FS }), 120, PROFILE);
+  assert.ok(m.tPositive >= 90, `T wave positive ${m.tPositive.toFixed(0)} %`);
+});
+
 test('rest metrics are physiological', () => {
   const { raw } = simulate('rest', 300, 7);
   const m = sessionMetrics(analyze(raw, { fs: FS }), 300, PROFILE);
