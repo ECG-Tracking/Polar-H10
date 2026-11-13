@@ -821,7 +821,7 @@ const retriedBlank = new Set<string>();
  * history row's figures worked out again once on this device, one at a time in the background, so their event counts
  * match their reports.
  */
-const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v3'; // v2 (v1.44.7): figures leave out beats disturbed by events; v3 (v1.44.8): T-wave direction
+const NOISE_REDONE_KEY = 'openbeat-summaries-noise-v4'; // v2 (v1.44.7): figures leave out beats disturbed by events; v3 (v1.44.8): T-wave direction; v4 (v1.44.9): QT
 async function redoRecentSummaries(): Promise<void> {
   try { if (localStorage.getItem(NOISE_REDONE_KEY)) return; } catch { return; }
   const since = Date.now() - 7 * 86400_000;
@@ -842,6 +842,11 @@ let historyRedraw: ReturnType<typeof setTimeout> | null = null;
 function redrawHistorySoon(): void {
   if (historyRedraw) return;
   historyRedraw = setTimeout(() => { historyRedraw = null; if ($('view-history').classList.contains('active')) void renderHistory(); }, 300);
+}
+
+/** Where the QT shown came from, in words. */
+function qtHint(m: Pick<SessionMetrics, 'qtFrom'>): string {
+  return m.qtFrom === 'beats' ? 'single beats (the median beat’s T wave is too flat)' : m.qtFrom === 'none' ? 'T wave too flat to measure reliably' : 'median beat';
 }
 
 function summarise(id: string, redraw = true): Promise<void> {
@@ -997,8 +1002,8 @@ function ecgTileGroups(m: SessionMetrics, sink: Outlier[]): { rhythm: HTMLDivEle
   ];
   const waves = [
     metric('QRS duration', fmt(m.qrs), 'ms', 'median beat', ref('qrs', m.qrs)),
-    metric('QT', fmt(m.qt), 'ms', 'median beat'),
-    metric('QTc', fmt(m.qtc), 'ms', `${qtcName}, median beat`, ref('qtc', m.qtc)),
+    metric('QT', fmt(m.qt), 'ms', qtHint(m)),
+    metric('QTc', fmt(m.qtc), 'ms', m.qtFrom === 'none' ? qtHint(m) : `${qtcName}, ${qtHint(m)}`, ref('qtc', m.qtc)),
     metric('T wave positive', fmt(m.tPositive), '%', '', ref('tPositive', m.tPositive)),
     metric('T-wave amplitude', fmt(m.tAmp), 'µV', 'median, vs PR baseline', ref('tAmp', m.tAmp)),
     metric('T/R ratio', fmt(m.trRatio, 2), '', 'T size ÷ R wave size, median', ref('trRatio', m.trRatio)),

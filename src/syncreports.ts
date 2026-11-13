@@ -174,8 +174,8 @@ function pairBoxes(p: SessionMetrics, w: SessionMetrics, events: { polar: number
   ];
   const waves = [
     tile({ k: 'QRS duration', unit: 'ms', f: (m) => m.qrs, hint: 'median beat', key: 'qrs' }),
-    tile({ k: 'QT', unit: 'ms', f: (m) => m.qt, hint: 'median beat' }),
-    tile({ k: 'QTc', unit: 'ms', f: (m) => m.qtc, hint: `${qtcName}, median beat`, key: 'qtc' }),
+    tile({ k: 'QT', unit: 'ms', f: (m) => m.qt, hint: 'median beat · -- where the T wave is too flat to measure reliably' }),
+    tile({ k: 'QTc', unit: 'ms', f: (m) => m.qtc, hint: `${qtcName}, median beat · -- where the T wave is too flat to measure reliably`, key: 'qtc' }),
     tile({ k: 'T wave positive', unit: '%', f: (m) => m.tPositive, key: 'tPositive' }),
     tile({ k: 'T-wave amplitude', unit: 'µV', f: (m) => m.tAmp, hint: 'median, vs PR baseline', key: 'tAmp' }),
     tile({ k: 'T/R ratio', unit: '', f: (m) => m.trRatio, hint: 'T size ÷ R wave size, median', key: 'trRatio', digits: 2 }),
