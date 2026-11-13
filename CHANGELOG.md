@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 13 Nov 2026 – v1.44.7 – Figures leave out waveforms disturbed by events *(GitHub)*
+- Only the event count uses event beats. They are now left out of every other figure listed below. An event is a premature beat, a pause, an irregular shape or interference. The beat just before or after an event is left out too when the event changed its shape. That is when its whole beat, T wave included, matches the median beat less than 90 % and worse than 9 in 10 of the recording's ordinary beats.
+- **Wave figures** (QRS, QT, QTc, T wave positive, T-wave amplitude, T/R ratio, J point, ST at J+60 ms, R and S amplitude): measured from undisturbed beats only. With fewer than 10 undisturbed beats they show "--" rather than figures from a beat or two.
+- **Median beat** (its chart, and where QRS, QT and QTc are measured): built only from undisturbed beats. Before, a beat with an abnormal shape but a normal interval could go into it.
+- **Heart rate over time** (chart and training zones): normal intervals only. Premature beats, pauses and interference had made false spikes, up to 194 bpm on recent recordings.
+- **RR vs QTc chart:** leaves out the disturbed beats as well.
+- **Combined ECG:** a heartbeat either device flagged is left out of both devices' figures, so both columns compare the same heartbeats. Events are still counted only where both devices saw them.
+- **Sleep stages (ECG fill-in) and the Synchronised ECG Tracking report:** use normal intervals only.
+- **Unchanged:** the event count, the event marks on the ECG, the 2–8 Hz energy and the Poincaré chart (which still shows events in red). Mean heart rate and the HRV figures already used normal beats only.
+- **History list:** each device works out the figures of its ECGs from the last 7 days again, once, in the background.
+
 ## 12 Nov 2026 – v1.44.6 – Interference in the Polar H10 ECG is no longer counted as abnormal beats *(GitHub)*
 - Fix: since v1.44.3 the beat detection keeps finding beats after a spike. In a stretch with interference it also marked much of the interference as abnormal beats (premature beats, pauses, irregular shape). Interference comes from poor skin contact or movement at the strap. A flagged beat is now counted as interference instead of an event when the ECG between the heartbeats moves at least 10 times a typical R wave per second over the 10 s around it.
   - This level was measured on your recordings. A clean ECG's P and T waves give about 2–6.

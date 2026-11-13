@@ -203,6 +203,24 @@ export function analysePieces(parts: readonly Int16Array[], fs: number, opts: Op
 const usable = (flags: readonly BeatFlag[]): boolean => !flags.includes('artifact');
 
 /** Beats in both joined ECGs that are the same heartbeat; each interval only where the beat before is also in both. */
+/**
+ * The two ECGs for their figures (all but the event count): a beat either device flagged is left out of both, as the
+ * same heartbeat on the other ECG is disturbed too. It is marked as interference, so it adds no event.
+ */
+export function flaggedOnEither(w: Analysis, p: Analysis): { watchA: Analysis; polarA: Analysis } {
+  const mark = (a: Analysis, other: Analysis): Analysis => {
+    const ts = other.beats.filter((b) => b.flags.length).map((b) => b.t);
+    let j = 0;
+    return {
+      ...a, beats: a.beats.map((b) => {
+        while (j < ts.length && (ts[j] ?? 0) < b.t - SAME_BEAT_MS / 1000) j++;
+        return !b.flags.length && j < ts.length && Math.abs((ts[j] ?? 0) - b.t) <= SAME_BEAT_MS / 1000 ? { ...b, flags: ['artifact'] } : b;
+      }),
+    };
+  };
+  return { watchA: mark(w, p), polarA: mark(p, w) };
+}
+
 export function pairBeats(w: Analysis, p: Analysis): BeatPair[] {
   const out: BeatPair[] = [];
   let j = 0, lastW: number | null = null, lastP: number | null = null;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EcgSimulator, type Scenario } from '../src/sim';
-import { analyze, delineate, sessionMetrics } from '../src/dsp';
+import { analyze, cleanInterval, delineate, disturbed, hrSeries, sessionMetrics } from '../src/dsp';
 import { CAL_MARGIN, ECG_SCALE_NOTE, PX_PER_MV, PX_PER_S } from '../src/charts';
 
 const FS = 130;
@@ -55,6 +55,24 @@ test('beats flagged inside interference (poor skin contact) are interference, no
   const inNoise = a.events.filter((e) => e.t > 42 && e.t < 78);
   assert.equal(inNoise.length, 0, `${inNoise.length} events reported inside the interference`);
   assert.ok(a.artifacts > 0, 'the interference is marked as such');
+});
+
+test('figures other than the event count leave out event beats, and a beat beside one whose shape it changed', () => {
+  const beats = [0, 1, 2, 3, 4, 5, 6].map((k) => ({ t: k, r: k * FS, rr: k ? 1000 : null, flags: [] as ('premature' | 'pause' | 'shape' | 'artifact')[], m: null, shapeMatch: 0.98 }));
+  beats[3]!.flags = ['premature']; beats[3]!.rr = 600; beats[4]!.rr = 1400;
+  // neighbours of normal shape stay in
+  assert.deepEqual(Array.from(disturbed(beats)), [0, 0, 0, 1, 0, 0, 0]);
+  // a neighbour whose shape the event changed is left out too
+  beats[4]!.shapeMatch = 0.8;
+  assert.deepEqual(Array.from(disturbed(beats)), [0, 0, 0, 1, 1, 0, 0]);
+  // on a noisy recording, where ordinary beats match only about as well, it stays in
+  for (const b of beats) b.shapeMatch = 0.75;
+  beats[4]!.shapeMatch = 0.8;
+  assert.deepEqual(Array.from(disturbed(beats)), [0, 0, 0, 1, 0, 0, 0]);
+  assert.deepEqual(beats.map((_, k) => cleanInterval(beats, k)), [false, true, true, false, false, true, true]);
+  // the heart rate over time doesn't jump with the premature beat and the pause after it
+  const hr = hrSeries(beats, 7).filter((v): v is number => v != null);
+  assert.ok(hr.every((v) => Math.abs(v - 60) < 0.5), hr.join(', '));
 });
 
 test('rest metrics are physiological', () => {
