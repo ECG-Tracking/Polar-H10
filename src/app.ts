@@ -4,7 +4,7 @@ import { connectStrap, currentStrap, disconnectStrap, onStrap } from './devices'
 import { EcgSimulator, type Scenario } from './sim';
 import { EcgFilter, analyze, disturbed, hrvStats, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { scaleNote } from './screenscale';
-import { Plot, LiveTrace, EcgViewer, ChestStrips, StageStrips, type StageTrack, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
+import { Plot, LiveTrace, EcgViewer, ChestStrips, StageStrips, BpStrip, type StageTrack, ECG_SCALE_NOTE, drawEventStrip, fmtTime, type Point, type ReportEvent, printInLightColours } from './charts';
 import { writeEdf, readEdf } from './edf';
 import * as store from './store';
 import type { Session, Settings, UserEvent, UserNumber } from './store';
@@ -24,12 +24,15 @@ import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stay
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
 import { trackingLine } from './syncreports';
-import { updateTrackingReports } from './syncreports';
+import { initSyncReports, updateTrackingReports } from './syncreports';
+import { initBpEcg } from './bpecg';
 import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
 import { overlapMs, type Minute } from './syncsleep';
 import { analyzeSleep, EPOCH_S } from './sleep';
 import { sleepData } from './sleepecg';
+import { BP_NEAR_MS, mergeReadings, readingsBetween } from './bp';
+import type { SyncBp } from './store';
 import { initBackups } from './backups';
 import { initLocate } from './locate';
 import { renderStorage } from './storageuse';
@@ -46,8 +49,8 @@ let settings: Settings = store.loadSettings(currentUser);
 
 // ---------- Navigation ----------
 
-type View = 'live' | 'history' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'syncReport' | 'settings' | 'backups' | 'locate' | 'recovery' | 'about';
-const VIEWS: readonly View[] = ['live', 'history', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'syncReport', 'settings', 'backups', 'locate', 'recovery', 'about'];
+type View = 'live' | 'history' | 'bpEcg' | 'report' | 'sleep' | 'sleepHistory' | 'sleepReport' | 'd2' | 'd2History' | 'sync' | 'syncHistory' | 'syncSleep' | 'syncSleepHistory' | 'syncSleepReport' | 'syncReport' | 'settings' | 'backups' | 'locate' | 'recovery' | 'about';
+const VIEWS: readonly View[] = ['live', 'history', 'bpEcg', 'report', 'sleep', 'sleepHistory', 'sleepReport', 'd2', 'd2History', 'sync', 'syncHistory', 'syncSleep', 'syncSleepHistory', 'syncSleepReport', 'syncReport', 'settings', 'backups', 'locate', 'recovery', 'about'];
 const isView = (v: string | undefined): v is View => (VIEWS as readonly (string | undefined)[]).includes(v);
 let sleepUI: ReturnType<typeof initSleep> | null = null;
 printInLightColours();
@@ -61,6 +64,7 @@ function show(view: View): void {
   const tabLabel = document.querySelector<HTMLButtonElement>(`.tabs button[data-view="${tab}"]`)?.textContent?.trim() ?? '';
   $('screenTitle').textContent = view === 'report' ? 'ECG report' : view === 'sleepReport' || view === 'syncSleepReport' ? 'Sleep report' : view === 'syncReport' ? 'Tracking report' : view === 'locate' ? 'Locate connected devices' : tabLabel;
   if (view === 'history') void renderHistory();
+  if (view === 'bpEcg') openBpEcg().refresh();
   if (view === 'sleepHistory') void sleepUI?.renderHistory();
   if (view === 'sleep') sleepUI?.refreshUser();
   if (view === 'd2' || view === 'd2History') void openD2();
@@ -171,6 +175,25 @@ let liveWatch: LiveWatch | null = null;
 let reportsRunning: Promise<boolean> | null = null, reportsTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** New versions of the tracking reports, if a tracking's blood pressure or the watch's data changed. */
+// ---------- BP and ECG ----------
+
+let bpEcgUI: ReturnType<typeof initBpEcg> | null = null;
+let bpPairs: ReturnType<typeof initSyncReports> | null = null;
+function openBpEcg(): ReturnType<typeof initBpEcg> {
+  bpEcgUI ??= initBpEcg($('bpEcgRoot'), {
+    user: () => currentUser,
+    readings: allReadings,
+    fill: fillTrend,
+    // a tracking's two ECGs, as in its Combined ECG (its own lists are not shown on this page)
+    pairInto: (root, id) => {
+      bpPairs ??= initSyncReports(make('div'), make('div'), { loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, updateReports, openEcg: (x) => void openReport(x), show });
+      return bpPairs.pairInto(root, id);
+    },
+    openEcg: (id) => void openReport(id),
+  });
+  return bpEcgUI;
+}
+
 function updateReports(): Promise<boolean> {
   reportsRunning ??= updateTrackingReports({ loadD2, account: () => account.account?.id ?? 'local' }).catch(() => false).finally(() => { reportsRunning = null; });
   return reportsRunning;
@@ -767,6 +790,32 @@ let current: CurrentReport | null = null;
 const chest = new ChestStrips($('chestStrips'), () => ({ t0: viewer.t0, span: viewer.span }), (dt) => viewer.pan(dt));
 let chestFor: string | null = null, chestCache: { sleepId: string; data: ChestSignals; polarStages: StageTrack } | null = null;
 // the night's sleep stages from both devices, above the ECG at the same moments
+// the blood pressure readings around a recording, above everything else in the ECG box
+const bpStrip = new BpStrip();
+$('stageStrips').before(bpStrip.el);
+let bpFor: Session | null = null, bpCache: { at: number; all: SyncBp[] } | null = null;
+
+/** Every blood pressure reading on this device (D2 Link's and the trackings'), kept for a minute. */
+async function allReadings(): Promise<SyncBp[]> {
+  if (bpCache && Date.now() - bpCache.at < 60000) return bpCache.all;
+  const stored = await loadD2().then((api) => api.backup.storedBloodPressure(account.account?.id ?? 'local')).catch(() => []);
+  const all = mergeReadings(stored, store.loadSyncHistory().filter((e) => e.user === currentUser));
+  bpCache = { at: Date.now(), all };
+  return all;
+}
+
+/** Shows the readings from an hour before the recording to an hour after it (none: no graph). */
+async function showBp(session: Session | null): Promise<void> {
+  bpFor = session;
+  bpStrip.set([], [0, 1], null);
+  if (!session || session.source === 'demo') return;
+  const end = session.start + session.durationS * 1000;
+  const mine = readingsBetween(await allReadings(), session.start - BP_NEAR_MS, end + BP_NEAR_MS);
+  if (bpFor !== session) return;
+  bpStrip.set(mine, [session.start - BP_NEAR_MS, end + BP_NEAR_MS], [session.start, end]);
+  bpStrip.mark(session.start + viewer.t0 * 1000, session.start + (viewer.t0 + viewer.span) * 1000);
+}
+
 const stagesStrip = new StageStrips($('stageStrips'), () => ({ t0: viewer.t0, span: viewer.span }), (dt) => viewer.pan(dt));
 
 /** Shows the strips under the ECG when it was recorded with a sleep whose raw data is on this device. */
@@ -804,6 +853,7 @@ const viewerPos = $input('viewerPos');
 viewer.addEventListener('move', () => {
   chest.redraw();
   stagesStrip.redraw();
+  if (bpFor) bpStrip.mark(bpFor.start + viewer.t0 * 1000, bpFor.start + (viewer.t0 + viewer.span) * 1000);
   if (!viewer.duration) return;
   const span = Math.max(0.001, viewer.duration - viewer.span);
   viewerPos.value = String(Math.round((viewer.t0 / span) * 1000));
@@ -931,11 +981,13 @@ async function openReport(id: string): Promise<void> {
   viewer.load(analysis, events);
   viewer.dispatchEvent(new Event('move'));
   void showChest(session);
+  void showBp(session);
 }
 
 /** A recording synced from another device: its stored results, the first 30 s and the event strips. */
 async function openSummaryCopy(session: Session): Promise<void> {
   void showChest(null); // a copy has no raw sleep data
+  void showBp(null);
   if (session.id !== ignoreShapeFor) ignoreShapeFor = null;
   const busy = $('reportBusy'), body = $('reportBody');
   const stored = parseEcgSummary(await store.loadSummaryCopy(session.id));

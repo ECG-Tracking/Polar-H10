@@ -69,6 +69,7 @@
       <div class="nav-group">ECG</div>
         <button role="tab" data-view="live" aria-selected="true"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"/></svg><span>ECG live</span></button>
         <button role="tab" data-view="history"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg><span>ECG history and trending</span></button>
+        <button role="tab" data-view="bpEcg"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/><path d="M5 12h3l1.5-3 3 6 1.5-3H19"/></svg><span>BP and ECG</span></button>
       <div class="nav-group">Sleep</div>
         <button role="tab" data-view="sleep"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><span>Sleep monitor</span></button>
         <button role="tab" data-view="sleepHistory"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></svg><span>Sleep history</span></button>
@@ -181,6 +182,10 @@
     </section>
 
     <!-- REPORT -->
+    <section id="view-bpEcg" class="view">
+      <div id="bpEcgRoot"></div>
+    </section>
+
     <section id="view-report" class="view">
       <div class="row between wrap no-print">
         <div class="row wrap">

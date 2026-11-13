@@ -516,6 +516,93 @@ export interface ChestStripData {
  * Breathing, movement and heart-rate strips under the recorded ECG, showing the same seconds at the same width: they
  * follow the ECG viewer's position, and dragging one of them moves the ECG too (one slider for all).
  */
+/** A blood pressure reading for the BP graph: when (ms), systolic and diastolic (mmHg), and pulse (bpm). */
+export interface BpPoint { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
+
+/**
+ * The blood pressure readings around a recording, above its ECG: each reading a bar from diastolic to systolic, labelled
+ * "128/82", over the hour before to the hour after. The recording is shaded and the part the ECG shows is marked, so the
+ * marker moves with the ECG. Two big squares tall (twice a sleep-stage strip).
+ */
+export class BpStrip {
+  private readings: readonly BpPoint[] = [];
+  private span: [number, number] = [0, 1];
+  private recording: [number, number] | null = null;
+  private shown: [number, number] | null = null;
+  private readonly canvas: HTMLCanvasElement;
+  private readonly value: HTMLElement;
+  readonly el: HTMLElement;
+
+  constructor() {
+    this.el = document.createElement('figure');
+    this.el.className = 'chest-strip bp-strip';
+    const cap = document.createElement('figcaption');
+    const name = document.createElement('span');
+    name.textContent = 'Blood pressure (mmHg)';
+    this.value = document.createElement('span');
+    this.value.className = 'muted';
+    cap.append(name, this.value);
+    this.canvas = document.createElement('canvas');
+    this.canvas.setAttribute('aria-label', 'Blood pressure readings around this recording');
+    this.el.append(cap, this.canvas);
+    this.el.hidden = true;
+    watch(this.canvas, () => this.draw());
+  }
+
+  /** The readings, the time the graph covers, and the recording's own span (all ms). No readings: the graph is hidden. */
+  set(readings: readonly BpPoint[], span: [number, number], recording: [number, number] | null): void {
+    this.readings = [...readings].filter((r) => r.systolic != null || r.diastolic != null).sort((a, b) => a.at - b.at);
+    this.span = span;
+    this.recording = recording;
+    this.el.hidden = !this.readings.length;
+    this.value.textContent = this.readings.length ? ` · ${this.readings.length} reading${this.readings.length > 1 ? 's' : ''}, ${clockText(span[0])} to ${clockText(span[1])}` : '';
+    this.draw();
+  }
+
+  /** The moments the ECG shows now (ms), marked on the graph; null: none. */
+  mark(from: number | null, to: number | null = from): void {
+    this.shown = from == null || to == null ? null : [from, to];
+    this.draw();
+  }
+
+  private draw(): void {
+    if (this.el.hidden) return;
+    const px = `${Math.round(10 * pxPerMm() * ecgSize())}px`; // two big squares
+    if (this.canvas.style.height !== px) this.canvas.style.height = px;
+    if (!this.canvas.clientWidth) return;
+    const surface = setup(this.canvas);
+    if (!surface) return;
+    const { ctx, w, h } = surface;
+    const [a, b] = this.span, X = (t: number): number => ((t - a) / Math.max(1, b - a)) * w;
+    const vals = this.readings.flatMap((r) => [r.systolic, r.diastolic]).filter((v): v is number => v != null);
+    const lo = Math.min(60, ...vals) - 5, hi = Math.max(160, ...vals) + 5;
+    const Y = (v: number): number => h - 3 - ((v - lo) / (hi - lo)) * (h - 6);
+    if (this.recording) { // the recording
+      ctx.fillStyle = css('--line');
+      ctx.fillRect(X(this.recording[0]), 0, Math.max(2, X(this.recording[1]) - X(this.recording[0])), h);
+    }
+    if (this.shown) { // what the ECG shows now
+      ctx.fillStyle = css('--accent');
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(X(this.shown[0]) - 1, 0, Math.max(2, X(this.shown[1]) - X(this.shown[0])) + 2, h);
+      ctx.globalAlpha = 1;
+    }
+    ctx.font = '11px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    for (const r of this.readings) {
+      const x = X(r.at), s = r.systolic ?? r.diastolic!, d = r.diastolic ?? r.systolic!;
+      ctx.strokeStyle = css('--critical'); ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x, Y(s)); ctx.lineTo(x, Y(d)); ctx.stroke();
+      const text = `${clockText(r.at)}  ${r.systolic ?? '--'}/${r.diastolic ?? '--'}${r.pulse != null ? `, pulse ${r.pulse}` : ''}`;
+      const tw = ctx.measureText(text).width;
+      ctx.fillStyle = css('--ink-2');
+      ctx.textAlign = x + 6 + tw < w ? 'left' : 'right';
+      ctx.fillText(text, ctx.textAlign === 'left' ? x + 6 : x - 6, h / 2);
+    }
+  }
+}
+
+const clockText = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
 /** One device's sleep stages: `startS` seconds from the start of the sleep recording, one stage every `stepS` seconds. */
 export interface StageTrack { startS: number; stepS: number; stages: readonly (SleepStageKey | 'asleep' | null)[] }
 

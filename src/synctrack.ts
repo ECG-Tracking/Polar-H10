@@ -73,7 +73,7 @@ const clockOf = (ms: number): string => new Date(ms).toLocaleTimeString([], { ho
 // ---------- the page ----------
 
 /** `historyRoot`: the “Synchronised ECG Tracking History” page. */
-export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
+export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void; pairInto: (root: HTMLElement, id: string) => Promise<void> } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised ECG Tracking'), make('p', 'note',
     'The Polar H10’s ECG, with the Watch D2’s 30-second ECGs taken meanwhile: they are downloaded after Stop. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start; it is added to the tracking once D2 Link has downloaded it.'));
@@ -485,6 +485,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
 
   return {
     openPair: reports.openPair,
+    pairInto: reports.pairInto,
     refreshHistory: () => { renderHistory(); void fillBpFromStored(); },
     stop: () => {
       if (drawFrame) cancelAnimationFrame(drawFrame);

@@ -4,7 +4,7 @@
 
 import { during } from './diagnostics';
 import { analyze, cleanInterval, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
-import { EcgViewer, type ReportEvent } from './charts';
+import { BpStrip, EcgViewer, type ReportEvent } from './charts';
 import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
 import { agreedEvents, beatAgreement, flaggedOnEither, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
@@ -229,6 +229,12 @@ export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, 
 }
 
 /** Clock time of a moment in the joined ECGs. */
+/** The real moment (ms) of a time in the joined strips. */
+function realAt(strips: readonly MatchedStrip[], t: number): number | null {
+  const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
+  return s ? s.start + (t - s.at) * 1000 : null;
+}
+
 function clockAt(strips: readonly MatchedStrip[], t: number): string {
   const s = [...strips].reverse().find((x) => x.at <= t + 1e-6) ?? strips[0];
   return s ? new Date(s.start + (t - s.at) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--';
@@ -370,7 +376,7 @@ function ecgRows(m: NonNullable<TrackVersion['ecg']>): string[][] {
 }
 
 /** `box`: the history page's list; `reportRoot`: the report page. */
-export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void } {
+export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void; pairInto: (root: HTMLElement, id: string) => Promise<void> } {
   /** Where ← goes: Synchronised ECG Tracking History, or ECG history when the pair was opened from there. */
   let backTo: { label: string; go: () => void } | null = null;
   const backToHistory = (): void => { if (backTo) backTo.go(); else deps.show('syncHistory'); };
@@ -514,6 +520,11 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       return { box, canvas };
     };
     const w = mk('Watch D2: the strips joined', 'ECG strips from the watch, joined'), p = mk('Polar H10: the same moments', 'The strap’s ECG of the same moments');
+    // the tracking's blood pressure readings above both ECGs; the marker follows what they show
+    const bp = new BpStrip(), trackEnd = g.e.start + g.e.durationS * 1000;
+    bp.set(g.v.bps, [g.e.start - NEAR_MS, trackEnd + NEAR_MS], [g.e.start, trackEnd]);
+    const bpBox = make('div', 'card viewer bp-card');
+    bpBox.appendChild(bp.el);
     const wv = new EcgViewer(w.canvas), pv = new EcgViewer(p.canvas);
     const pos = make('input');
     Object.assign(pos, { type: 'range', min: '0', max: '1000', value: '0' });
@@ -559,6 +570,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       linking = false;
       pos.value = String(Math.round((a.t0 / Math.max(0.001, a.duration - a.span)) * 1000));
       time.textContent = `${clockAt(set.strips, a.t0)} · ${n(a.span, 1)} s shown`;
+      bp.mark(realAt(set.strips, a.t0), realAt(set.strips, a.t0 + a.span));
     });
     link(wv, pv); link(pv, wv);
     pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
@@ -567,7 +579,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         ...heading('Combined ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
-        ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), w.box, p.box, bar, evBar,
+        ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), ...(g.v.bps.length ? [bpBox] : []), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),
         ...(ecgId ? [button('Open the full Polar H10 ECG', '', () => deps.openEcg(ecgId))] : []),
       ],
@@ -730,7 +742,26 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     void render().then(() => deps.updateReports()).then((changed) => { if (changed) void render(); }).catch(() => undefined);
   };
 
+  /** A tracking's Combined ECG (its latest version) shown inside another page, as on the BP and ECG page. */
+  async function pairInto(root: HTMLElement, id: string): Promise<void> {
+    root.replaceChildren(make('div', 'busy', 'Opening the ECGs…'));
+    try {
+      const e = store.loadSyncHistory().find((x) => x.id === id);
+      const trace = e && await store.loadSyncTrace(id);
+      const v = trace?.reports?.[trace.reports.length - 1];
+      if (!e || !trace || !v) { root.replaceChildren(make('p', 'muted', 'This tracking’s reports aren’t ready yet: open Synchronised ECG Tracking History once to make them.')); return; }
+      let failed: string | null = null;
+      const strips = await gatherStrips(e).catch((err: unknown) => { failed = errorMessage(err); return null; });
+      const g: Gathered = { e, trace, v, latest: true, strips, ...(!strips?.set ? { why: await whyNoStrips(e, failed) } : {}) };
+      const r = ecgPairReport(g);
+      root.replaceChildren(...r.body);
+      r.after();
+    } catch (err) {
+      root.replaceChildren(make('p', 'muted', `The ECGs could not be shown: ${errorMessage(err)}`));
+    }
+  }
+
   /** The two ECGs of a tracking, opened from ECG history: ← goes back there. */
   const openPair = (id: string, back: { label: string; go: () => void }): void => { backTo = back; void openReport(id, 'ecg'); };
-  return { render: refresh, openPair };
+  return { render: refresh, openPair, pairInto: (root, id) => during('showing a tracking’s ECGs', () => pairInto(root, id)) };
 }
