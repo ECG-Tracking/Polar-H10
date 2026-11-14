@@ -24,7 +24,7 @@ import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stay
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
 import { trackingLine } from './syncreports';
-import { initSyncReports, updateTrackingReports } from './syncreports';
+import { updateTrackingReports } from './syncreports';
 import { initBpEcg } from './bpecg';
 import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
@@ -178,18 +178,11 @@ let reportsRunning: Promise<boolean> | null = null, reportsTimer: ReturnType<typ
 // ---------- BP and ECG ----------
 
 let bpEcgUI: ReturnType<typeof initBpEcg> | null = null;
-let bpPairs: ReturnType<typeof initSyncReports> | null = null;
 function openBpEcg(): ReturnType<typeof initBpEcg> {
   bpEcgUI ??= initBpEcg($('bpEcgRoot'), {
     user: () => currentUser,
     readings: allReadings,
     fill: fillTrend,
-    // a tracking's two ECGs, as in its Combined ECG (its own lists are not shown on this page)
-    pairInto: (root, id, opts) => {
-      bpPairs ??= initSyncReports(make('div'), make('div'), { loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, updateReports, openEcg: (x) => void openReport(x), show });
-      return bpPairs.pairInto(root, id, opts);
-    },
-    openEcg: (id) => void openReport(id),
   });
   return bpEcgUI;
 }
