@@ -4,6 +4,18 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.5 – A delete button on every row; Download BP in D2 Link *(GitHub)*
+- **Every row of a history list now has its × delete button.** Each deletion goes to the Recovery centre, where it can be restored.
+  - **Sleep history, a night or nap only the Watch D2 recorded:** deletes it from the watch's data, as D2 Link History's × does. It is also removed from your other devices.
+  - **ECG history and trending, a synchronised tracking:** deletes the tracking, and its ECG too if you say so, as in Synchronised ECG Tracking History.
+  - **Synchronised ECG Tracking History and Synchronised Sleep Tracking History, an older version of the reports:** moves that version to the Recovery centre now, instead of a week after it was replaced. The latest version stays.
+  - **Synchronised Sleep Tracking History, the latest row:** deletes that night or nap from both devices (the Polar H10 recording and the Watch D2 night), and its ECG too if you say so. The reports are made from the two recordings, so they would otherwise be made again.
+  - Lists that aren't saved items (events in a report, tips, steps) have no ×.
+- **D2 Link: a "Download BP" button below "Download ECG".**
+  - It downloads the blood pressure readings taken on the watch over the chosen period. They come in the watch's measurements file, so its HRV and emotion readings are saved with them.
+  - The message says how many readings came and how many were already here, and the download history lists it as "Blood pressure".
+  - The readings then appear on the BP and ECG page and in the BP graphs above ECGs.
+
 ## 14 Nov 2026 – v1.45.4 – Sleep history rows laid out properly *(GitHub)*
 - Fix: Sleep history rows for nights only the Watch D2 recorded had their figures squeezed into a narrow column at the right, one word to a line, because these rows have no delete button. Every row now has the date and devices on the first line, the figures on the second, and its buttons ("Watch D2 report", "Also this night") on a third, with the delete button on the right.
 - A watch figure the watch gives as 0 (no value, as for a short nap's heart rate and HRV) is left out rather than shown as "HR 0 bpm · HRV 0 ms".

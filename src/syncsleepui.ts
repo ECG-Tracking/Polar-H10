@@ -13,7 +13,8 @@ import * as store from './store';
 import { sleepData } from './sleepecg';
 import { buildReports, pairUp, whatChanged, type Known, type PastSleepReports, type PolarFigures, type SavedSleepReports, type SleepCopy, type SleepPair, type WatchSleep } from './syncsleep';
 import { fromAnalysis, parseSleepReport, toAnalysis } from './summary';
-import { fmt, fmtHM, make, whenLine } from './ui';
+import { deleteButton, fmt, fmtHM, make, whenLine } from './ui';
+import { retireVersion } from './oldversions';
 import { errorMessage, errorName } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
 
@@ -397,6 +398,26 @@ export function initSyncSleep(root: HTMLElement, historyRoot: HTMLElement, repor
           button('Comparison report', 'small', () => void openReport(p.id, 'comparison', v.generatedAt)),
         );
         if (ecg) actions.appendChild(button('ECG', 'small', () => deps.openEcg(ecg.id)));
+        const word = p.nap ? 'nap' : 'night';
+        if (n < versions.length) {
+          // an older version: to the Recovery centre now rather than a week after it was replaced
+          actions.appendChild(deleteButton(`version ${n}`, async () => { await retireVersion('sleep-reports', r.id, v.generatedAt); void renderList(); },
+            `Move version ${n} of this ${word}'s reports to the Recovery centre? (The latest version stays.)`));
+        } else {
+          // the latest: the reports are made from the two recordings, so the ${word} goes from both devices
+          actions.appendChild(deleteButton(`this ${word}`, async () => {
+            const ecgId = p.polar.ecgId;
+            if (ecgId && window.confirm(`Also delete the ECG recorded during this ${word}? (Cancel keeps it in ECG history and trending.)`)) await store.deleteSession(ecgId);
+            else if (ecgId) { // kept: it no longer points at a night that's gone
+              const { session: kept } = await store.loadSession(ecgId);
+              if (kept) { const { sleepId: _gone, ...rest } = kept; await store.updateSession(rest); }
+            }
+            await store.deleteSleep(p.polar.id);
+            await (await deps.loadD2()).deleteWatchNight(deps.account(), p.watch.id).catch(() => undefined);
+            await store.deleteSleepReports(p.id);
+            void renderList();
+          }, `Delete this ${word} from both devices: the Polar H10 recording and the Watch D2 ${word}? You can get both back from the Recovery centre. They are also removed from your other devices.`));
+        }
         li.appendChild(actions);
         list.appendChild(li);
       }

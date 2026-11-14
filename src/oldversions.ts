@@ -37,6 +37,27 @@ export async function tidyVersions(now = Date.now()): Promise<{ moved: number; p
   return { moved, purged };
 }
 
+/** Moves one older version of a tracking's or a sleep's reports to the Recovery centre now (its row's ×). The latest stays. */
+export async function retireVersion(of: 'tracking' | 'sleep-reports', id: string, generatedAt: number): Promise<void> {
+  if (of === 'sleep-reports') {
+    const r = await store.loadSleepReports(id);
+    const v = r?.past?.find((x) => x.generatedAt === generatedAt);
+    if (!r || !v) return;
+    await store.binVersion('sleep-reports', r.id, r.user, r.start, v, r.nap);
+    const left = (r.past ?? []).filter((x) => x.generatedAt !== generatedAt);
+    const { past: _p, ...rest } = r;
+    await store.saveSleepReports({ ...rest, ...(left.length ? { past: left } : {}), retired: [...new Set([...(r.retired ?? []), generatedAt])].sort((a, b) => a - b), kept: (r.kept ?? []).filter((x) => x !== generatedAt) });
+    return;
+  }
+  const t = await store.loadSyncTrace(id), e = store.loadSyncHistory().find((x) => x.id === id);
+  const reports = t?.reports ?? [];
+  const v = reports.find((x) => x.generatedAt === generatedAt);
+  if (!t || !e || !v || v === reports[reports.length - 1]) return;
+  await store.binVersion('tracking', t.id, e.user, e.start, v);
+  await store.saveSyncTrace({ ...t, reports: reports.filter((x) => x !== v), retired: [...new Set([...(t.retired ?? []), generatedAt])].sort((a, b) => a - b), kept: (t.kept ?? []).filter((x) => x !== generatedAt) });
+  store.saveSyncEntry(e); // the cloud copy is updated at the next sync
+}
+
 let timer: ReturnType<typeof setInterval> | null = null;
 
 /** Tidies now and then every day; `changed` runs when anything moved, so open lists are drawn again. */
