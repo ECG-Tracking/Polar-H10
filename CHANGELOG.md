@@ -4,6 +4,15 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.3 – BP and ECG: the three graphs on one time; both devices in each table cell *(GitHub)*
+- **BP and ECG, top:** the blood pressure graph now shows exactly the same moments as the Watch D2 and Polar H10 ECGs, so the one slider moves all three on the same date and time.
+  - Its time axis runs down to seconds.
+  - The systolic and diastolic lines run on between readings, so the level around each moment is shown.
+  - A reading inside the time shown is a labelled point.
+- **BP and ECG, table:** each figure is now one column showing both devices, the Polar H10's value above the Watch D2's, as in the ECG figure boxes.
+  - A column sorts by the Polar H10 value, or the Watch D2 value where the strap has none.
+  - The columns start again from the defaults (Date and time, BP reading, HRV score, QRS duration, T-wave positive, T-wave amplitude, T/R ratio, QTc, Events).
+
 ## 14 Nov 2026 – v1.45.2 – Sleep history lists every night, from either device, one row a night *(GitHub)*
 - **Sleep history now lists the Watch D2's nights and naps too**, not only the Polar H10's.
   - A night both devices recorded is one row marked "Polar H10 + Watch D2": it opens the Polar H10 report, and its "Watch D2 report" button opens the watch's.
