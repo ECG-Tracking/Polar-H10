@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.8 – BP and ECG: the blood pressure graph shows again *(GitHub)*
+- Fix: on the BP and ECG page, the blood pressure graph at the top was an empty box when the picked reading belonged to a synchronised tracking. The Combined ECG's own code took the page's graph into its box, which this page doesn't show. The graph now stays in place, over the chosen period, with the tracking shaded and the mark moving with the slider.
+
 ## 14 Nov 2026 – v1.45.7 – Combined ECG: the two "not counted" lines worded alike *(GitHub)*
 - Combined ECG › Heartbeats and events both devices saw: "Strap events the watch didn't confirm (not counted)" now reads "Strap events where the watch shows a normal beat (not counted)", matching the line below it, "Watch events where the strap shows a normal beat (not counted)". Both count events one device saw where the other has no event at that heartbeat.
 
