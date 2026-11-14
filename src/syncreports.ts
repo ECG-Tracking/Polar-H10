@@ -496,7 +496,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. An event counts only if both devices show one at the same heartbeat.'),
       table(['Figure', 'Combined'], [
         ['Heartbeats both found', String(set.pairs.length)],
-        ['Events both agree on', String(both.length)], ['Strap events the watch didn’t confirm (not counted)', String(strapOnly.length)],
+        ['Events both agree on', String(both.length)], ['Strap events where the watch shows a normal beat (not counted)', String(strapOnly.length)],
         ['Watch events where the strap shows a normal beat (not counted)', String(Math.max(0, watchOnly))],
       ]),
       ...(ev.length ? [table(['Time', 'Event', 'Counted'], ev.map((x) => [clockAt(set.strips, x.t), EVENT_LABELS[x.type], x.agreed ? 'Yes: both' : 'No: strap only']))] : []))];
