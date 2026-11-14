@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.13 – Blood pressure graph readable with many readings *(GitHub)*
+- Fix: with many readings (for example a month), the values written at every point covered the blood pressure graph.
+  - **Values:** only where they have room. A value that would overlap one already written is left out, and when the readings are closer together than about 24 pixels only each line's highest and lowest values are written.
+  - **Dots:** smaller when there are more than 40 readings.
+  - **Details:** pointing at any reading still shows its date, time, reading and pulse.
+
 ## 14 Nov 2026 – v1.45.12 – Custom dates in every period choice *(GitHub)*
 - **D2 Link › Graphs** now has "Custom" in its period choice, as the others have, with a start and an end date. It runs from the start of the first date to the end of the last, not after now. The dates are kept on this device.
 - **Every period choice in the app now offers Custom with a start and an end date:** ECG history and trending, BP and ECG, D2 Link's download period, and D2 Link's Graphs.

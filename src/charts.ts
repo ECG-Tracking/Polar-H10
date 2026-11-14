@@ -676,9 +676,30 @@ export class BpStrip {
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
       ctx.fillStyle = color;
-      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fill(); }
+      const dense = pts.filter(([x]) => inside(x)).length > 40;
+      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, dense ? 2 : 3.5, 0, 2 * Math.PI); ctx.fill(); }
+      // a value is written only where it has room: one that would overlap a value already written is left out (pointing
+      // at the reading still shows it), so many readings don't hide the lines
       ctx.fillStyle = css('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = side < 0 ? 'bottom' : 'top';
-      for (const [x, y, v] of pts) if (inside(x)) ctx.fillText(String(v), Math.min(L.l + pw - 10, Math.max(L.l + 10, x)), y + side * 7);
+      const written: { x0: number; x1: number; y0: number; y1: number }[] = [];
+      // readings closer together than this on average: only the line's highest and lowest values are written
+      const shownPts = pts.filter(([x]) => inside(x));
+      const crowded = shownPts.length > 1 && pw / shownPts.length < 24;
+      const vals = shownPts.map(([, , v]) => v), hiV = Math.max(...vals), loV = Math.min(...vals);
+      let hiDone = false, loDone = false;
+      for (const [x, y, v] of pts) {
+        if (!inside(x)) continue;
+        if (crowded) {
+          if (v === hiV && !hiDone) hiDone = true;
+          else if (v === loV && !loDone) loDone = true;
+          else continue;
+        }
+        const text = String(v), tw = ctx.measureText(text).width, lx = Math.min(L.l + pw - 10, Math.max(L.l + 10, x));
+        const box = { x0: lx - tw / 2 - 2, x1: lx + tw / 2 + 2, y0: side < 0 ? y - 7 - 12 : y + 7, y1: side < 0 ? y - 7 : y + 7 + 12 };
+        if (written.some((w) => box.x0 < w.x1 && box.x1 > w.x0 && box.y0 < w.y1 && box.y1 > w.y0)) continue;
+        written.push(box);
+        ctx.fillText(text, lx, y + side * 7);
+      }
     }
     ctx.restore();
     // legend, top right
