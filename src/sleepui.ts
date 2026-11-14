@@ -363,6 +363,13 @@ export function initSleep(deps: SleepDeps): {
    * Every night and nap of this user, from the Polar H10 or the Watch D2 or both, newest first. A night both recorded is
    * one row (the strap's report opens; the watch's from its button); a night only the watch recorded opens the watch's.
    */
+  /** The row's line of buttons under its figures (made the first time it's needed). */
+  const actionsOf = (li: HTMLElement): HTMLElement => {
+    let box = li.querySelector<HTMLElement>(':scope > .sleep-actions');
+    if (!box) { box = make('span', 'row wrap sleep-actions'); li.appendChild(box); }
+    return box;
+  };
+
   async function renderHistory(): Promise<void> {
     const user = deps.user();
     $('sleepHistoryUser').textContent = `· ${deps.userLabel(user)}`;
@@ -386,7 +393,7 @@ export function initSleep(deps: SleepDeps): {
       const s = n.summary;
       const w = withWatch.get(n.id);
       const nap = isNap(n.start, n.durationS, n.context);
-      const li = make('li');
+      const li = make('li', 'sleep-row');
       const stats = s ? [nap ? '' : `Score ${s.score}`, `${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'}`, `HR ${fmt(s.avgHR)} bpm`, `HRV ${fmt(s.avgHrv)} ms`, fmtHM(s.sleepMin)] : ['Open to analyse', fmtTime(n.durationS)];
       li.append(
         whenLine(nightTitle(n.start, nap), `${w ? 'Polar H10 + Watch D2' : 'Polar H10'} · from ${timeOf(n.start)}`),
@@ -396,7 +403,7 @@ export function initSleep(deps: SleepDeps): {
       if (w) {
         const b = make('button', 'small', `Watch D2 report${w.score != null && !w.nap ? ` (score ${w.score})` : ''}`);
         b.addEventListener('click', (e) => { e.stopPropagation(); deps.openWatchNight(w.id); });
-        li.appendChild(b);
+        actionsOf(li).appendChild(b);
       }
       const word = nap ? 'nap' : 'night';
       li.appendChild(deleteButton(`this ${word}`, async () => { await deleteNight(n); void renderHistory(); }, `Delete this ${word}? You can get it back from the Recovery centre. It is also removed from your other devices.`));
@@ -407,8 +414,9 @@ export function initSleep(deps: SleepDeps): {
     // nights only the watch recorded
     for (const w of watch) {
       if (used.has(w.id)) continue;
-      const li = make('li');
-      const stats = [w.nap || w.score == null ? '' : `Score ${w.score}`, w.wakeups == null ? '' : `${w.wakeups} awakening${w.wakeups === 1 ? '' : 's'}`, w.avgHR != null ? `HR ${fmt(w.avgHR)} bpm` : '', w.avgHrv != null ? `HRV ${fmt(w.avgHrv)} ms` : '', fmtHM(w.sleepMin)];
+      const li = make('li', 'sleep-row');
+      // the watch gives 0 where it has no value
+      const stats = [w.nap || !w.score ? '' : `Score ${w.score}`, w.wakeups == null ? '' : `${w.wakeups} awakening${w.wakeups === 1 ? '' : 's'}`, w.avgHR ? `HR ${fmt(w.avgHR)} bpm` : '', w.avgHrv ? `HRV ${fmt(w.avgHrv)} ms` : '', w.sleepMin ? fmtHM(w.sleepMin) : ''];
       li.append(
         whenLine(nightTitle(w.bedMs, w.nap), `Watch D2 · from ${timeOf(w.bedMs)}`),
         make('span', 'dur', 'no Polar H10 recording'),
@@ -436,7 +444,7 @@ export function initSleep(deps: SleepDeps): {
           b.addEventListener('click', (ev) => { ev.stopPropagation(); e.open(); });
           also.appendChild(b);
         }
-        main.li.appendChild(also);
+        actionsOf(main.li).appendChild(also);
       }
       rows.push({ at: Math.min(...group.map((e) => e.at)), el: main.li });
     }

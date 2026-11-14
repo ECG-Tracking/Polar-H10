@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.4 – Sleep history rows laid out properly *(GitHub)*
+- Fix: Sleep history rows for nights only the Watch D2 recorded had their figures squeezed into a narrow column at the right, one word to a line, because these rows have no delete button. Every row now has the date and devices on the first line, the figures on the second, and its buttons ("Watch D2 report", "Also this night") on a third, with the delete button on the right.
+- A watch figure the watch gives as 0 (no value, as for a short nap's heart rate and HRV) is left out rather than shown as "HR 0 bpm · HRV 0 ms".
+
 ## 14 Nov 2026 – v1.45.3 – BP and ECG: the three graphs on one time; both devices in each table cell *(GitHub)*
 - **BP and ECG, top:** the blood pressure graph now shows exactly the same moments as the Watch D2 and Polar H10 ECGs, so the one slider moves all three on the same date and time.
   - Its time axis runs down to seconds.
