@@ -669,36 +669,55 @@ export class BpStrip {
     const inside = (x: number): boolean => x >= L.l - 0.5 && x <= L.l + pw + 0.5;
     ctx.save();
     ctx.beginPath(); ctx.rect(L.l, 0, pw, h); ctx.clip(); // readings outside the time shown only carry the line on
-    for (const [key, , color, side] of series) {
-      const pts = this.readings.flatMap((r) => (r[key] == null ? [] : [[X(r.at), Y(r[key]!), r[key]!] as const]));
+    type P = readonly [number, number, number];
+    const lines = series.map(([key]) => this.readings.flatMap((r): P[] => (r[key] == null ? [] : [[X(r.at), Y(r[key]!), r[key]!]])));
+    const shownCount = lines.reduce((n, pts) => n + pts.filter(([x]) => inside(x)).length, 0);
+    const dot = shownCount > 80 ? 2 : 3.5;
+    series.forEach(([, , color], k) => {
+      const pts = lines[k]!;
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
       ctx.beginPath();
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
       ctx.fillStyle = color;
-      const dense = pts.filter(([x]) => inside(x)).length > 40;
-      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, dense ? 2 : 3.5, 0, 2 * Math.PI); ctx.fill(); }
-      // a value is written only where it has room: one that would overlap a value already written is left out (pointing
-      // at the reading still shows it), so many readings don't hide the lines
-      ctx.fillStyle = css('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = side < 0 ? 'bottom' : 'top';
-      const written: { x0: number; x1: number; y0: number; y1: number }[] = [];
-      // readings closer together than this on average: only the line's highest and lowest values are written
-      const shownPts = pts.filter(([x]) => inside(x));
-      const crowded = shownPts.length > 1 && pw / shownPts.length < 24;
-      const vals = shownPts.map(([, , v]) => v), hiV = Math.max(...vals), loV = Math.min(...vals);
-      let hiDone = false, loDone = false;
-      for (const [x, y, v] of pts) {
-        if (!inside(x)) continue;
-        if (crowded) {
-          if (v === hiV && !hiDone) hiDone = true;
-          else if (v === loV && !loDone) loDone = true;
-          else continue;
-        }
-        const text = String(v), tw = ctx.measureText(text).width, lx = Math.min(L.l + pw - 10, Math.max(L.l + 10, x));
-        const box = { x0: lx - tw / 2 - 2, x1: lx + tw / 2 + 2, y0: side < 0 ? y - 7 - 12 : y + 7, y1: side < 0 ? y - 7 : y + 7 + 12 };
-        if (written.some((w) => box.x0 < w.x1 && box.x1 > w.x0 && box.y0 < w.y1 && box.y1 > w.y0)) continue;
-        written.push(box);
-        ctx.fillText(text, lx, y + side * 7);
+      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, dot, 0, 2 * Math.PI); ctx.fill(); }
+    });
+    // each value is written where its label touches neither another label nor either line nor a dot: first on its own
+    // side (systolic above, diastolic below), else on the other side; the readings that stand out most are placed first,
+    // and one with no room is left out (pointing at it still shows it)
+    type Box = { x0: number; x1: number; y0: number; y1: number };
+    const overlaps = (a2: Box, b2: Box): boolean => a2.x0 < b2.x1 && a2.x1 > b2.x0 && a2.y0 < b2.y1 && a2.y1 > b2.y0;
+    const segHits = (x1: number, y1: number, x2: number, y2: number, bx: Box): boolean => {
+      const lo = Math.max(Math.min(x1, x2), bx.x0), hi = Math.min(Math.max(x1, x2), bx.x1);
+      if (lo > hi) return false;
+      const yAt = (x: number): number => (x2 === x1 ? y1 : y1 + ((y2 - y1) * (x - x1)) / (x2 - x1));
+      const ya = yAt(lo), yb = x2 === x1 ? y2 : yAt(hi);
+      return Math.max(ya, yb) >= bx.y0 && Math.min(ya, yb) <= bx.y1;
+    };
+    const blocked = (bx: Box): boolean => lines.some((pts) => pts.some(([x, y], i) => {
+      if (Math.abs(x - (bx.x0 + bx.x1) / 2) < 400 && x + dot >= bx.x0 && x - dot <= bx.x1 && y + dot >= bx.y0 && y - dot <= bx.y1) return true;
+      const q = pts[i + 1];
+      return q != null && segHits(x, y, q[0], q[1], bx);
+    }));
+    const written: Box[] = [];
+    const candidates = series.flatMap(([, , , side], k) => {
+      const pts = lines[k]!;
+      return pts.map(([x, y, v], i) => {
+        const before = pts[i - 1]?.[2] ?? v, after = pts[i + 1]?.[2] ?? v;
+        return { x, y, v, side, stand: Math.abs(v - (before + after) / 2) };
+      }).filter((c) => inside(c.x));
+    }).sort((a2, b2) => b2.stand - a2.stand);
+    ctx.fillStyle = css('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const c of candidates) {
+      const text = String(c.v), tw = ctx.measureText(text).width, lx = Math.min(L.l + pw - 10, Math.max(L.l + 10, c.x));
+      for (const side of [c.side, -c.side]) {
+        const cy = c.y + side * (dot + 9);
+        const bx = { x0: lx - tw / 2 - 1, x1: lx + tw / 2 + 1, y0: cy - 6, y1: cy + 6 };
+        if (bx.y0 < L.t - 4 || bx.y1 > L.t + ph) continue;
+        if (written.some((w) => overlaps(bx, w)) || blocked(bx)) continue;
+        written.push(bx);
+        ctx.fillText(text, lx, cy);
+        break;
       }
     }
     ctx.restore();

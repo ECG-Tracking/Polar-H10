@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.14 – Blood pressure graph: as many values as fit *(GitHub)*
+- The blood pressure graph now writes every value that has room, rather than only the highest and lowest when readings are close together.
+  - **Placement:** a value goes where its label touches no other label, neither line and no dot. It tries its own side first (systolic above, diastolic below), then the other side, into the gap between the lines.
+  - **Order:** the readings that stand out most from their neighbours, the peaks and dips, are placed first.
+  - **No room:** a reading is left unlabelled. Pointing at it still shows its date, time, reading and pulse.
+
 ## 14 Nov 2026 – v1.45.13 – Blood pressure graph readable with many readings *(GitHub)*
 - Fix: with many readings (for example a month), the values written at every point covered the blood pressure graph.
   - **Values:** only where they have room. A value that would overlap one already written is left out, and when the readings are closer together than about 24 pixels only each line's highest and lowest values are written.
