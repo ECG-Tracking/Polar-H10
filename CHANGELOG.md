@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.2 – Sleep history lists every night, from either device, one row a night *(GitHub)*
+- **Sleep history now lists the Watch D2's nights and naps too**, not only the Polar H10's.
+  - A night both devices recorded is one row marked "Polar H10 + Watch D2": it opens the Polar H10 report, and its "Watch D2 report" button opens the watch's.
+  - A night only the watch recorded is marked "Watch D2" (no Polar H10 recording), shows the watch's score, awakenings, heart rate, HRV and time asleep, and opens the watch's report.
+- **Each night is dated by the evening it began**, so sleep after midnight belongs to the night before: a recording that starts at 01:26 on 12 Nov is the "Night of Wed, 11 Nov". Each row also says when the recording started.
+- **Each night is one row:** when a night has more than one recording, the Polar H10's longest leads the row and the others are buttons in it ("Also this night"). Naps keep their own date and time, each on its own row.
+
 ## 14 Nov 2026 – v1.45.1 – BP graph as a line chart; BP and ECG page rearranged *(GitHub)*
 - **The blood pressure graph is now a line chart:**
   - Systolic and diastolic are two lines, and each reading's value is written at its point.

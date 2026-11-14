@@ -1450,6 +1450,9 @@ account.cloud?.addEventListener('changed', () => {
 });
 
 sleepUI = initSleep({
+  // the Watch D2's nights are listed in Sleep history too (from D2 Link)
+  watchNights: async () => (await loadD2()).pairingSleep(account.account?.id ?? 'local', currentUser),
+  openWatchNight: (id) => void openD2Night(id, () => show('sleepHistory')),
   renderNightEcg,
   ecgDuring,
   sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },

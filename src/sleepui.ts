@@ -3,7 +3,7 @@
 import { during } from './diagnostics';
 import { connectStrap, disconnectStrap, keepStrapWhen, onStrap, strapReady } from './devices';
 import { ACC_FS, ECG_FS, bluetoothAvailable, type PolarH10, type AccDetail, type EcgDetail, type HrDetail, type BatteryDetail } from './polar';
-import { analyzeSleep, isNap, joinParts, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
+import { analyzeSleep, isNap, nightOf, joinParts, SleepRecorder, EPOCH_S, SCORE_EXPLANATION, type SleepAnalysis, type SleepData, type Stage } from './sleep';
 import { simulateNight } from './sleepsim';
 import { EcgFilter } from './dsp';
 import { Plot, LiveTrace, Hypnogram, Bars, drawDonut, fmtClock, fmtTime, STAGE_COLOR_VAR, STAGE_LABEL, type Point, type SleepStageKey } from './charts';
@@ -17,7 +17,17 @@ import { errorMessage, errorName, sleep } from './util';
 import { current as account, historyChanged } from './account';
 import { parseSleepReport, toAnalysis, type SleepReport } from './summary';
 
+/** A night (or nap) the Watch D2 recorded, as D2 Link keeps it, for Sleep history. */
+export interface WatchNight {
+  id: string; start: number; nap: boolean; demo: boolean; bedMs: number; wokeMs: number;
+  sleepMin: number; wakeups: number | null; score: number | null; avgHR: number | null; avgHrv: number | null;
+}
+
 export interface SleepDeps {
+  /** The Watch D2's nights (none when D2 Link can't be loaded). */
+  watchNights: () => Promise<WatchNight[]>;
+  /** Opens a Watch D2 night's report; its back button returns to Sleep history. */
+  openWatchNight: (id: string) => void;
   /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
   renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
   /** An ECG saved during this time, for a recording that didn't save its own. */
@@ -37,6 +47,12 @@ export interface SleepDeps {
 const MIN_SAVE_S = 10 * 60;
 const PART_MS = 60 * 60000; // how often a running recording is saved
 const LIVE_PART_MS = 70 * 60000; // a recording saved this recently may still be running in another tab
+
+/** "Night of Wed, 11 Nov 2026" (by the evening it started), or a nap's own date and time. */
+function nightTitle(ms: number, nap: boolean): string {
+  if (nap) return new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  return `Night of ${new Date(ms - 12 * 3600000).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
 
 export function initSleep(deps: SleepDeps): {
   renderHistory: () => Promise<void>;
@@ -343,29 +359,90 @@ export function initSleep(deps: SleepDeps): {
 
   // ---------- history ----------
 
+  /**
+   * Every night and nap of this user, from the Polar H10 or the Watch D2 or both, newest first. A night both recorded is
+   * one row (the strap's report opens; the watch's from its button); a night only the watch recorded opens the watch's.
+   */
   async function renderHistory(): Promise<void> {
     const user = deps.user();
     $('sleepHistoryUser').textContent = `· ${deps.userLabel(user)}`;
     let nights: SleepSession[] = [];
     try { nights = await store.listSleeps(user); } catch { /* storage blocked */ }
-    const list = $('sleepList');
-    list.replaceChildren();
-    $('sleepEmpty').hidden = nights.length > 0;
+    const watch = (await deps.watchNights().catch(() => [])).filter((w) => !w.demo);
+    // a watch night belongs with a strap recording when they overlap by half an hour or more
+    const overlap = (n: SleepSession, w: WatchNight): number => Math.min(n.start + n.durationS * 1000, w.wokeMs) - Math.max(n.start, w.bedMs);
+    const used = new Set<string>();
+    const withWatch = new Map<string, WatchNight>();
+    for (const n of nights) {
+      const best = watch.filter((w) => !used.has(w.id) && overlap(n, w) >= 30 * 60000).sort((a, b) => overlap(n, b) - overlap(n, a))[0];
+      if (best) { used.add(best.id); withWatch.set(n.id, best); }
+    }
+    // each recording as an entry; then one row per night (noon to noon, so sleep after midnight belongs to the night
+    // before), the longest recording leading it, and the night's other recordings as buttons in that row
+    type Entry = { at: number; lengthMs: number; nap: boolean; strap: boolean; li: HTMLLIElement; label: string; open: () => void };
+    const entries: Entry[] = [];
+    const timeOf = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     for (const n of nights) {
       const s = n.summary;
+      const w = withWatch.get(n.id);
       const nap = isNap(n.start, n.durationS, n.context);
       const li = make('li');
       const stats = s ? [nap ? '' : `Score ${s.score}`, `${s.awakenings} awakening${s.awakenings === 1 ? '' : 's'}`, `HR ${fmt(s.avgHR)} bpm`, `HRV ${fmt(s.avgHrv)} ms`, fmtHM(s.sleepMin)] : ['Open to analyse', fmtTime(n.durationS)];
       li.append(
-        whenLine(new Date(n.start).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }), nap ? 'Nap' : 'Night'),
+        whenLine(nightTitle(n.start, nap), `${w ? 'Polar H10 + Watch D2' : 'Polar H10'} · from ${timeOf(n.start)}`),
         make('span', 'dur', [n.source === 'demo' ? 'demo' : '', n.ecgId ? 'with ECG' : '', n.cloudOnly ? 'synced copy' : ''].filter(Boolean).join(' · ')),
         make('span', 'stats', stats.filter(Boolean).join(' · ')),
       );
+      if (w) {
+        const b = make('button', 'small', `Watch D2 report${w.score != null && !w.nap ? ` (score ${w.score})` : ''}`);
+        b.addEventListener('click', (e) => { e.stopPropagation(); deps.openWatchNight(w.id); });
+        li.appendChild(b);
+      }
       const word = nap ? 'nap' : 'night';
       li.appendChild(deleteButton(`this ${word}`, async () => { await deleteNight(n); void renderHistory(); }, `Delete this ${word}? You can get it back from the Recovery centre. It is also removed from your other devices.`));
-      li.addEventListener('click', () => void openReport(n.id));
-      list.appendChild(li);
+      const open = (): void => void openReport(n.id);
+      li.addEventListener('click', open);
+      entries.push({ at: n.start, lengthMs: n.durationS * 1000, nap, strap: true, li, label: `Polar H10 from ${timeOf(n.start)} (${fmtTime(n.durationS)})`, open });
     }
+    // nights only the watch recorded
+    for (const w of watch) {
+      if (used.has(w.id)) continue;
+      const li = make('li');
+      const stats = [w.nap || w.score == null ? '' : `Score ${w.score}`, w.wakeups == null ? '' : `${w.wakeups} awakening${w.wakeups === 1 ? '' : 's'}`, w.avgHR != null ? `HR ${fmt(w.avgHR)} bpm` : '', w.avgHrv != null ? `HRV ${fmt(w.avgHrv)} ms` : '', fmtHM(w.sleepMin)];
+      li.append(
+        whenLine(nightTitle(w.bedMs, w.nap), `Watch D2 · from ${timeOf(w.bedMs)}`),
+        make('span', 'dur', 'no Polar H10 recording'),
+        make('span', 'stats', stats.filter(Boolean).join(' · ')),
+      );
+      const open = (): void => deps.openWatchNight(w.id);
+      li.addEventListener('click', open);
+      entries.push({ at: w.bedMs, lengthMs: w.wokeMs - w.bedMs, nap: w.nap, strap: false, li, label: `Watch D2 from ${timeOf(w.bedMs)}`, open });
+    }
+    const groups = new Map<string, Entry[]>();
+    for (const e of entries) {
+      const key = e.nap ? `nap:${e.at}` : `night:${nightOf(e.at)}`;
+      groups.set(key, [...(groups.get(key) ?? []), e]);
+    }
+    const rows: { at: number; el: HTMLLIElement }[] = [];
+    for (const group of groups.values()) {
+      // the strap's longest recording leads the night; else the watch's
+      group.sort((a, b) => Number(b.strap) - Number(a.strap) || b.lengthMs - a.lengthMs);
+      const [main, ...more] = group as [Entry, ...Entry[]];
+      if (more.length) {
+        const also = make('span', 'row wrap sleep-also');
+        also.append(make('span', 'muted', 'Also this night:'));
+        for (const e of more) {
+          const b = make('button', 'small', e.label);
+          b.addEventListener('click', (ev) => { ev.stopPropagation(); e.open(); });
+          also.appendChild(b);
+        }
+        main.li.appendChild(also);
+      }
+      rows.push({ at: Math.min(...group.map((e) => e.at)), el: main.li });
+    }
+    rows.sort((a, b) => b.at - a.at);
+    $('sleepList').replaceChildren(...rows.map((r) => r.el));
+    $('sleepEmpty').hidden = rows.length > 0;
   }
 
   // ---------- report ----------
