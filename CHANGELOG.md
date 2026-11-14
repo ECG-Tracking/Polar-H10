@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.7 – Combined ECG: the two "not counted" lines worded alike *(GitHub)*
+- Combined ECG › Heartbeats and events both devices saw: "Strap events the watch didn't confirm (not counted)" now reads "Strap events where the watch shows a normal beat (not counted)", matching the line below it, "Watch events where the strap shows a normal beat (not counted)". Both count events one device saw where the other has no event at that heartbeat.
+
 ## 14 Nov 2026 – v1.45.6 – BP and ECG: the period at the top, for all three graphs *(GitHub)*
 - **BP and ECG:** "Show the last" is now at the very top of the page, and the period applies to all three graphs and to the table.
   - **The blood pressure graph** covers the whole period: all its readings, systolic and diastolic. The picked reading's tracking is shaded, and a mark shows the moments the ECGs show. The mark moves with the slider, as in a tracking's Combined ECG.
