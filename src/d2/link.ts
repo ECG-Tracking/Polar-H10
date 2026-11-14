@@ -35,6 +35,9 @@ const ZERO4 = new Uint8Array(4);
 /** The phone app id the watch expects in the login message and in data sync requests (a protocol constant, not shown to users). */
 export const HEALTH_APP_ID = 'com.huawei.health';
 
+/** What to do when the watch doesn't answer the first message. */
+export const FIRST_MESSAGE_ADVICE = 'Unpair the watch and try again: press Forget pairing, remove the Watch D2 from this device’s Bluetooth list (on a Mac, also quit and reopen the D2 Bridge app), make sure Bluetooth is off on the phone it is paired with, then pair again.';
+
 export class WatchError extends Error {}
 
 interface Waiter { service: number; command: number; resolve: (p: InPacket) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
@@ -134,7 +137,12 @@ export class D2Link {
 
   private async connectOnce(pairing: Pairing | null, onPaired: (p: Pairing) => void): Promise<Pairing> {
     this.log('Reading the connection settings…');
-    const lp = await this.request({ service: DEVICE_CONFIG, command: 0x01, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8000, 'the first message');
+    // no answer at all usually means the watch is still held by an old pairing (or its phone app): say what to do
+    const lp = await this.request({ service: DEVICE_CONFIG, command: 0x01, tlv: new Tlv().put(1).put(2).put(3).put(4), encrypt: false, sliced: false }, 8000, 'the first message')
+      .catch((e: unknown) => {
+        if (e instanceof WatchError) throw new WatchError(`${e.message} ${FIRST_MESSAGE_ADVICE}`);
+        throw e;
+      });
     if (lp.has(0x02)) this.params.sliceSize = lp.short(0x02);
     const nonceField = lp.bytes(0x05);
     this.params.authVersion = nonceField[1] ?? 0;

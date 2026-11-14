@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.19 – Advice when the watch doesn't answer *(GitHub)*
+- When the Watch D2 doesn't answer the first message, the message now also says what to do: "Unpair the watch and try again".
+  - **Steps:** press Forget pairing, remove the Watch D2 from this device's Bluetooth list (on a Mac, also quit and reopen the D2 Bridge app), make sure Bluetooth is off on the phone it is paired with, then pair again.
+  - **Where it shows:** Synchronised ECG Tracking, D2 Link and the downloads.
+
 ## 14 Nov 2026 – v1.45.18 – Combined ECG results saved with each tracking; BP and ECG reads them *(GitHub)*
 - **Each tracking now keeps its Combined ECG results:** both devices' figures from the same heartbeats, with a beat either device flagged left out of both, and the events both saw at the same heartbeat with each device's % of beats.
   - They are worked out once, in the background after the tracking reports are updated, or when the Combined ECG is opened.
