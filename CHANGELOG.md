@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.17 – BP and ECG table: events as the Combined ECG counts them *(GitHub)*
+- **BP and ECG table, Events** (now "Events (counted · % of beats)"): for a reading from a synchronised tracking, the count is the events both devices saw at the same heartbeat, with each device's % of beats, as in the Combined ECG's Events box (for example "Polar H10 11 · 3.1 %, Watch D2 11 · 3.1 %").
+  - These are worked out in the background for the trackings in the period, a few at a time.
+  - A reading without a tracking shows each device's own events and their % of beats.
+- Before, the column showed each device's own event count, which included events only one device saw.
+
 ## 14 Nov 2026 – v1.45.16 – Blood pressure graph: systolic and diastolic in their own bands *(GitHub)*
 - The blood pressure graph keeps its size and grid, but systolic and diastolic now each have their own band: systolic above, diastolic below, with a gap between them.
   - Each band has its own mmHg scale, in whole tens around its readings, with gridlines every 10 mmHg (20 when the range is wide).
