@@ -531,6 +531,9 @@ export class BpStrip {
   private shown: [number, number] | null = null;
   private readonly canvas: HTMLCanvasElement;
   private readonly value: HTMLElement;
+  private readonly tip: HTMLDivElement;
+  /** Where each reading was drawn (canvas px), for the tooltip. */
+  private drawn: { x: number; y: number; r: BpPoint }[] = [];
   readonly el: HTMLElement;
 
   /** `alwaysShown`: shown with "No readings" when there are none (on a page of its own), rather than hidden. */
@@ -545,9 +548,14 @@ export class BpStrip {
     cap.append(name, this.value);
     this.canvas = document.createElement('canvas');
     this.canvas.setAttribute('aria-label', 'Blood pressure readings: systolic and diastolic over time');
-    this.el.append(cap, this.canvas);
+    this.tip = document.createElement('div');
+    this.tip.className = 'tip';
+    this.el.append(cap, this.canvas, this.tip);
     this.el.hidden = !alwaysShown;
     watch(this.canvas, () => this.draw());
+    // hovering over a reading: its date and time and the reading
+    this.canvas.addEventListener('pointermove', (e) => this.hover(e));
+    this.canvas.addEventListener('pointerleave', () => { this.tip.style.display = 'none'; });
   }
 
   /** The readings, the time the chart covers, and the recording's own span (all ms). */
@@ -559,6 +567,21 @@ export class BpStrip {
     const n = this.readings.length;
     this.value.textContent = n ? ` · ${n} reading${n > 1 ? 's' : ''}` : '';
     this.draw();
+  }
+
+  private hover(e: PointerEvent): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    let best: (typeof this.drawn)[number] | null = null;
+    for (const d of this.drawn) if (Math.abs(d.x - mx) <= 14 && (!best || Math.abs(d.x - mx) < Math.abs(best.x - mx))) best = d;
+    if (!best) { this.tip.style.display = 'none'; return; }
+    const r = best.r;
+    const when = new Date(r.at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    this.tip.innerHTML = `${when}<br><b>${r.systolic ?? '--'}/${r.diastolic ?? '--'} mmHg</b>${r.pulse != null ? ` · pulse ${r.pulse} bpm` : ''}`;
+    this.tip.style.display = 'block';
+    const top = this.canvas.offsetTop; // the caption is above the canvas
+    this.tip.style.left = `${Math.min(rect.width - this.tip.offsetWidth - 4, Math.max(4, best.x + 12))}px`;
+    this.tip.style.top = `${top + Math.max(4, best.y - this.tip.offsetHeight - 10)}px`;
   }
 
   /** The moments the ECG shows now (ms), marked on the chart; null: none. */
@@ -618,6 +641,7 @@ export class BpStrip {
       ctx.globalAlpha = 1;
     }
 
+    this.drawn = this.readings.map((r) => ({ x: X(r.at), y: Y(r.systolic ?? r.diastolic ?? lo), r })).filter((d) => d.x >= L.l - 1 && d.x <= L.l + pw + 1);
     if (!this.readings.length) {
       ctx.fillStyle = css('--muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('No readings in this time', L.l + pw / 2, L.t + ph / 2);
