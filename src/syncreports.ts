@@ -8,6 +8,7 @@ import { BpStrip, EcgViewer, type ReportEvent } from './charts';
 import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
 import { agreedEvents, beatAgreement, flaggedOnEither, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
+import { retireVersion } from './oldversions';
 import * as store from './store';
 import type { SyncBp, SyncTrackingEntry } from './store';
 import {
@@ -737,6 +738,8 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         }
         actions.appendChild(button('Combined ECG', 'small', () => { backTo = null; void openReport(e.id, 'ecg', v.generatedAt); }));
         if (i === versions.length) actions.appendChild(remove); // the tracking goes, with all its versions
+        else actions.appendChild(deleteButton(`version ${i}`, async () => { await retireVersion('tracking', e.id, v.generatedAt); void render(); },
+          `Move version ${i} of this tracking's reports to the Recovery centre? (The latest version stays.)`));
         li.appendChild(actions);
         list.appendChild(li);
       }

@@ -109,6 +109,12 @@ export async function pairingSleep(account: string, user: number): Promise<Pairi
   });
 }
 
+/** Deletes one of this user's watch nights or naps (to the Recovery centre, and from the other devices), as D2 Link History's ×. */
+export async function deleteWatchNight(account: string, id: string): Promise<void> {
+  store.useAccount(account);
+  await store.deleteNight(id);
+}
+
 /** Ids this device has, per cloud table (to make the cloud match this device). */
 export async function localD2Ids(account: string): Promise<{ nights: string[]; records: string[]; downloads: string[] }> {
   store.useAccount(account);

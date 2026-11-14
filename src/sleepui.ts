@@ -28,6 +28,8 @@ export interface SleepDeps {
   watchNights: () => Promise<WatchNight[]>;
   /** Opens a Watch D2 night's report; its back button returns to Sleep history. */
   openWatchNight: (id: string) => void;
+  /** Deletes a Watch D2 night or nap (to the Recovery centre). */
+  deleteWatchNight: (id: string) => Promise<void>;
   /** Fills the sleep report's "ECG during the night" section (the ECG screens own the ECG tiles). */
   renderNightEcg: (box: HTMLElement, ecgId: string) => Promise<void>;
   /** An ECG saved during this time, for a recording that didn't save its own. */
@@ -422,6 +424,8 @@ export function initSleep(deps: SleepDeps): {
         make('span', 'dur', 'no Polar H10 recording'),
         make('span', 'stats', stats.filter(Boolean).join(' · ')),
       );
+      const word = w.nap ? 'nap' : 'night';
+      li.appendChild(deleteButton(`this ${word}`, async () => { await deps.deleteWatchNight(w.id); void renderHistory(); }, `Delete this Watch D2 ${word}? You can get it back from the Recovery centre. It is also removed from your other devices.`));
       const open = (): void => deps.openWatchNight(w.id);
       li.addEventListener('click', open);
       entries.push({ at: w.bedMs, lengthMs: w.wokeMs - w.bedMs, nap: w.nap, strap: false, li, label: `Watch D2 from ${timeOf(w.bedMs)}`, open });

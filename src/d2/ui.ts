@@ -186,10 +186,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const btnGo = button('Pair & download sleep', 'primary big');
   const btnEcg = button('Pair & download ECG', 'primary big');
   btnEcg.title = 'The watch’s 30-second ECG recordings, saved in ECG history';
+  const btnBp = button('Pair & download BP', 'primary big');
+  btnBp.title = 'The blood pressure readings taken on the watch (with its other measurements: HRV and emotion)';
   const btnAll = button('Pair & download all data', 'primary big');
   btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress, workouts and the 30-second ECG recordings';
   const goButtons = el('div', 'd2-go');
-  goButtons.append(btnGo, btnEcg, btnAll);
+  goButtons.append(btnGo, btnEcg, btnBp, btnAll);
   // how to reach the watch: Chrome's Bluetooth (phones, most computers), the D2 Bridge app on a Mac, or a serial port
   type Via = 'bluetooth' | 'mac' | 'system';
   const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
@@ -271,7 +273,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       const frontTd = el('td', 'del-col del-front');
       frontTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.appendChild(frontTd);
-      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : e.button === 'ecg' ? 'ECG' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : e.button === 'ecg' ? 'ECG' : e.button === 'bp' ? 'Blood pressure' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
       const delTd = el('td', 'del-col');
       delTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.append(delTd);
@@ -335,11 +337,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
     btnAll.textContent = paired ? 'Download all data' : 'Pair & download all data';
     btnEcg.textContent = paired ? 'Download ECG' : 'Pair & download ECG';
+    btnBp.textContent = paired ? 'Download BP' : 'Pair & download BP';
     btnEcg.hidden = !deps.saveEcgs;
     const reachable = via.value === 'mac' || serialAvailable();
     btnGo.disabled = busy || !reachable;
     btnAll.disabled = busy || !reachable;
     btnEcg.disabled = busy || !reachable;
+    btnBp.disabled = busy || !reachable;
     via.disabled = busy;
     noSerial.hidden = reachable;
     btnForget.hidden = !paired;
@@ -486,13 +490,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
 
   // ---------- download ----------
   via.addEventListener('change', () => { try { localStorage.setItem('d2link-via', via.value); } catch { /* not kept */ } syncButtons(); });
-  const download = (mode: Via, all = false, ecgOnly = false): void => void (async () => {
+  const download = (mode: Via, all = false, ecgOnly = false, bpOnly = false): void => void (async () => {
     const period = downloadPeriod(days.value, fromIn.value, toIn.value);
     if ('error' in period) { progress.textContent = period.error; return; }
     syncButtons(true);
     progress.textContent = '';
     const entry: store.DownloadLogEntry = {
-      at: Date.now(), user: deps.user(), button: ecgOnly ? 'ecg' : all ? 'all' : 'sleep', via: via.selectedOptions[0]?.textContent ?? mode,
+      at: Date.now(), user: deps.user(), button: ecgOnly ? 'ecg' : bpOnly ? 'bp' : all ? 'all' : 'sleep', via: via.selectedOptions[0]?.textContent ?? mode,
       from: period.start * 1000, to: period.end * 1000, watch: '', items: [], ok: false, result: '',
     };
     setStatus(mode === 'mac' ? 'Connecting through D2 Bridge…' : 'Choose the watch in Chrome’s list…', 'busy');
@@ -506,6 +510,15 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       setStatus(`${name}${w.battery != null ? ` · battery ${w.battery}%` : ''} – downloading…`, 'on');
       const { start, end } = period;
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
+      if (bpOnly) {
+        const n = await downloadBp(link, start, name, entry.items);
+        progress.textContent = n.total ? `${n.total} blood pressure reading${n.total === 1 ? '' : 's'}${nilText(n.total, n.same)}.` : 'The watch has no blood pressure readings for this period.';
+        setStatus(`${name} – done`, 'on');
+        void sync();
+        entry.ok = true;
+        entry.result = 'Done';
+        return;
+      }
       if (ecgOnly) {
         const counts = await downloadEcgs(link, start, end, entry.items);
         progress.textContent = counts ? `${counts}.` : 'The watch has no ECG recordings for this period.';
@@ -591,6 +604,24 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     return parts.join(', ');
   }
 
+  /**
+   * The blood pressure readings since `start` (s). They come in the watch's measurements file with its HRV and emotion
+   * readings, which are saved too. Returns how many blood pressure readings came, and how many were already here.
+   */
+  async function downloadBp(link: D2Link, start: number, name: string, items: store.DownloadLogItem[]): Promise<{ total: number; same: number }> {
+    progress.textContent = 'Setting up the watch…';
+    const w = openedWatch();
+    if (w) await ensureSetUp(w, deps.profile?.() ?? null);
+    progress.textContent = 'Downloading blood pressure…';
+    const rs = readingRecords(await downloadReadings(link, start * 1000, log), deps.user(), name);
+    const { changed, same } = onlyChanged(rs, await store.listAllRecords(), (r) => r.key, recordContent);
+    if (changed.length) await store.saveRecords(changed);
+    const bp = (l: readonly store.D2Record[]): number => l.filter((r) => r.data['cls'] === 10002).length;
+    items.push({ what: 'Blood pressure', count: bp(rs), nil: bp(same) });
+    log(`Blood pressure: ${bp(changed)} saved, ${bp(same)} nil change (with ${rs.length - bp(rs)} other measurements).`);
+    return { total: bp(rs), same: bp(same) };
+  }
+
   /** The watch's 30-second ECGs, saved in ECG history as from ECG live; returns a summary ('' when there were none). */
   async function downloadEcgs(link: D2Link, start: number, end: number, items: store.DownloadLogItem[]): Promise<string> {
     if (!deps.saveEcgs) return '';
@@ -612,6 +643,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
 
   btnGo.addEventListener('click', () => download(via.value as Via));
   btnEcg.addEventListener('click', () => download(via.value as Via, false, true));
+  btnBp.addEventListener('click', () => download(via.value as Via, false, false, true));
   btnAll.addEventListener('click', () => download(via.value as Via, true));
 
   btnForget.addEventListener('click', () => {

@@ -701,6 +701,13 @@ async function renderHistory(): Promise<void> {
         make('span', 'stats pair-stats', trackingLine(e, false, !!polar, strips.length > 0,
           strips.reduce((a, s) => a + Math.max(0, Math.min(s.start + s.durationS * 1000, e.start + e.durationS * 1000) - Math.max(s.start, e.start)), 0) / 1000)),
       );
+      // as in Synchronised ECG Tracking History: the tracking goes, and its ECG too if you say so
+      li.appendChild(deleteButton('this tracking', async () => {
+        if (e.ecgId && window.confirm('Also delete its ECG from ECG history and trending? (Cancel keeps the ECG.)')) await store.deleteSession(e.ecgId);
+        await store.removeSyncEntry(e.id);
+        historyChanged();
+        void renderHistory();
+      }, 'Delete this tracking from the history? You can get it back from the Recovery centre.'));
       li.addEventListener('click', () => {
         openSync();
         syncUI?.openPair(e.id, { label: 'ECG history and trending', go: () => show('history') });
@@ -1453,6 +1460,7 @@ sleepUI = initSleep({
   // the Watch D2's nights are listed in Sleep history too (from D2 Link)
   watchNights: async () => (await loadD2()).pairingSleep(account.account?.id ?? 'local', currentUser),
   openWatchNight: (id) => void openD2Night(id, () => show('sleepHistory')),
+  deleteWatchNight: async (id) => { await (await loadD2()).deleteWatchNight(account.account?.id ?? 'local', id); d2?.refresh(); syncSleepUI?.schedule(); },
   renderNightEcg,
   ecgDuring,
   sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },
