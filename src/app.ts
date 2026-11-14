@@ -653,7 +653,7 @@ async function fillTrend(s: Session): Promise<Session | null> {
   return filled;
 }
 
-const trends = initTrends($('ecgTrends'), { fill: fillTrend });
+const trends = initTrends($('ecgTrends'), { fill: fillTrend, readings: () => allReadings() });
 
 async function renderHistory(): Promise<void> {
   const list = $('sessionList');

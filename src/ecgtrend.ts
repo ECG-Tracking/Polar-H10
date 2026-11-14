@@ -1,6 +1,7 @@
 // The trending part of ECG history and trending: one graph for each ticked figure, over the chosen period.
 
-import { Plot, type Point } from './charts';
+import { BpStrip, Plot, type Point } from './charts';
+import type { SyncBp } from './store';
 import type { SessionMetrics } from './dsp';
 import type { Session } from './store';
 import { fmt, make } from './ui';
@@ -32,7 +33,7 @@ export function trendValues(m: SessionMetrics): TrendValues {
 }
 
 export const PERIODS = [
-  ['1d', '1 day'], ['3d', '3 days'], ['7d', '7 days'], ['14d', '14 days'], ['1m', '1 month'], ['3m', '3 months'], ['6m', '6 months'],
+  ['3h', '3 hours'], ['6h', '6 hours'], ['9h', '9 hours'], ['12h', '12 hours'], ['1d', '1 day'], ['3d', '3 days'], ['7d', '7 days'], ['14d', '14 days'], ['1m', '1 month'], ['3m', '3 months'], ['6m', '6 months'],
   ['12m', '1 year'], ['24m', '2 years'], ['36m', '3 years'], ['all', 'All'], ['custom', 'Custom'],
 ] as const;
 export type Period = (typeof PERIODS)[number][0];
@@ -45,6 +46,7 @@ export function periodRange(period: Period, now: number, first: number, from = '
     return [Number.isFinite(a) ? a : first, Number.isFinite(b) ? b : now];
   }
   const n = Number(period.slice(0, -1));
+  if (period.endsWith('h')) return [now - n * 3600000, now];
   if (period.endsWith('d')) return [now - n * 86400000, now];
   const d = new Date(now);
   d.setMonth(d.getMonth() - n);
@@ -60,6 +62,8 @@ export function trendPoints(sessions: readonly Session[], key: string, from: num
 }
 
 const KEY = 'openbeat-ecg-trends';
+/** Blood pressure: the watch's readings over the period, systolic and diastolic, on the blood pressure chart. */
+const BP_KEY = 'bloodPressure';
 interface Saved { period: Period; picked: string[]; from: string; to: string }
 
 function load(): Saved {
@@ -69,7 +73,7 @@ function load(): Saved {
     if (!v) return none;
     return {
       period: PERIODS.some((p) => p[0] === v.period) ? v.period! : none.period,
-      picked: Array.isArray(v.picked) ? v.picked.filter((k) => TREND_PARAMS.some((p) => p[0] === k)) : none.picked,
+      picked: Array.isArray(v.picked) ? v.picked.filter((k) => k === BP_KEY || TREND_PARAMS.some((p) => p[0] === k)) : none.picked,
       from: typeof v.from === 'string' ? v.from : '', to: typeof v.to === 'string' ? v.to : '',
     };
   } catch { return none; }
@@ -81,13 +85,21 @@ const label = (name: string, unit: string): string => (unit ? `${name} (${unit})
 export interface TrendDeps {
   /** Works out the figures of a recording that doesn't have them yet; returns it with them, or null if it can't. */
   fill: (s: Session) => Promise<Session | null>;
+  /** The blood pressure readings on this device (the watch's). */
+  readings: () => Promise<SyncBp[]>;
 }
+
+/** Every choice, in alphabetical order: the ECG figures and blood pressure. */
+const CHOICES: readonly (readonly [key: string, name: string, unit: string, digits: number])[] = [
+  ...TREND_PARAMS, [BP_KEY, 'Blood pressure', 'mmHg', 0] as const,
+].sort((a, b) => label(a[1], a[2]).localeCompare(label(b[1], b[2]), undefined, { sensitivity: 'base', numeric: true }));
 
 /** `root`: the top of the page. `show` is called with this user's recordings whenever they change. */
 export function initTrends(root: HTMLElement, deps: TrendDeps): { show: (sessions: readonly Session[]) => void } {
   const state = load();
   const save = (): void => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* not kept */ } };
   let sessions: Session[] = [];
+  let readings: SyncBp[] = [];
   let run = 0;
 
   const period = make('select');
@@ -113,12 +125,12 @@ export function initTrends(root: HTMLElement, deps: TrendDeps): { show: (session
   const allLabel = make('label', 'trend-all');
   allLabel.append(allBox, ' Select all');
   const grid = make('div', 'trend-ticks');
-  for (const [key, name, unit] of TREND_PARAMS) {
+  for (const [key, name, unit] of CHOICES) {
     const box = make('input'), l = make('label');
     box.type = 'checkbox';
     box.checked = state.picked.includes(key);
     box.addEventListener('change', () => {
-      state.picked = TREND_PARAMS.map((p) => p[0] as string).filter((k) => ticks.get(k)?.checked);
+      state.picked = CHOICES.map((p) => p[0]).filter((k) => ticks.get(k)?.checked);
       save();
       draw();
     });
@@ -128,7 +140,7 @@ export function initTrends(root: HTMLElement, deps: TrendDeps): { show: (session
   }
   allBox.addEventListener('change', () => {
     for (const b of ticks.values()) b.checked = allBox.checked;
-    state.picked = allBox.checked ? TREND_PARAMS.map((p) => p[0]) : [];
+    state.picked = allBox.checked ? CHOICES.map((p) => p[0]) : [];
     save();
     draw();
   });
@@ -148,15 +160,22 @@ export function initTrends(root: HTMLElement, deps: TrendDeps): { show: (session
 
   function draw(): void {
     custom.hidden = state.period !== 'custom';
-    allBox.checked = state.picked.length === TREND_PARAMS.length;
+    allBox.checked = state.picked.length === CHOICES.length;
     allBox.indeterminate = state.picked.length > 0 && !allBox.checked;
     const real = sessions.filter((s) => s.source !== 'demo');
     const first = real.reduce((a, s) => Math.min(a, s.start), Date.now());
     const [a, b] = periodRange(state.period, Date.now(), first, state.from, state.to);
     const cards: HTMLElement[] = [];
     const plots: (() => void)[] = [];
-    for (const [key, name, unit, digits] of TREND_PARAMS) {
+    for (const [key, name, unit, digits] of CHOICES) {
       if (!state.picked.includes(key)) continue;
+      if (key === BP_KEY) { // the blood pressure chart, as on the BP and ECG page
+        const chart = new BpStrip(true), card = make('section', 'card');
+        card.appendChild(chart.el);
+        cards.push(card);
+        plots.push(() => chart.set(readings.filter((r) => r.at >= a && r.at <= b), [a, b], null));
+        continue;
+      }
       const pts = trendPoints(real, key, a, b);
       const wrap = make('div', 'chart'), canvas = make('canvas'), card = make('section', 'card');
       canvas.setAttribute('aria-label', `${name} over time`);
@@ -193,6 +212,7 @@ export function initTrends(root: HTMLElement, deps: TrendDeps): { show: (session
     show(list) {
       sessions = [...list];
       draw();
+      void deps.readings().then((r) => { readings = r; if (state.picked.includes(BP_KEY)) draw(); }).catch(() => undefined);
       void fillIn(++run);
     },
   };

@@ -9,7 +9,7 @@ const session = (id: string, start: number, trend?: Record<string, number>, sour
 });
 
 test('every period from the request is offered', () => {
-  assert.deepEqual(PERIODS.map((p) => p[1]), ['1 day', '3 days', '7 days', '14 days', '1 month', '3 months', '6 months', '1 year', '2 years', '3 years', 'All', 'Custom']);
+  assert.deepEqual(PERIODS.map((p) => p[1]), ['3 hours', '6 hours', '9 hours', '12 hours', '1 day', '3 days', '7 days', '14 days', '1 month', '3 months', '6 months', '1 year', '2 years', '3 years', 'All', 'Custom']);
 });
 
 test('periods run back from now', () => {
@@ -44,4 +44,11 @@ test('figures: invalid ones are left out, S is a size, and length is in minutes'
   assert.equal('rmssd' in v, false);
   assert.equal('hrr60' in v, false);
   for (const k of Object.keys(v)) assert.ok(TREND_PARAMS.some((p) => p[0] === k), k);
+});
+
+test('trending: the hour periods run back that many hours from now', async () => {
+  const { periodRange } = await import('../src/ecgtrend');
+  const now = Date.now();
+  assert.deepEqual(periodRange('3h', now, 0), [now - 3 * 3600000, now]);
+  assert.deepEqual(periodRange('12h', now, 0), [now - 12 * 3600000, now]);
 });

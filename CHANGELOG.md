@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.22 – Blood pressure in trending; choices in alphabetical order; hour periods *(GitHub)*
+- **ECG history and trending:** "Blood pressure" is now one of the trending choices, drawn on the same chart as on the BP and ECG page: systolic and diastolic in their own bands over the chosen period.
+- **The choices are now in alphabetical order** (2–8 Hz energy, Beats, Blood pressure, Effort (TRIMP), Events, …), and their graphs come in the same order.
+- **"Show the last" now also offers 3, 6, 9 and 12 hours**, in ECG history and trending and on the BP and ECG page.
+
 ## 14 Nov 2026 – v1.45.21 – D2 Link downloads count the changes *(GitHub)*
 - D2 Link's download messages and history now say how many items were new or changed, instead of how many were the same: "12 blood pressure readings (1 change)", or "(no change)" when nothing was new. Before, "(11 nil change)" counted the ones already stored unchanged.
 - The connection log says "… new or changed, saved; … unchanged".
