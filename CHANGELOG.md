@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.9 – Blood pressure graph: hover over a reading for its details *(GitHub)*
+- On every blood pressure graph (BP and ECG, an ECG report, a tracking's Combined ECG), pointing at a reading shows its date and time, the reading (systolic/diastolic mmHg) and its pulse.
+
 ## 14 Nov 2026 – v1.45.8 – BP and ECG: the blood pressure graph shows again *(GitHub)*
 - Fix: on the BP and ECG page, the blood pressure graph at the top was an empty box when the picked reading belonged to a synchronised tracking. The Combined ECG's own code took the page's graph into its box, which this page doesn't show. The graph now stays in place, over the chosen period, with the tracking shaded and the mark moving with the slider.
 

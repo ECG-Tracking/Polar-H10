@@ -754,3 +754,4 @@ td.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !im
 .sessions li.sleep-row > .stats { grid-column: 1 / span 2; grid-row: 2; }
 .sessions li.sleep-row > .sleep-actions { grid-column: 1 / span 2; grid-row: 3; gap: 6px; align-items: center; }
 .sessions li.sleep-row > button.row-del { grid-column: 3; grid-row: 1 / span 3; }
+.bp-strip { position: relative; }
