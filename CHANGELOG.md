@@ -4,6 +4,18 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.10 – BP and ECG: the slider runs through every ECG of the period *(GitHub)*
+- **BP and ECG:** the two strips at the top now hold every ECG recorded in the chosen period, in time order, and the one slider runs through all of them. The Watch D2 is above and the Polar H10 below.
+  - A synchronised tracking's strips sit with the strap's ECG of the same moments.
+  - Other ECGs (ECG live, imported, watch strips taken alone) are included; one recorded with a sleep, or longer than 3 hours, is not.
+  - A strip is flat where its device didn't record.
+  - The hours between recordings are left out so every ECG can be reached. The time shown and the mark on the blood pressure graph give the real date and time.
+  - Previous and Next event step through the events of both devices in the period.
+  - Clicking a table row moves the strips to that reading's ECG, or the nearest one.
+- **Blood pressure graph:** every ECG of the period is shaded on it.
+  - Pointing at a shaded ECG shows when it began and ended and how long it is. Pieces too close to tell apart at the graph's scale (one tracking's strips over 7 days) are shown together, with how many pieces and how much ECG they hold.
+  - Pointing at a reading still shows its date, time, reading and pulse.
+
 ## 14 Nov 2026 – v1.45.9 – Blood pressure graph: hover over a reading for its details *(GitHub)*
 - On every blood pressure graph (BP and ECG, an ECG report, a tracking's Combined ECG), pointing at a reading shows its date and time, the reading (systolic/diastolic mmHg) and its pulse.
 
