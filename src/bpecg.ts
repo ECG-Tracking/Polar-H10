@@ -7,7 +7,8 @@ import { BpStrip, EcgViewer, type ReportEvent } from './charts';
 import { EVENT_LABELS, type Analysis } from './dsp';
 import { joinSegments, realAt, segmentAt, stripAt, type PeriodEcg, type Segment } from './periodecg';
 import { matchStrips, type StripIn } from './stripmatch';
-import { combinedEvents } from './syncreports';
+import { ensureCombined } from './syncreports';
+import type { CombinedResult } from './synccompare';
 import { figure, matchReading, readingsBetween, type BpMatch } from './bp';
 import { colTable, type Column } from './coltable';
 import { PERIODS, periodRange, type Period } from './ecgtrend';
@@ -41,10 +42,8 @@ const withUnit = (name: string, unit: string): string => (unit ? `${name} (${uni
 const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const bpText = (b: SyncBp): string => `${b.systolic ?? '--'}/${b.diastolic ?? '--'}`;
 
-type Counted = { polar: number; watch: number; polarPct: number; watchPct: number };
-
-/** Every column the table can show; `counted`: a tracking's events as its Combined ECG counts them, once worked out. */
-function columns(counted: (m: BpMatch) => Counted | null | undefined): Column<BpMatch>[] {
+/** Every column the table can show. */
+function columns(): Column<BpMatch>[] {
   const cols: Column<BpMatch>[] = [
     { id: 'when', label: 'Date and time', value: (m) => m.bp.at, text: (m) => dateTime(m.bp.at) },
     { id: 'bp', label: 'BP reading (mmHg)', value: (m) => m.bp.systolic, text: (m) => bpText(m.bp) },
@@ -54,10 +53,8 @@ function columns(counted: (m: BpMatch) => Counted | null | undefined): Column<Bp
   // strap's value, or the watch's where the strap has none
   for (const [key, name, unit, digits] of FIGURES) {
     const val = (m: BpMatch, dev: 'polar' | 'watch'): string => {
-      // events: with both ECGs, those both devices saw (as the Combined ECG counts them); else each device's own; and the % of beats
+      // events and their % of beats: for a tracking, those both devices saw (its Combined ECG's); else each device's own
       if (key === 'eventCount') {
-        const c = counted(m);
-        if (c) return `${c[dev]} · ${fmt(dev === 'polar' ? c.polarPct : c.watchPct, 1)} %`;
         const n = figure(m, dev, 'eventCount'), pct = figure(m, dev, 'eventPct');
         return n == null ? '--' : `${fmt(n, 0)}${pct == null ? '' : ` · ${fmt(pct, 1)} %`}`;
       }
@@ -65,7 +62,7 @@ function columns(counted: (m: BpMatch) => Counted | null | undefined): Column<Bp
     };
     cols.push({
       id: key, label: key === 'eventCount' ? 'Events (counted · % of beats)' : withUnit(name, unit),
-      value: (m) => (key === 'eventCount' ? counted(m)?.polar : undefined) ?? figure(m, 'polar', key) ?? figure(m, 'watch', key),
+      value: (m) => figure(m, 'polar', key) ?? figure(m, 'watch', key),
       text: (m) => `Polar H10 ${val(m, 'polar')} · Watch D2 ${val(m, 'watch')}`,
       cell: (m) => {
         const box = make('div', 'pair-cell');
@@ -107,8 +104,8 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   const save = (): void => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* not kept */ } };
   let all: SyncBp[] = [], sessions: Session[] = [], entries: SyncTrackingEntry[] = [], matches: BpMatch[] = [];
   let pickedAt: number | null = null, run = 0;
-  /** Each tracking's events as its Combined ECG counts them (null: can't be worked out here); filled in the background. */
-  const counted = new Map<string, Counted | null>();
+  /** Each tracking's saved Combined ECG results (its figures and the events both devices saw). */
+  const combined = new Map<string, CombinedResult | null>();
 
   // ---- top: the period, then the blood pressure graph over it and the picked reading's two ECGs, with one slider ----
   const period = make('select');
@@ -155,7 +152,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
 
   // ---- the table, with the choice of columns just above it ----
   const table = colTable<BpMatch>({
-    columns: columns((m) => (m.tracking ? counted.get(m.tracking.id) : undefined)), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table2`, // v1.45.3: a column per figure
+    columns: columns(), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table2`, // v1.45.3: a column per figure
     rowKey: (m) => String(m.bp.at), baseOrder: (a, b) => b.bp.at - a.bp.at, // latest on top
     onPick: (m) => { pickedAt = m.bp.at; table.set(visible(), String(pickedAt)); showPicked(m); },
     empty: 'No blood pressure readings in this period. Readings come from the Watch D2 through D2 Link.',
@@ -311,22 +308,23 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
       if (mine !== run) return;
       if (done) sessions = sessions.map((x) => (x.id === done.id ? done : x));
     }
-    // then each tracking's events as its Combined ECG counts them (both devices at the same heartbeat)
-    const tracks = [...new Map(visible().flatMap((m) => (m.tracking && !counted.has(m.tracking.id) ? [[m.tracking.id, m.tracking] as const] : []))).values()];
+    // then any tracking in the period without saved Combined ECG results gets them (worked out once, then saved)
+    const tracks = [...new Map(visible().flatMap((m) => (m.tracking && !combined.get(m.tracking.id) ? [[m.tracking.id, m.tracking] as const] : []))).values()];
     let j = 0;
     for (const t of tracks) {
       if (mine !== run) return;
-      status.textContent = `Counting the events both devices saw: tracking ${++j} of ${tracks.length}…`;
+      status.textContent = `Saving the Combined ECG results of tracking ${++j} of ${tracks.length} (once only)…`;
       await new Promise((r) => setTimeout(r, 0));
-      counted.set(t.id, await combinedEvents(t).catch(() => null));
-      if (j % 3 === 0) table.set(visible(), pickedAt == null ? null : String(pickedAt));
+      combined.set(t.id, await ensureCombined(t).catch(() => null));
+      if (j % 3 === 0) { rematch(); table.set(visible(), pickedAt == null ? null : String(pickedAt)); }
     }
     status.textContent = '';
-    if (need.size) rematch();
-    if (need.size || tracks.length) table.set(visible(), pickedAt == null ? null : String(pickedAt));
+    if (need.size || tracks.length) { rematch(); table.set(visible(), pickedAt == null ? null : String(pickedAt)); }
   }
 
-  function rematch(): void { matches = all.map((r) => matchReading(r, sessions, entries)); }
+  function rematch(): void {
+    matches = all.map((r) => { const m = matchReading(r, sessions, entries); return { ...m, combined: m.tracking ? combined.get(m.tracking.id) ?? null : null }; });
+  }
 
   async function refresh(): Promise<void> {
     const mine = ++run;
@@ -336,6 +334,8 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     if (mine !== run) return;
     all = readings; sessions = list;
     entries = store.loadSyncHistory().filter((e) => e.user === user);
+    for (const e of entries) combined.set(e.id, (await store.loadSyncTrace(e.id).catch(() => undefined))?.combined ?? null); // saved with each tracking
+    if (mine !== run) return;
     status.textContent = all.length ? '' : 'No blood pressure readings yet. Take one on the Watch D2 and download it with D2 Link.';
     rematch();
     draw();

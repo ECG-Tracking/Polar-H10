@@ -45,3 +45,23 @@ test('BP: a reading takes its tracking’s ECGs, or else the nearest strap ECG a
   const none = matchReading(bp(t0 + 9 * H + 30 * 60000), all, [tr]);
   assert.equal(none.polar, null, 'an ECG recorded with a sleep is not matched');
 });
+
+test('BP: a tracking’s saved Combined ECG results are used in place of each recording’s own', async () => {
+  const t0 = 1_000_000_000_000;
+  const polarT = session('s1', t0, 300, 'polar', { qtc: 400, eventCount: 34 });
+  const strip = session('w1', t0 + 60000, 30, 'watch', { qtc: 470, eventCount: 5 });
+  const tr = tracking(t0, 300, 's1');
+  const m = matchReading(bp(t0 + 600000), [polarT, strip], [tr]);
+  const combined = { method: 1, stamp: 's1|w1', at: t0, polar: { qtc: 380 }, watch: { qtc: 445 }, events: { polar: 11, watch: 11, polarPct: 3.1, watchPct: 3.2 } };
+  const withSaved = { ...m, combined };
+  assert.equal(figure(withSaved, 'polar', 'qtc'), 380);
+  assert.equal(figure(withSaved, 'watch', 'qtc'), 445);
+  assert.equal(figure(withSaved, 'polar', 'eventCount'), 11, 'only events both saw');
+  assert.equal(figure(withSaved, 'watch', 'eventPct'), 3.2);
+  assert.equal(figure(m, 'polar', 'eventCount'), 34, 'nothing saved yet: the recording’s own');
+  const { mergeTrace } = await import('../src/synccompare');
+  const base = { id: tr.id, polar: [], watch: [], polarHr: [], watchHr: [], watchPoor: 0 };
+  const merged = mergeTrace({ ...base, combined: { ...combined, at: t0 + 5 } }, { ...base, combined: { ...combined, at: t0 + 1, polar: { qtc: 1 } } });
+  assert.equal(merged.combined?.polar?.['qtc'], 380, 'the newer saved results win at a sync');
+  assert.ok(mergeTrace({ ...base, combined }, base).combined, 'kept when the other device has none');
+});
