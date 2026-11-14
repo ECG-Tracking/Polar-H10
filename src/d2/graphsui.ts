@@ -9,11 +9,25 @@ import { figures, isNap } from './night';
 import { minutesOf } from './records';
 import type { D2Night, D2Record } from './store';
 
-export type Range = '1d' | '7d' | '1m' | '3m' | '6m' | '9m' | '1y' | '3y' | '5y' | 'all';
+export type Range = '1d' | '7d' | '1m' | '3m' | '6m' | '9m' | '1y' | '3y' | '5y' | 'all' | 'custom';
 export const RANGES: readonly (readonly [Range, string])[] = [
   ['1d', '1 day'], ['7d', '7 days'], ['1m', '1 month'], ['3m', '3 months'], ['6m', '6 months'], ['9m', '9 months'],
-  ['1y', '1 year'], ['3y', '3 years'], ['5y', '5 years'], ['all', 'All'],
+  ['1y', '1 year'], ['3y', '3 years'], ['5y', '5 years'], ['all', 'All'], ['custom', 'Custom'],
 ];
+
+/** Chosen dates (YYYY-MM-DD) for the custom period. */
+export interface CustomDates { from: string; to: string }
+
+/** The custom period in ms: from the start of `from` to the end of `to` (not after now); the last 7 days where a date is missing. */
+export function customSpan(d: CustomDates, now: number): [number, number] {
+  const day = (s: string, end: boolean): number => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + (end ? 1 : 0)).getTime() - (end ? 1 : 0) : NaN;
+  };
+  const to = Math.min(now, Number.isFinite(day(d.to, true)) ? day(d.to, true) : now);
+  const from = Number.isFinite(day(d.from, false)) ? day(d.from, false) : to - 7 * DAY;
+  return from < to ? [from, to] : [to - DAY, to];
+}
 
 const DAY = 86400000;
 type Mode = 'raw' | 'hour' | 'day' | 'week';
@@ -203,18 +217,27 @@ const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s
 
 const COLORS = { blue: 'var(--series-1)', red: 'var(--accent)', green: 'var(--good)', amber: 'var(--warn)', deep: 'var(--stage-deep)', light: 'var(--stage-light)', rem: 'var(--stage-rem)' };
 
-export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], records: readonly D2Record[], range: Range, onRange: (r: Range) => void, now = Date.now()): void {
+export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], records: readonly D2Record[], range: Range, onRange: (r: Range, dates?: CustomDates) => void, now = Date.now(), dates: CustomDates = { from: '', to: '' }): void {
   box.replaceChildren();
   const pick = el('label', 'd2-days', 'Show ');
   const sel = el('select');
   for (const [v, t] of RANGES) { const o = el('option', '', t); o.value = v; if (v === range) o.selected = true; sel.appendChild(o); }
-  sel.addEventListener('change', () => onRange(sel.value as Range));
+  // custom: a start and an end date
+  const dateIn = (v: string, name: string): HTMLInputElement => { const i = el('input'); i.type = 'date'; i.value = v; i.setAttribute('aria-label', name); return i; };
+  const fromIn = dateIn(dates.from, 'From'), toIn = dateIn(dates.to, 'To');
+  const customRow = el('span', 'row wrap');
+  customRow.append(' From ', fromIn, ' to ', toIn);
+  customRow.hidden = range !== 'custom';
+  sel.addEventListener('change', () => onRange(sel.value as Range, { from: fromIn.value, to: toIn.value }));
+  for (const i of [fromIn, toIn]) i.addEventListener('change', () => onRange('custom', { from: fromIn.value, to: toIn.value }));
   pick.appendChild(sel);
-  box.appendChild(pick);
+  const top = el('div', 'row wrap');
+  top.append(pick, customRow);
+  box.appendChild(top);
 
   const sleeps = nights.filter((n) => !isNap(n));
   const times = [...sleeps.map((n) => n.start), ...records.map((r) => r.start)].filter((t) => t > 0);
-  const from = rangeStart(range, now, times.length ? Math.min(...times) : null), to = now;
+  const [from, to] = range === 'custom' ? customSpan(dates, now) : [rangeStart(range, now, times.length ? Math.min(...times) : null), now];
   const mode = modeFor(from, to), sumMode: Mode = mode === 'raw' ? 'hour' : mode;
   const inRange = (t: number): boolean => t >= from && t <= to;
   const cards: HTMLElement[] = [];
