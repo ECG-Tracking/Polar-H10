@@ -5,7 +5,7 @@
 
 import { BpStrip, EcgViewer, type ReportEvent } from './charts';
 import { EVENT_LABELS, type Analysis } from './dsp';
-import { joinSegments, realAt, stripAt, type PeriodEcg, type Segment } from './periodecg';
+import { joinSegments, realAt, segmentAt, stripAt, type PeriodEcg, type Segment } from './periodecg';
 import { matchStrips, type StripIn } from './stripmatch';
 import { figure, matchReading, readingsBetween, type BpMatch } from './bp';
 import { colTable, type Column } from './coltable';
@@ -135,7 +135,9 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   const evBar = make('div', 'row wrap event-nav no-print');
   evBar.append(prevBtn, evText, nextBtn);
   const ecgNote = make('p', 'note', '');
-  shown.append(top, status, shownTitle, bpBox, ecgNote, w.box, p.box, bar, evBar);
+  // the piece of ECG on the strips now: when it began and ended, and how long it is
+  const pieceLine = make('p', 'pair-duration', '');
+  shown.append(top, status, shownTitle, bpBox, pieceLine, w.box, p.box, bar, evBar, ecgNote);
 
   // ---- the table, with the choice of columns just above it ----
   const table = colTable<BpMatch>({
@@ -219,7 +221,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     if (mine !== periodRun) return;
     pe = joinSegments(segs, FS);
     topBp.set(readingsBetween(all, a, b), [a, b], (pe?.segments ?? []).map((s) => [s.start, s.start + s.durS * 1000] as [number, number]));
-    for (const el of [w.box, p.box, bar, evBar]) el.hidden = !pe;
+    for (const el of [w.box, p.box, bar, evBar, pieceLine]) el.hidden = !pe;
     if (!pe) { ecgNote.textContent = 'No ECG was recorded in this period.'; return; }
     const n = pe.segments.length, both = pe.segments.filter((s) => s.watch && s.polar).length;
     ecgNote.textContent = `${n} ECG piece${n > 1 ? 's' : ''} from ${clockText(pe.segments[0]!.start)} to ${clockText(pe.segments[n - 1]!.start)}, in time order (${both} with both devices). The slider runs through all of them; the hours between recordings are left out, and the time shown and the mark on the graph give the real date and time. A strip is flat where its device didn’t record.`;
@@ -247,6 +249,14 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     const at = realAt(pe, x.t0);
     time.textContent = `${clockText(at)} · ${fmt(x.span, 1)} s shown`;
     topBp.mark(at, realAt(pe, x.t0 + x.span));
+    const seg = segmentAt(pe, x.t0 + x.span / 2);
+    if (seg) {
+      const end = seg.start + seg.durS * 1000;
+      const endText = new Date(end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      const secs = Math.round(seg.durS), dur = secs >= 60 ? `${Math.floor(secs / 60)} min ${secs % 60} s` : `${secs} s`;
+      const devices = seg.watch && seg.polar ? 'Watch D2 and Polar H10' : seg.watch ? 'Watch D2 only' : 'Polar H10 only';
+      pieceLine.textContent = `ECG shown: ${clockText(seg.start)} to ${endText} · ${dur} · ${devices}`;
+    }
   });
   link(wv, pv); link(pv, wv);
   pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));

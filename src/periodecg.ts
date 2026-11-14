@@ -45,6 +45,13 @@ export function realAt(e: Pick<PeriodEcg, 'segments' | 'at'>, t: number): number
   return s.start + into * 1000;
 }
 
+/** The piece shown at a time on the strips (s): the last one starting at or before it. */
+export function segmentAt(e: Pick<PeriodEcg, 'segments' | 'at'>, t: number): Segment | null {
+  let i = 0;
+  for (let k = 0; k < e.at.length; k++) if ((e.at[k] ?? Infinity) <= t + 1e-6) i = k;
+  return e.segments[i] ?? null;
+}
+
 /** The time on the strips (s) nearest a real moment (ms): inside its piece, or the start of the nearest piece. */
 export function stripAt(e: Pick<PeriodEcg, 'segments' | 'at'>, ms: number): number {
   let best = 0, bd = Infinity;
