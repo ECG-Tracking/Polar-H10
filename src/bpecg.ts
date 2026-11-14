@@ -29,8 +29,8 @@ const FIGURES = [
   ['meanHR', 'Mean heart rate', 'bpm', 0], ['rmssd', 'RMSSD', 'ms', 0], ['sdnn', 'SDNN', 'ms', 0], ['qt', 'QT', 'ms', 0],
 ] as const;
 const DEVICES = [['polar', 'Polar H10'], ['watch', 'Watch D2']] as const;
-/** Shown at first: the date, the reading, and the strap's figures asked for; the watch's can be added. */
-const DEFAULT_COLS = ['when', 'bp', 'hrvScore:polar', 'qrs:polar', 'tPositive:polar', 'tAmp:polar', 'trRatio:polar', 'qtc:polar', 'eventCount:polar'];
+/** Shown at first: the date, the reading and the figures asked for (each with both devices' values). */
+const DEFAULT_COLS = ['when', 'bp', 'hrvScore', 'qrs', 'tPositive', 'tAmp', 'trRatio', 'qtc', 'eventCount'];
 
 const withUnit = (name: string, unit: string): string => (unit ? `${name} (${unit})` : name);
 const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -43,14 +43,24 @@ function columns(): Column<BpMatch>[] {
     { id: 'bp', label: 'BP reading (mmHg)', value: (m) => m.bp.systolic, text: (m) => bpText(m.bp) },
     { id: 'pulse', label: 'Pulse (bpm)', value: (m) => m.bp.pulse, text: (m) => (m.bp.pulse == null ? '--' : String(m.bp.pulse)) },
   ];
+  // each figure in one column, the Polar H10's value above the Watch D2's (as in the ECG figure boxes); it sorts by the
+  // strap's value, or the watch's where the strap has none
   for (const [key, name, unit, digits] of FIGURES) {
-    for (const [dev, devName] of DEVICES) {
-      cols.push({
-        id: `${key}:${dev}`, label: `${withUnit(name, unit)} · ${devName}`,
-        value: (m) => figure(m, dev, key),
-        text: (m) => { const v = figure(m, dev, key); return v == null ? '--' : fmt(v, digits); },
-      });
-    }
+    const val = (m: BpMatch, dev: 'polar' | 'watch'): string => { const v = figure(m, dev, key); return v == null ? '--' : fmt(v, digits); };
+    cols.push({
+      id: key, label: withUnit(name, unit),
+      value: (m) => figure(m, 'polar', key) ?? figure(m, 'watch', key),
+      text: (m) => `Polar H10 ${val(m, 'polar')} · Watch D2 ${val(m, 'watch')}`,
+      cell: (m) => {
+        const box = make('div', 'pair-cell');
+        for (const [dev, devName] of DEVICES) {
+          const line = make('div', 'pair-line');
+          line.append(make('span', 'pair-who', devName), make('span', 'v', val(m, dev)));
+          box.appendChild(line);
+        }
+        return box;
+      },
+    });
   }
   cols.push({ id: 'source', label: 'ECGs', value: (m) => (m.tracking ? 2 : m.polar || m.watch.length ? 1 : 0), text: sourceText });
   return cols;
@@ -111,7 +121,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
 
   // ---- the table, with the choice of columns just above it ----
   const table = colTable<BpMatch>({
-    columns: columns(), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table`,
+    columns: columns(), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table2`, // v1.45.3: a column per figure
     rowKey: (m) => String(m.bp.at), baseOrder: (a, b) => b.bp.at - a.bp.at, // latest on top
     onPick: (m) => { pickedAt = m.bp.at; table.set(visible(), String(pickedAt)); void showPicked(m); },
     empty: 'No blood pressure readings in this period. Readings come from the Watch D2 through D2 Link.',

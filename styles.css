@@ -744,3 +744,6 @@ th.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !im
 th.col-collapsed > :not(.col-collapse-btn) { display: none; }
 th.col-collapsed .col-collapse-btn { position: static; margin: 6px auto; display: flex; color: var(--warn); }
 td.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !important; overflow: hidden; font-size: 0; color: transparent; }
+.data-table .pair-cell { display: grid; gap: 2px; }
+.data-table .pair-cell .pair-line { display: flex; gap: 8px; align-items: baseline; }
+.data-table .pair-cell .pair-who { color: var(--muted); font-size: 0.75rem; min-width: 64px; }

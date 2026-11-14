@@ -12,6 +12,8 @@ export interface Column<R> {
   value: (row: R) => number | string | null;
   /** What the cell shows; "--" where there is no value. */
   text: (row: R) => string;
+  /** The cell's contents when more than text (for example two devices' values, one above the other). */
+  cell?: (row: R) => Node;
 }
 
 export interface TableChoices { cols: string[]; sort: { id: string; dir: 'asc' | 'desc' } | null; folded: string[] }
@@ -152,7 +154,8 @@ export function colTable<R>(o: {
         tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') o.onPick!(r); });
       }
       for (const c of cols) {
-        const td = make('td', '', c.text(r));
+        const td = make('td');
+        td.append(c.cell ? c.cell(r) : c.text(r));
         td.classList.toggle('col-collapsed', choices.folded.includes(c.id));
         tr.appendChild(td);
       }

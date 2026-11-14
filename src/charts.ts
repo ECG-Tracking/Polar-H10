@@ -561,6 +561,18 @@ export class BpStrip {
     this.draw();
   }
 
+  /**
+   * Shows exactly the moments the ECGs show (ms), so the chart moves with their slider: the lines run on between readings
+   * outside it, and a reading inside it is a labelled point.
+   */
+  follow(from: number | null, to: number | null): void {
+    if (from == null || to == null || !(to > from)) return;
+    this.span = [from, to];
+    this.shown = null;
+    this.recording = null; // the window is all recording: no shading
+    this.draw();
+  }
+
   /** The moments the ECG shows now (ms), marked on the chart; null: none. */
   mark(from: number | null, to: number | null = from): void {
     this.shown = from == null || to == null ? null : [from, to];
@@ -598,13 +610,13 @@ export class BpStrip {
     const long = b - a > 36 * 3600000;
     // at round times: the smallest step that leaves room for each label
     const MIN = 60000, room = Math.max(2, Math.floor(pw / (long ? 90 : 60)));
-    const stepMs = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080, 20160, 43200].map((m) => m * MIN).find((m) => (b - a) / m <= room) ?? 43200 * MIN;
+    const stepMs = [1 / 60, 1 / 30, 1 / 12, 1 / 6, 1 / 4, 1 / 2, 1, 2, 5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080, 20160, 43200].map((m) => m * MIN).find((m) => (b - a) / m <= room) ?? 43200 * MIN;
     const zone = new Date(a).getTimezoneOffset() * MIN; // round in local time
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = css('--muted');
     for (let t = Math.ceil((a - zone) / stepMs) * stepMs + zone; t <= b; t += stepMs) {
       ctx.strokeStyle = css('--line');
       ctx.beginPath(); ctx.moveTo(Math.round(X(t)) + 0.5, L.t + ph); ctx.lineTo(Math.round(X(t)) + 0.5, L.t + ph + 4); ctx.stroke();
-      ctx.fillText(stepMs >= 1440 * MIN ? dateOnly(t) : long ? dateShort(t) : clockText(t), X(t), L.t + ph + 7);
+      ctx.fillText(stepMs >= 1440 * MIN ? dateOnly(t) : long ? dateShort(t) : stepMs < MIN ? clockSeconds(t) : clockText(t), X(t), L.t + ph + 7);
     }
 
     // the recording, and what the ECG shows now
@@ -625,6 +637,9 @@ export class BpStrip {
     }
     // systolic and diastolic: a line each, every value written at its point (systolic above, diastolic below)
     const series = [['systolic', 'Systolic', css('--series-1'), -1], ['diastolic', 'Diastolic', css('--critical'), 1]] as const;
+    const inside = (x: number): boolean => x >= L.l - 0.5 && x <= L.l + pw + 0.5;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L.l, 0, pw, h); ctx.clip(); // readings outside the time shown only carry the line on
     for (const [key, , color, side] of series) {
       const pts = this.readings.flatMap((r) => (r[key] == null ? [] : [[X(r.at), Y(r[key]!), r[key]!] as const]));
       ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
@@ -632,10 +647,11 @@ export class BpStrip {
       pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
       ctx.fillStyle = color;
-      for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fill(); }
+      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fill(); }
       ctx.fillStyle = css('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = side < 0 ? 'bottom' : 'top';
-      for (const [x, y, v] of pts) ctx.fillText(String(v), Math.min(L.l + pw - 10, Math.max(L.l + 10, x)), y + side * 7);
+      for (const [x, y, v] of pts) if (inside(x)) ctx.fillText(String(v), Math.min(L.l + pw - 10, Math.max(L.l + 10, x)), y + side * 7);
     }
+    ctx.restore();
     // legend, top right
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     let lx = L.l + pw;
@@ -650,6 +666,7 @@ export class BpStrip {
   }
 }
 
+const clockSeconds = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 const dateOnly = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
 const dateShort = (ms: number): string => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 const clockText = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
