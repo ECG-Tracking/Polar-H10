@@ -177,7 +177,7 @@ test('D2 set-up: the account goes to the watch only when its ID was entered', as
   assert.ok(w2.setup.includes('1a:5'));
 });
 
-import { aggregate, bucketStart, modeFor, rangeStart } from '../src/d2/graphsui';
+import { aggregate, bucketStart, modeFor, rangeStart, customSpan } from '../src/d2/graphsui';
 import { DROPPED_CLASSES, READING_CLASSES } from '../src/d2/extra';
 
 test('D2 graphs: periods, how finely they are shown, and per-day values', () => {
@@ -340,4 +340,13 @@ test('D2 link: a message that can’t be sent fails at once and leaves no stray 
     await new Promise((r) => setTimeout(r, 80));
     assert.deepEqual(unhandled, []);
   } finally { process.off('unhandledRejection', onUnhandled); }
+});
+
+test('D2 Link graphs: a custom period runs from the start of its first date to the end of its last, not after now', () => {
+  const now = new Date(2026, 10, 14, 9, 0).getTime();
+  const [a, b] = customSpan({ from: '2026-11-01', to: '2026-11-07' }, now);
+  assert.equal(a, new Date(2026, 10, 1).getTime());
+  assert.equal(b, new Date(2026, 10, 8).getTime() - 1);
+  assert.equal(customSpan({ from: '2026-11-10', to: '2026-11-30' }, now)[1], now, 'not after now');
+  assert.equal(customSpan({ from: '', to: '' }, now)[0], now - 7 * 86400000, 'no dates: the last 7 days');
 });

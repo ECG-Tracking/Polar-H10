@@ -4,7 +4,7 @@
 
 import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
 import { renderAllData } from './dataui';
-import { renderGraphs, RANGES, type Range } from './graphsui';
+import { renderGraphs, RANGES, type CustomDates, type Range } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile, READING_CLASSES, type EcgRecording } from './extra';
 import { D2Link, WatchError } from './link';
@@ -400,6 +400,9 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const RANGE_KEY = 'd2link-graphs-range';
   let range: Range = '7d';
   try { const r = localStorage.getItem(RANGE_KEY); if (RANGES.some(([v]) => v === r)) range = r as Range; } catch { /* default */ }
+  const DATES_KEY = 'd2link-graphs-dates';
+  let dates: CustomDates = { from: '', to: '' };
+  try { const d = JSON.parse(localStorage.getItem(DATES_KEY) ?? 'null') as Partial<CustomDates> | null; if (d && typeof d.from === 'string' && typeof d.to === 'string') dates = { from: d.from, to: d.to }; } catch { /* default */ }
   let anchor = new Date();
   function showView(): void {
     for (const b of tabBtns) b.setAttribute('aria-selected', String(b.dataset['view'] === view));
@@ -410,11 +413,12 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     graphsBox.hidden = view !== 'graphs';
     if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs, () => { showView(); void sync(); })); return; }
     if (view === 'graphs') {
-      void Promise.all([store.listNights(deps.user()), store.listRecords(deps.user())]).then(([ns, rs]) => renderGraphs(graphsBox, ns, rs, range, (r) => {
+      void Promise.all([store.listNights(deps.user()), store.listRecords(deps.user())]).then(([ns, rs]) => renderGraphs(graphsBox, ns, rs, range, (r, d) => {
         range = r;
-        try { localStorage.setItem(RANGE_KEY, r); } catch { /* not kept */ }
+        if (d) dates = d;
+        try { localStorage.setItem(RANGE_KEY, r); localStorage.setItem(DATES_KEY, JSON.stringify(dates)); } catch { /* not kept */ }
         showView();
-      }));
+      }, Date.now(), dates));
       return;
     }
     if (view === 'nights') return;
