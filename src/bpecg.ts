@@ -1,10 +1,10 @@
 // The "BP and ECG" page: every blood pressure reading from the watch with the ECG figures of the recordings taken around
-// it. At the top, the picked reading's blood pressure graph with its Watch D2 and Polar H10 ECGs, all moved by one slider;
-// then the period (as on ECG history and trending) with blood pressure over it; then the choice of columns and a table
-// with one row per reading in the period.
+// it. At the top, the period (as on ECG history and trending), then the blood pressure graph over it and the picked
+// reading's Watch D2 and Polar H10 ECGs, with one slider (as in a tracking's Combined ECG); then the choice of columns and
+// a table with one row per reading in the period.
 
 import { BpStrip } from './charts';
-import { BP_NEAR_MS, figure, matchReading, readingsBetween, type BpMatch } from './bp';
+import { figure, matchReading, readingsBetween, type BpMatch } from './bp';
 import { colTable, type Column } from './coltable';
 import { PERIODS, periodRange, type Period } from './ecgtrend';
 import * as store from './store';
@@ -92,16 +92,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   let all: SyncBp[] = [], sessions: Session[] = [], entries: SyncTrackingEntry[] = [], matches: BpMatch[] = [];
   let pickedAt: number | null = null, run = 0;
 
-  // ---- top: the picked reading's blood pressure graph and its two ECGs, all moved by one slider ----
-  const shown = make('section', 'card');
-  const shownTitle = make('h3', 'sync-h', 'Blood pressure with the ECGs');
-  const topBp = new BpStrip(true);
-  const bpBox = make('div', 'card viewer bp-card');
-  bpBox.appendChild(topBp.el);
-  const shownBody = make('div');
-  shown.append(shownTitle, bpBox, shownBody);
-
-  // ---- the period (for the table too) and blood pressure over it ----
+  // ---- top: the period, then the blood pressure graph over it and the picked reading's two ECGs, with one slider ----
   const period = make('select');
   period.setAttribute('aria-label', 'Period');
   for (const [v, t] of PERIODS) { const o = make('option', '', t); o.value = v; period.appendChild(o); }
@@ -115,9 +106,13 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   periodLabel.appendChild(period);
   top.append(periodLabel, custom);
   const status = make('p', 'note');
-  const trendBp = new BpStrip(true);
-  const trendCard = make('section', 'card');
-  trendCard.append(make('h3', 'sync-h', 'Trending'), top, status, trendBp.el);
+  const shown = make('section', 'card');
+  const shownTitle = make('h3', 'sync-h', 'Blood pressure with the ECGs');
+  const topBp = new BpStrip(true);
+  const bpBox = make('div', 'card viewer bp-card');
+  bpBox.appendChild(topBp.el);
+  const shownBody = make('div');
+  shown.append(top, status, shownTitle, bpBox, shownBody);
 
   // ---- the table, with the choice of columns just above it ----
   const table = colTable<BpMatch>({
@@ -130,7 +125,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   tableCard.append(make('h3', 'sync-h', 'Blood pressure readings'),
     make('p', 'note', 'One row for each blood pressure reading in the period. The ECG figures are from the synchronised tracking the reading belongs to, or else from the Polar H10 ECG and the watch strips taken within an hour of it (the median of the strips; their events added up). -- where there is none. Click a row to show it at the top.'),
     table.el);
-  root.replaceChildren(shown, trendCard, tableCard);
+  root.replaceChildren(shown, tableCard);
 
   const range = (): [number, number] => {
     const first = all.reduce((a, r) => Math.min(a, r.at), Date.now());
@@ -143,29 +138,30 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     save(); draw();
   });
 
-  function drawTrend(): void {
+  /** The BP graph covers the whole period; `recording`: the picked tracking, shaded. */
+  function drawBp(recording: [number, number] | null): void {
     custom.hidden = state.period !== 'custom';
     const [a, b] = range();
-    trendBp.set(visible().map((m) => m.bp), [a, b], null);
+    topBp.set(readingsBetween(all, a, b), [a, b], recording);
   }
 
   async function showPicked(m: BpMatch | null): Promise<void> {
     if (!m) {
       shownTitle.textContent = 'Blood pressure with the ECGs';
-      topBp.set([], [Date.now() - BP_NEAR_MS, Date.now()], null);
+      drawBp(null);
       shownBody.replaceChildren(make('p', 'muted', 'No reading in this period.'));
       return;
     }
     shownTitle.textContent = `Blood pressure ${bpText(m.bp)} mmHg at ${dateTime(m.bp.at)}`;
     if (m.tracking) {
-      // the hour before to the hour after the tracking; the slider moves both ECGs and the mark on this graph
-      const t = m.tracking, end = t.start + t.durationS * 1000;
-      topBp.set(readingsBetween(all, t.start - BP_NEAR_MS, end + BP_NEAR_MS), [t.start - BP_NEAR_MS, end + BP_NEAR_MS], [t.start, end]);
+      // the tracking shaded on the period's graph; the slider moves both ECGs and the mark on it
+      const t = m.tracking;
+      drawBp([t.start, t.start + t.durationS * 1000]);
       await deps.pairInto(shownBody, t.id, { compact: true, bp: topBp });
       return;
     }
     // no tracking: the readings around this one, and the ECGs taken near it to open
-    topBp.set(readingsBetween(all, m.bp.at - BP_NEAR_MS, m.bp.at + BP_NEAR_MS), [m.bp.at - BP_NEAR_MS, m.bp.at + BP_NEAR_MS], null);
+    drawBp(null);
     topBp.mark(m.bp.at);
     const buttons = make('div', 'row wrap');
     const polar = m.polar;
@@ -177,7 +173,6 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   }
 
   function draw(): void {
-    drawTrend();
     const rows = visible();
     if (pickedAt == null || !rows.some((m) => m.bp.at === pickedAt)) pickedAt = rows.reduce<number | null>((a, m) => (a == null || m.bp.at > a ? m.bp.at : a), null);
     table.set(rows, pickedAt == null ? null : String(pickedAt));

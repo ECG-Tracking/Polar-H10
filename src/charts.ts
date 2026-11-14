@@ -561,18 +561,6 @@ export class BpStrip {
     this.draw();
   }
 
-  /**
-   * Shows exactly the moments the ECGs show (ms), so the chart moves with their slider: the lines run on between readings
-   * outside it, and a reading inside it is a labelled point.
-   */
-  follow(from: number | null, to: number | null): void {
-    if (from == null || to == null || !(to > from)) return;
-    this.span = [from, to];
-    this.shown = null;
-    this.recording = null; // the window is all recording: no shading
-    this.draw();
-  }
-
   /** The moments the ECG shows now (ms), marked on the chart; null: none. */
   mark(from: number | null, to: number | null = from): void {
     this.shown = from == null || to == null ? null : [from, to];

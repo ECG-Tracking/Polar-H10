@@ -576,9 +576,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       linking = false;
       pos.value = String(Math.round((a.t0 / Math.max(0.001, a.duration - a.span)) * 1000));
       time.textContent = `${clockAt(set.strips, a.t0)} · ${n(a.span, 1)} s shown`;
-      // on the BP and ECG page the BP graph shows the same moments as the ECGs; in the report it marks them on its hours
-      if (opts.bp) opts.bp.follow(realAt(set.strips, a.t0), realAt(set.strips, a.t0 + a.span));
-      else bp.mark(realAt(set.strips, a.t0), realAt(set.strips, a.t0 + a.span));
+      bp.mark(realAt(set.strips, a.t0), realAt(set.strips, a.t0 + a.span)); // the moments shown, marked on the BP graph
     });
     link(wv, pv); link(pv, wv);
     pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));

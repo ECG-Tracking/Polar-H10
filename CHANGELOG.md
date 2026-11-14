@@ -4,6 +4,12 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.6 – BP and ECG: the period at the top, for all three graphs *(GitHub)*
+- **BP and ECG:** "Show the last" is now at the very top of the page, and the period applies to all three graphs and to the table.
+  - **The blood pressure graph** covers the whole period: all its readings, systolic and diastolic. The picked reading's tracking is shaded, and a mark shows the moments the ECGs show. The mark moves with the slider, as in a tracking's Combined ECG.
+  - **Under it:** the Watch D2 strips and the Polar H10 ECG of the picked reading (the latest reading in the period, or the row you click), with their slider and events.
+  - **The separate Trending section is gone:** its blood pressure graph is now the top one.
+
 ## 14 Nov 2026 – v1.45.5 – A delete button on every row; Download BP in D2 Link *(GitHub)*
 - **Every row of a history list now has its × delete button.** Each deletion goes to the Recovery centre, where it can be restored.
   - **Sleep history, a night or nap only the Watch D2 recorded:** deletes it from the watch's data, as D2 Link History's × does. It is also removed from your other devices.
