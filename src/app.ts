@@ -185,9 +185,9 @@ function openBpEcg(): ReturnType<typeof initBpEcg> {
     readings: allReadings,
     fill: fillTrend,
     // a tracking's two ECGs, as in its Combined ECG (its own lists are not shown on this page)
-    pairInto: (root, id) => {
+    pairInto: (root, id, opts) => {
       bpPairs ??= initSyncReports(make('div'), make('div'), { loadD2, account: () => account.account?.id ?? 'local', user: () => currentUser, updateReports, openEcg: (x) => void openReport(x), show });
-      return bpPairs.pairInto(root, id);
+      return bpPairs.pairInto(root, id, opts);
     },
     openEcg: (id) => void openReport(id),
   });

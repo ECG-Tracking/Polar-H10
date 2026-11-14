@@ -376,7 +376,7 @@ function ecgRows(m: NonNullable<TrackVersion['ecg']>): string[][] {
 }
 
 /** `box`: the history page's list; `reportRoot`: the report page. */
-export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void; pairInto: (root: HTMLElement, id: string) => Promise<void> } {
+export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps: SyncReportDeps): { render: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void; pairInto: (root: HTMLElement, id: string, opts?: { compact?: boolean; bp?: BpStrip }) => Promise<void> } {
   /** Where ← goes: Synchronised ECG Tracking History, or ECG history when the pair was opened from there. */
   let backTo: { label: string; go: () => void } | null = null;
   const backToHistory = (): void => { if (backTo) backTo.go(); else deps.show('syncHistory'); };
@@ -502,9 +502,14 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   }
 
   /** Both ECGs one above the other, moving together; with the comparison and combined figures. */
-  function ecgPairReport(g: Gathered): { body: HTMLElement[]; after: () => void } {
+  /** `compact`: only the two ECGs, their slider and the events, for another page; `bp`: that page's BP graph, marked as they move. */
+  function ecgPairReport(g: Gathered, opts: { compact?: boolean; bp?: BpStrip } = {}): { body: HTMLElement[]; after: () => void } {
     const st = g.strips, set = st?.set;
     const ecgId = g.e.ecgId;
+    if ((!st || !set) && opts.compact) {
+      return { body: [make('p', 'muted', g.why ?? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.'),
+        ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
+    }
     if (!st || !set) {
       return { body: [...heading('Combined ECG: watch strips and Polar H10', g), make('p', 'muted', g.why ?? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.'),
         ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
@@ -521,8 +526,8 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     };
     const w = mk('Watch D2: the strips joined', 'ECG strips from the watch, joined'), p = mk('Polar H10: the same moments', 'The strap’s ECG of the same moments');
     // the tracking's blood pressure readings above both ECGs; the marker follows what they show
-    const bp = new BpStrip(), trackEnd = g.e.start + g.e.durationS * 1000;
-    bp.set(g.v.bps, [g.e.start - NEAR_MS, trackEnd + NEAR_MS], [g.e.start, trackEnd]);
+    const bp = opts.bp ?? new BpStrip(), trackEnd = g.e.start + g.e.durationS * 1000;
+    if (!opts.bp) bp.set(g.v.bps, [g.e.start - NEAR_MS, trackEnd + NEAR_MS], [g.e.start, trackEnd]);
     const bpBox = make('div', 'card viewer bp-card');
     bpBox.appendChild(bp.el);
     const wv = new EcgViewer(w.canvas), pv = new EcgViewer(p.canvas);
@@ -575,7 +580,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     link(wv, pv); link(pv, wv);
     pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
     return {
-      body: [
+      body: opts.compact ? [w.box, p.box, bar, evBar] : [
         ...heading('Combined ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
         make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
@@ -743,7 +748,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   };
 
   /** A tracking's Combined ECG (its latest version) shown inside another page, as on the BP and ECG page. */
-  async function pairInto(root: HTMLElement, id: string): Promise<void> {
+  async function pairInto(root: HTMLElement, id: string, opts: { compact?: boolean; bp?: BpStrip } = {}): Promise<void> {
     root.replaceChildren(make('div', 'busy', 'Opening the ECGs…'));
     try {
       const e = store.loadSyncHistory().find((x) => x.id === id);
@@ -753,7 +758,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       let failed: string | null = null;
       const strips = await gatherStrips(e).catch((err: unknown) => { failed = errorMessage(err); return null; });
       const g: Gathered = { e, trace, v, latest: true, strips, ...(!strips?.set ? { why: await whyNoStrips(e, failed) } : {}) };
-      const r = ecgPairReport(g);
+      const r = ecgPairReport(g, opts);
       root.replaceChildren(...r.body);
       r.after();
     } catch (err) {
@@ -763,5 +768,5 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
 
   /** The two ECGs of a tracking, opened from ECG history: ← goes back there. */
   const openPair = (id: string, back: { label: string; go: () => void }): void => { backTo = back; void openReport(id, 'ecg'); };
-  return { render: refresh, openPair, pairInto: (root, id) => during('showing a tracking’s ECGs', () => pairInto(root, id)) };
+  return { render: refresh, openPair, pairInto: (root, id, opts) => during('showing a tracking’s ECGs', () => pairInto(root, id, opts)) };
 }

@@ -520,9 +520,9 @@ export interface ChestStripData {
 export interface BpPoint { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
 
 /**
- * The blood pressure readings around a recording, above its ECG: each reading a bar from diastolic to systolic, labelled
- * "128/82", over the hour before to the hour after. The recording is shaded and the part the ECG shows is marked, so the
- * marker moves with the ECG. Two big squares tall (twice a sleep-stage strip).
+ * Blood pressure as a line chart: systolic and diastolic as two lines over time, each reading's value written at its
+ * point, mmHg up the side and the date and time along the bottom. Above an ECG it covers the hour before to the hour
+ * after the recording, with the recording shaded and the part the ECG shows marked (the mark moves with the slider).
  */
 export class BpStrip {
   private readings: readonly BpPoint[] = [];
@@ -533,7 +533,8 @@ export class BpStrip {
   private readonly value: HTMLElement;
   readonly el: HTMLElement;
 
-  constructor() {
+  /** `alwaysShown`: shown with "No readings" when there are none (on a page of its own), rather than hidden. */
+  constructor(private readonly alwaysShown = false) {
     this.el = document.createElement('figure');
     this.el.className = 'chest-strip bp-strip';
     const cap = document.createElement('figcaption');
@@ -543,64 +544,114 @@ export class BpStrip {
     this.value.className = 'muted';
     cap.append(name, this.value);
     this.canvas = document.createElement('canvas');
-    this.canvas.setAttribute('aria-label', 'Blood pressure readings around this recording');
+    this.canvas.setAttribute('aria-label', 'Blood pressure readings: systolic and diastolic over time');
     this.el.append(cap, this.canvas);
-    this.el.hidden = true;
+    this.el.hidden = !alwaysShown;
     watch(this.canvas, () => this.draw());
   }
 
-  /** The readings, the time the graph covers, and the recording's own span (all ms). No readings: the graph is hidden. */
+  /** The readings, the time the chart covers, and the recording's own span (all ms). */
   set(readings: readonly BpPoint[], span: [number, number], recording: [number, number] | null): void {
     this.readings = [...readings].filter((r) => r.systolic != null || r.diastolic != null).sort((a, b) => a.at - b.at);
     this.span = span;
     this.recording = recording;
-    this.el.hidden = !this.readings.length;
-    this.value.textContent = this.readings.length ? ` · ${this.readings.length} reading${this.readings.length > 1 ? 's' : ''}, ${clockText(span[0])} to ${clockText(span[1])}` : '';
+    this.el.hidden = !this.readings.length && !this.alwaysShown;
+    const n = this.readings.length;
+    this.value.textContent = n ? ` · ${n} reading${n > 1 ? 's' : ''}` : '';
     this.draw();
   }
 
-  /** The moments the ECG shows now (ms), marked on the graph; null: none. */
+  /** The moments the ECG shows now (ms), marked on the chart; null: none. */
   mark(from: number | null, to: number | null = from): void {
     this.shown = from == null || to == null ? null : [from, to];
     this.draw();
   }
 
   private draw(): void {
-    if (this.el.hidden) return;
-    const px = `${Math.round(10 * pxPerMm() * ecgSize())}px`; // two big squares
-    if (this.canvas.style.height !== px) this.canvas.style.height = px;
-    if (!this.canvas.clientWidth) return;
+    if (this.el.hidden || !this.canvas.clientWidth) return;
     const surface = setup(this.canvas);
     if (!surface) return;
     const { ctx, w, h } = surface;
-    const [a, b] = this.span, X = (t: number): number => ((t - a) / Math.max(1, b - a)) * w;
+    const L = { l: 44, r: 16, t: 24, b: 26 };
+    const pw = Math.max(10, w - L.l - L.r), ph = Math.max(10, h - L.t - L.b);
+    const [a, b] = this.span;
+    const X = (t: number): number => L.l + ((t - a) / Math.max(1, b - a)) * pw;
     const vals = this.readings.flatMap((r) => [r.systolic, r.diastolic]).filter((v): v is number => v != null);
-    const lo = Math.min(60, ...vals) - 5, hi = Math.max(160, ...vals) + 5;
-    const Y = (v: number): number => h - 3 - ((v - lo) / (hi - lo)) * (h - 6);
-    if (this.recording) { // the recording
-      ctx.fillStyle = css('--line');
-      ctx.fillRect(X(this.recording[0]), 0, Math.max(2, X(this.recording[1]) - X(this.recording[0])), h);
+    // mmHg: whole tens around the readings, 60–140 when there are none
+    const lo = vals.length ? Math.floor((Math.min(...vals) - 10) / 10) * 10 : 60, hi = vals.length ? Math.ceil((Math.max(...vals) + 10) / 10) * 10 : 140;
+    const Y = (v: number): number => L.t + ph - ((v - lo) / (hi - lo)) * ph;
+    ctx.font = '11px system-ui, sans-serif';
+
+    // grid, mmHg up the side
+    const step = hi - lo > 100 ? 20 : 10;
+    ctx.strokeStyle = css('--chart-grid') || css('--line'); ctx.lineWidth = 1;
+    ctx.fillStyle = css('--muted'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let v = lo; v <= hi; v += step) {
+      const y = Math.round(Y(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L.l, y); ctx.lineTo(L.l + pw, y); ctx.stroke();
+      ctx.fillText(String(v), L.l - 6, y);
     }
-    if (this.shown) { // what the ECG shows now
-      ctx.fillStyle = css('--accent');
-      ctx.globalAlpha = 0.35;
-      ctx.fillRect(X(this.shown[0]) - 1, 0, Math.max(2, X(this.shown[1]) - X(this.shown[0])) + 2, h);
+    ctx.strokeStyle = css('--line');
+    ctx.beginPath(); ctx.moveTo(L.l + 0.5, L.t); ctx.lineTo(L.l + 0.5, L.t + ph); ctx.lineTo(L.l + pw, L.t + ph + 0.5); ctx.stroke();
+
+    // date and time along the bottom
+    const long = b - a > 36 * 3600000;
+    // at round times: the smallest step that leaves room for each label
+    const MIN = 60000, room = Math.max(2, Math.floor(pw / (long ? 90 : 60)));
+    const stepMs = [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080, 20160, 43200].map((m) => m * MIN).find((m) => (b - a) / m <= room) ?? 43200 * MIN;
+    const zone = new Date(a).getTimezoneOffset() * MIN; // round in local time
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillStyle = css('--muted');
+    for (let t = Math.ceil((a - zone) / stepMs) * stepMs + zone; t <= b; t += stepMs) {
+      ctx.strokeStyle = css('--line');
+      ctx.beginPath(); ctx.moveTo(Math.round(X(t)) + 0.5, L.t + ph); ctx.lineTo(Math.round(X(t)) + 0.5, L.t + ph + 4); ctx.stroke();
+      ctx.fillText(stepMs >= 1440 * MIN ? dateOnly(t) : long ? dateShort(t) : clockText(t), X(t), L.t + ph + 7);
+    }
+
+    // the recording, and what the ECG shows now
+    if (this.recording) {
+      ctx.fillStyle = css('--line');
+      ctx.fillRect(X(this.recording[0]), L.t, Math.max(2, X(this.recording[1]) - X(this.recording[0])), ph);
+    }
+    if (this.shown) {
+      ctx.fillStyle = css('--accent'); ctx.globalAlpha = 0.35;
+      ctx.fillRect(X(this.shown[0]) - 1, L.t, Math.max(2, X(this.shown[1]) - X(this.shown[0])) + 2, ph);
       ctx.globalAlpha = 1;
     }
-    ctx.font = '11px system-ui, sans-serif'; ctx.textBaseline = 'middle';
-    for (const r of this.readings) {
-      const x = X(r.at), s = r.systolic ?? r.diastolic!, d = r.diastolic ?? r.systolic!;
-      ctx.strokeStyle = css('--critical'); ctx.lineWidth = 3; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(x, Y(s)); ctx.lineTo(x, Y(d)); ctx.stroke();
-      const text = `${clockText(r.at)}  ${r.systolic ?? '--'}/${r.diastolic ?? '--'}${r.pulse != null ? `, pulse ${r.pulse}` : ''}`;
-      const tw = ctx.measureText(text).width;
+
+    if (!this.readings.length) {
+      ctx.fillStyle = css('--muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('No readings in this time', L.l + pw / 2, L.t + ph / 2);
+      return;
+    }
+    // systolic and diastolic: a line each, every value written at its point (systolic above, diastolic below)
+    const series = [['systolic', 'Systolic', css('--series-1'), -1], ['diastolic', 'Diastolic', css('--critical'), 1]] as const;
+    for (const [key, , color, side] of series) {
+      const pts = this.readings.flatMap((r) => (r[key] == null ? [] : [[X(r.at), Y(r[key]!), r[key]!] as const]));
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.stroke();
+      ctx.fillStyle = color;
+      for (const [x, y] of pts) { ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 2 * Math.PI); ctx.fill(); }
+      ctx.fillStyle = css('--ink'); ctx.textAlign = 'center'; ctx.textBaseline = side < 0 ? 'bottom' : 'top';
+      for (const [x, y, v] of pts) ctx.fillText(String(v), Math.min(L.l + pw - 10, Math.max(L.l + 10, x)), y + side * 7);
+    }
+    // legend, top right
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    let lx = L.l + pw;
+    for (const [, name, color] of [...series].reverse()) {
+      const tw = ctx.measureText(name).width;
+      lx -= tw + 30;
+      ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, 10); ctx.lineTo(lx + 16, 10); ctx.stroke();
       ctx.fillStyle = css('--ink-2');
-      ctx.textAlign = x + 6 + tw < w ? 'left' : 'right';
-      ctx.fillText(text, ctx.textAlign === 'left' ? x + 6 : x - 6, h / 2);
+      ctx.fillText(name, lx + 21, 10);
     }
   }
 }
 
+const dateOnly = (ms: number): string => new Date(ms).toLocaleDateString([], { day: 'numeric', month: 'short' });
+const dateShort = (ms: number): string => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 const clockText = (ms: number): string => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
 
 /** One device's sleep stages: `startS` seconds from the start of the sleep recording, one stage every `stepS` seconds. */

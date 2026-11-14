@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.1 – BP graph as a line chart; BP and ECG page rearranged *(GitHub)*
+- **The blood pressure graph is now a line chart:**
+  - Systolic and diastolic are two lines, and each reading's value is written at its point.
+  - mmHg runs up the side with gridlines, and the date and time along the bottom at round times.
+  - There is a legend.
+  - Above an ECG it still covers the hour before to the hour after the recording, with the recording shaded and a mark that moves with the slider.
+- **BP and ECG page:**
+  - **At the top, three graphs on one slider:** the blood pressure graph, the Watch D2 strips and the Polar H10 ECG of the picked reading's tracking. Moving the slider moves both ECGs and the mark on the blood pressure graph. The comparison figures of the Combined ECG are left out here.
+  - **Then trending:** "Show the last" a period, with blood pressure over that period on the same kind of chart. The period also chooses the table's rows.
+  - **The figure ticks now choose the table's columns**, just above the table, in place of the "Add column" list. The other trend graphs are gone.
+
 ## 14 Nov 2026 – v1.45.0 – BP and ECG page; blood pressure graph above the ECG *(GitHub)*
 - **Blood pressure graph above the ECG:** shown in an ECG report (ECG history) and in a tracking's Combined ECG, above the strips.
   - It shows the Watch D2's readings from an hour before the recording to an hour after it.

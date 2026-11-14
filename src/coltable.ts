@@ -1,6 +1,6 @@
 // A table whose columns the person chooses, as in Stock Portfolio Optimizer: each column header has sort (⇅, ▲, ▼; a
 // third press clears it), move left and right (< >), remove (×), and a "−" in its corner that folds the column away
-// for now ("+" opens it again). Removed columns can be added back from the list above the table. The choices are kept
+// for now ("+" opens it again). Above the table, a tick for every column chooses which are shown. The choices are kept
 // on this device.
 
 import { make } from './ui';
@@ -37,22 +37,17 @@ export function colTable<R>(o: {
   let rows: readonly R[] = [], picked: string | null = null;
 
   const el = make('div', 'coltable');
-  const tools = make('div', 'row wrap coltable-tools');
-  const addSel = make('select');
-  addSel.setAttribute('aria-label', 'Column to add');
-  const addBtn = make('button', 'small', 'Add column');
+  const tools = make('div', 'coltable-tools');
+  const ticks = make('div', 'trend-ticks');
   const resetBtn = make('button', 'small', 'Reset columns');
-  tools.append(make('span', 'muted', 'Columns:'), addSel, addBtn, resetBtn);
+  const head = make('div', 'row wrap between');
+  head.append(make('span', 'muted', 'Columns shown in the table:'), resetBtn);
+  tools.append(head, ticks);
   const wrap = make('div', 'table-container');
   const table = make('table', 'data-table');
   wrap.appendChild(table);
   el.append(tools, wrap);
 
-  addBtn.addEventListener('click', () => {
-    if (!addSel.value) return;
-    choices.cols.push(addSel.value);
-    save(); render();
-  });
   resetBtn.addEventListener('click', () => {
     Object.assign(choices, structuredClone(o.defaults));
     save(); render();
@@ -89,11 +84,19 @@ export function colTable<R>(o: {
   }
 
   function render(): void {
-    // the columns that can be added back
-    const hidden = o.columns.filter((c) => !choices.cols.includes(c.id));
-    addSel.replaceChildren(...hidden.map((c) => { const op = make('option', '', c.label); op.value = c.id; return op; }));
-    addSel.disabled = addBtn.disabled = !hidden.length;
-    if (!hidden.length) addSel.appendChild(make('option', '', 'Every column is shown'));
+    // a tick for every column: ticked ones are shown (a newly ticked one goes at the end)
+    ticks.replaceChildren(...o.columns.map((c) => {
+      const box = make('input'), l = make('label');
+      box.type = 'checkbox';
+      box.checked = choices.cols.includes(c.id);
+      box.addEventListener('change', () => {
+        choices.cols = box.checked ? [...choices.cols, c.id] : choices.cols.filter((x) => x !== c.id);
+        if (!box.checked && choices.sort?.id === c.id) choices.sort = null;
+        save(); render();
+      });
+      l.append(box, ` ${c.label}`);
+      return l;
+    }));
 
     const cols = choices.cols.map((id) => byId.get(id)!).filter(Boolean);
     const head = make('tr');
@@ -126,7 +129,7 @@ export function colTable<R>(o: {
       };
       left.addEventListener('click', () => move(-1));
       right.addEventListener('click', () => move(1));
-      const remove = ctrl('×', `Remove the "${c.label}" column (add it back from Columns)`, 'col-ctrl-remove');
+      const remove = ctrl('×', `Remove the "${c.label}" column (tick it above to show it again)`, 'col-ctrl-remove');
       remove.addEventListener('click', () => {
         choices.cols = choices.cols.filter((x) => x !== c.id);
         if (choices.sort?.id === c.id) choices.sort = null;
