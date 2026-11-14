@@ -206,6 +206,18 @@ function bothEvents(set: StripSet): { polar: number; watch: number } {
   return { polar, watch };
 }
 
+/**
+ * A tracking's events as its Combined ECG counts them (only where both devices saw one at the same heartbeat), with
+ * each as a % of that device's beats; null when its strips and the strap's ECG can't be put together on this device.
+ */
+export async function combinedEvents(e: SyncTrackingEntry): Promise<{ polar: number; watch: number; polarPct: number; watchPct: number } | null> {
+  const set = (await gatherStrips(e).catch(() => null))?.set;
+  if (!set) return null;
+  const ev = bothEvents(set);
+  const pct = (n: number, beats: number): number => (beats ? (100 * n) / beats : NaN);
+  return { polar: ev.polar, watch: ev.watch, polarPct: pct(ev.polar, set.polarA.beats.length), watchPct: pct(ev.watch, set.watchA.beats.length) };
+}
+
 /** How long the spliced ECG is: the strips' time together, without the joins. */
 const splicedText = (strips: readonly MatchedStrip[]): string => {
   const s = strips.reduce((a, x) => a + x.durationS, 0);
