@@ -156,3 +156,11 @@ test('a recording saved in parts comes back whole', () => {
   assert.deepEqual([...ecg], [0, 0, 1, 1, 2, 2]);
   assert.equal(data.accFs, 25);
 });
+
+test('a night is dated by the evening it began: sleep after midnight belongs to the night before', async () => {
+  const { nightOf } = await import('../src/sleep');
+  assert.equal(nightOf(new Date(2026, 10, 11, 23, 6).getTime()), '2026-11-11');
+  assert.equal(nightOf(new Date(2026, 10, 12, 1, 26).getTime()), '2026-11-11');
+  assert.equal(nightOf(new Date(2026, 10, 12, 11, 59).getTime()), '2026-11-11');
+  assert.equal(nightOf(new Date(2026, 10, 12, 12, 1).getTime()), '2026-11-12');
+});

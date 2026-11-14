@@ -352,6 +352,12 @@ function runs<T>(a: readonly T[]): { value: T; from: number; to: number }[] {
 }
 
 /** Day-time sleep: the middle of the recording falls between 08:00 and 20:00 local time. */
+/** The night a sleep belongs to, as a local date (yyyy-mm-dd): noon to noon, so sleep after midnight belongs to the night before. */
+export function nightOf(ms: number): string {
+  const d = new Date(ms - 12 * 3600000);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export function isNap(start: number, durationS: number, context?: 'night' | 'nap'): boolean {
   if (context) return context === 'nap'; // what the person said wins over the clock
 
