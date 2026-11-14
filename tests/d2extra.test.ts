@@ -305,7 +305,7 @@ test('D2 download history in the cloud: uploaded once, fetched from elsewhere, a
   assert.equal(parseCloudDownload({ data: log(1, false) })?.synced, true);
 });
 
-test('D2 downloads: an identical record is left alone and counted as nil change', () => {
+test('D2 downloads: an identical record is left alone, and the message counts the changes', () => {
   const rec = (key: string, v: number, downloadedAt: number) => ({ key, kind: 'stress' as const, id: key, user: 1, start: 5, data: { score: v }, source: 'd2' as const, watch: 'W', downloadedAt });
   const stored = [rec('a', 1, 10), rec('b', 2, 10)];
   const { changed, same } = onlyChanged([rec('a', 1, 99), rec('b', 3, 99), rec('c', 4, 99)], stored, (r) => r.key, recordContent);
@@ -314,9 +314,10 @@ test('D2 downloads: an identical record is left alone and counted as nil change'
   const night = (stages: number[]) => ({ id: 'd2-1', user: 1, start: 1000, stages, summary: emptySummary(), source: 'd2' as const, watch: 'W', downloadedAt: 1 });
   assert.equal(onlyChanged([night([1, 2])], [{ ...night([1, 2]), downloadedAt: 9, synced: true }], (n) => n.id, nightContent).same.length, 1);
   assert.equal(onlyChanged([night([1, 3])], [night([1, 2])], (n) => n.id, nightContent).changed.length, 1);
-  assert.equal(nilText(2, 2), ' (nil change)');
-  assert.equal(nilText(3, 1), ' (1 nil change)');
-  assert.equal(nilText(3, 0), '');
+  assert.equal(nilText(2, 2), ' (no change)');
+  assert.equal(nilText(3, 2), ' (1 change)');
+  assert.equal(nilText(3, 0), ' (3 changes)');
+  assert.equal(nilText(0, 0), '');
 });
 
 test('D2 downloads: a failed connection isn’t recorded, but a download that stopped part way is', () => {

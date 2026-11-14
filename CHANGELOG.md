@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.21 – D2 Link downloads count the changes *(GitHub)*
+- D2 Link's download messages and history now say how many items were new or changed, instead of how many were the same: "12 blood pressure readings (1 change)", or "(no change)" when nothing was new. Before, "(11 nil change)" counted the ones already stored unchanged.
+- The connection log says "… new or changed, saved; … unchanged".
+
 ## 14 Nov 2026 – v1.45.20 – Shorter advice when the watch doesn't answer *(GitHub)*
 - The advice after "The watch did not answer the first message." is now simply: Press "Forget pairing", then pair again.
 

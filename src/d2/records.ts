@@ -60,7 +60,11 @@ export function onlyChanged<T>(incoming: readonly T[], stored: readonly T[], key
 }
 
 /** Added to a count: how many of them were identical to what is stored. */
-export const nilText = (count: number, nil: number): string => (!nil ? '' : nil === count ? ' (nil change)' : ` (${nil} nil change)`);
+/** How many of `count` downloaded were new or changed (`nil` were the same as stored): " (1 change)", or " (no change)". */
+export const nilText = (count: number, nil: number): string => {
+  const changed = Math.max(0, count - nil);
+  return !count ? '' : !changed ? ' (no change)' : ` (${changed} change${changed === 1 ? '' : 's'})`;
+};
 
 export const nightContent = (n: D2Night): unknown => [n.user, n.start, n.stages, n.summary];
 export const recordContent = (r: D2Record): unknown => [r.user, r.start, r.data, r.local ?? null];

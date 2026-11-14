@@ -536,7 +536,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       const { changed, same } = onlyChanged(got, await store.listAllNights(), (n) => n.id, nightContent);
       await store.saveNights(changed);
       entry.items.push({ what: got.length === 1 ? 'sleep record' : 'sleep records', count: got.length, nil: same.length });
-      log(`${sleepRecords(got.length)}: ${changed.length} saved, ${same.length} nil change.`);
+      log(`${sleepRecords(got.length)}: ${changed.length} new or changed, saved; ${same.length} unchanged.`);
       void sync();
       progress.textContent = got.length ? `${sleepRecords(got.length)} downloaded${nilText(got.length, same.length)}.` : 'The watch has no sleep records for this period.';
       setStatus(`${name} – done`, 'on');
@@ -590,7 +590,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
             items.push({ what: spec.name, count: ofKind(rs), nil: ofKind(same) });
           }
         } else items.push({ what, count: rs.length, nil: same.length });
-        log(`${what}: ${changed.length} saved, ${same.length} nil change.`);
+        log(`${what}: ${changed.length} new or changed, saved; ${same.length} unchanged.`);
       } catch (e) {
         items.push({ what, count: null, note: e instanceof Error ? e.message.replace(/^The watch /, '').replace(/\.$/, '') : String(e) });
         log(`${what}: not downloaded (${e instanceof Error ? e.message : String(e)}).`);
@@ -622,7 +622,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     if (changed.length) await store.saveRecords(changed);
     const bp = (l: readonly store.D2Record[]): number => l.filter((r) => r.data['cls'] === 10002).length;
     items.push({ what: 'Blood pressure', count: bp(rs), nil: bp(same) });
-    log(`Blood pressure: ${bp(changed)} saved, ${bp(same)} nil change (with ${rs.length - bp(rs)} other measurements).`);
+    log(`Blood pressure: ${bp(changed)} new or changed, saved; ${bp(same)} unchanged (with ${rs.length - bp(rs)} other measurements).`);
     return { total: bp(rs), same: bp(same) };
   }
 
@@ -635,7 +635,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
         .filter((r) => r.samples.length > 0 && r.start >= start * 1000 - 5000 && r.start <= end * 1000 + 5000);
       const n = await deps.saveEcgs(recs);
       items.push({ what: 'ECG recordings', count: recs.length, nil: n.same });
-      log(`ECG recordings: ${n.saved} saved in ECG history, ${n.same} nil change${n.short ? `, ${n.short} too short to use` : ''}.`);
+      log(`ECG recordings: ${n.saved} new, saved in ECG history; ${n.same} unchanged${n.short ? `; ${n.short} too short to use` : ''}.`);
       return recs.length ? `${recs.length} ECG recording${recs.length === 1 ? '' : 's'}${nilText(recs.length, n.same)}` : '';
     } catch (e) {
       items.push({ what: 'ECG recordings', count: null, note: e instanceof Error ? e.message.replace(/^The watch /, '').replace(/\.$/, '') : String(e) });
