@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.11 – BP and ECG: the ECG on screen, named above the strips *(GitHub)*
+- **Above the strips:** a line now says which piece of ECG they show: when it began and ended (date and time), how long it is, and which devices recorded it (for example "ECG shown: Fri 13 Nov, 18:40:15 to 18:40:45 · 30 s · Watch D2 and Polar H10"). It changes as the slider moves.
+- **The summary line** ("28 ECG pieces from … in time order …") has moved to the end, below the slider and the event buttons.
+
 ## 14 Nov 2026 – v1.45.10 – BP and ECG: the slider runs through every ECG of the period *(GitHub)*
 - **BP and ECG:** the two strips at the top now hold every ECG recorded in the chosen period, in time order, and the one slider runs through all of them. The Watch D2 is above and the Polar H10 below.
   - A synchronised tracking's strips sit with the strap's ECG of the same moments.
