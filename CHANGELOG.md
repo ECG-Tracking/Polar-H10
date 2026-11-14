@@ -4,6 +4,11 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.16 – Blood pressure graph: systolic and diastolic in their own bands *(GitHub)*
+- The blood pressure graph keeps its size and grid, but systolic and diastolic now each have their own band: systolic above, diastolic below, with a gap between them.
+  - Each band has its own mmHg scale, in whole tens around its readings, with gridlines every 10 mmHg (20 when the range is wide).
+  - The two lines no longer crowd each other, and values near the middle, such as low systolic readings, have room to be written.
+
 ## 14 Nov 2026 – v1.45.15 – Blood pressure graph taller *(GitHub)*
 - The blood pressure graph is taller (320 instead of 220 pixels), so the systolic and diastolic lines are further apart. The values between them, such as low systolic readings, have more room to be written.
 

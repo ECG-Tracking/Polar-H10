@@ -617,20 +617,29 @@ export class BpStrip {
     const pw = Math.max(10, w - L.l - L.r), ph = Math.max(10, h - L.t - L.b);
     const [a, b] = this.span;
     const X = (t: number): number => L.l + ((t - a) / Math.max(1, b - a)) * pw;
-    const vals = this.readings.flatMap((r) => [r.systolic, r.diastolic]).filter((v): v is number => v != null);
-    // mmHg: whole tens around the readings, 60–140 when there are none
-    const lo = vals.length ? Math.floor((Math.min(...vals) - 10) / 10) * 10 : 60, hi = vals.length ? Math.ceil((Math.max(...vals) + 10) / 10) * 10 : 140;
-    const Y = (v: number): number => L.t + ph - ((v - lo) / (hi - lo)) * ph;
+    // two bands on one chart, systolic above and diastolic below, each with its own mmHg scale (whole tens around its
+    // readings) and a gap between them, so the two lines sit apart and the values between them have room
+    const band = (key: 'systolic' | 'diastolic', none: [number, number]): [number, number] => {
+      const v = this.readings.map((r) => r[key]).filter((x): x is number => x != null);
+      return v.length ? [Math.floor((Math.min(...v) - 5) / 10) * 10, Math.ceil((Math.max(...v) + 5) / 10) * 10] : none;
+    };
+    const GAP = 22, sysH = (ph - GAP) * 0.5, diaTop = L.t + sysH + GAP, diaH = ph - sysH - GAP;
+    const [sLo, sHi] = band('systolic', [100, 150]), [dLo, dHi] = band('diastolic', [60, 100]);
+    const Ys = (v: number): number => L.t + sysH - ((v - sLo) / Math.max(1, sHi - sLo)) * sysH;
+    const Yd = (v: number): number => diaTop + diaH - ((v - dLo) / Math.max(1, dHi - dLo)) * diaH;
+    const lo = dLo;
     ctx.font = '11px system-ui, sans-serif';
 
-    // grid, mmHg up the side
-    const step = hi - lo > 100 ? 20 : 10;
+    // grid, mmHg up the side, for each band
     ctx.strokeStyle = css('--chart-grid') || css('--line'); ctx.lineWidth = 1;
     ctx.fillStyle = css('--muted'); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let v = lo; v <= hi; v += step) {
-      const y = Math.round(Y(v)) + 0.5;
-      ctx.beginPath(); ctx.moveTo(L.l, y); ctx.lineTo(L.l + pw, y); ctx.stroke();
-      ctx.fillText(String(v), L.l - 6, y);
+    for (const [bLo, bHi, Yb] of [[sLo, sHi, Ys], [dLo, dHi, Yd]] as const) {
+      const step = bHi - bLo > 60 ? 20 : 10;
+      for (let v = bLo; v <= bHi; v += step) {
+        const y = Math.round(Yb(v)) + 0.5;
+        ctx.beginPath(); ctx.moveTo(L.l, y); ctx.lineTo(L.l + pw, y); ctx.stroke();
+        ctx.fillText(String(v), L.l - 6, y);
+      }
     }
     ctx.strokeStyle = css('--line');
     ctx.beginPath(); ctx.moveTo(L.l + 0.5, L.t); ctx.lineTo(L.l + 0.5, L.t + ph); ctx.lineTo(L.l + pw, L.t + ph + 0.5); ctx.stroke();
@@ -658,7 +667,7 @@ export class BpStrip {
       ctx.globalAlpha = 1;
     }
 
-    this.drawn = this.readings.map((r) => ({ x: X(r.at), y: Y(r.systolic ?? r.diastolic ?? lo), r })).filter((d) => d.x >= L.l - 1 && d.x <= L.l + pw + 1);
+    this.drawn = this.readings.map((r) => ({ x: X(r.at), y: r.systolic != null ? Ys(r.systolic) : Yd(r.diastolic ?? lo), r })).filter((d) => d.x >= L.l - 1 && d.x <= L.l + pw + 1);
     if (!this.readings.length) {
       ctx.fillStyle = css('--muted'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('No readings in this time', L.l + pw / 2, L.t + ph / 2);
@@ -670,7 +679,7 @@ export class BpStrip {
     ctx.save();
     ctx.beginPath(); ctx.rect(L.l, 0, pw, h); ctx.clip(); // readings outside the time shown only carry the line on
     type P = readonly [number, number, number];
-    const lines = series.map(([key]) => this.readings.flatMap((r): P[] => (r[key] == null ? [] : [[X(r.at), Y(r[key]!), r[key]!]])));
+    const lines = series.map(([key]) => this.readings.flatMap((r): P[] => (r[key] == null ? [] : [[X(r.at), (key === 'systolic' ? Ys : Yd)(r[key]!), r[key]!]])));
     const shownCount = lines.reduce((n, pts) => n + pts.filter(([x]) => inside(x)).length, 0);
     const dot = shownCount > 80 ? 2 : 3.5;
     series.forEach(([, , color], k) => {
