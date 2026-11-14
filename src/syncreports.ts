@@ -13,8 +13,9 @@ import * as store from './store';
 import type { SyncBp, SyncTrackingEntry } from './store';
 import {
   combineHr, compareRows, makeVersion, trackingSuggestions, whatChanged,
-  type CompareRow, type HrPoint, type SyncTrace, type TimedBeat, type TrackVersion,
+  type CombinedResult, type CompareRow, type HrPoint, type SyncTrace, type TimedBeat, type TrackVersion,
 } from './synccompare';
+import { trendValues } from './ecgtrend';
 import { deleteButton, fmt, make, renderOutliers, whenLine, type Outlier } from './ui';
 import { errorMessage } from './util';
 import type { D2Api } from './d2/index'; // type only: D2 Link's code stays in d2link.js
@@ -206,16 +207,57 @@ function bothEvents(set: StripSet): { polar: number; watch: number } {
   return { polar, watch };
 }
 
-/**
- * A tracking's events as its Combined ECG counts them (only where both devices saw one at the same heartbeat), with
- * each as a % of that device's beats; null when its strips and the strap's ECG can't be put together on this device.
- */
-export async function combinedEvents(e: SyncTrackingEntry): Promise<{ polar: number; watch: number; polarPct: number; watchPct: number } | null> {
-  const set = (await gatherStrips(e).catch(() => null))?.set;
-  if (!set) return null;
+/** Raised when the Combined ECG's results are worked out differently, so saved ones are worked out again. */
+export const COMBINED_METHOD = 1;
+
+/** Which ECGs a tracking's Combined ECG comes from: the strap's ECG and the watch strips taken during it. */
+async function combinedStamp(e: SyncTrackingEntry): Promise<string> {
+  const end = e.start + e.durationS * 1000;
+  const strips = (await store.listSessions(e.user as store.UserNumber).catch(() => []))
+    .filter((s) => s.source === 'watch' && !s.cloudOnly && s.start < end && s.start + s.durationS * 1000 > e.start).map((s) => s.id).sort();
+  return `${e.ecgId ?? ''}|${strips.join(',')}`;
+}
+
+/** The results of strips already put together (as the Combined ECG does). */
+function combinedOf(st: Strips | null, stamp: string): CombinedResult {
+  const set = st?.set;
+  if (!set || !st.polarM || !st.watchM) return { method: COMBINED_METHOD, stamp, at: Date.now(), polar: null, watch: null, events: null };
   const ev = bothEvents(set);
   const pct = (n: number, beats: number): number => (beats ? (100 * n) / beats : NaN);
-  return { polar: ev.polar, watch: ev.watch, polarPct: pct(ev.polar, set.polarA.beats.length), watchPct: pct(ev.watch, set.watchA.beats.length) };
+  return {
+    method: COMBINED_METHOD, stamp, at: Date.now(), polar: trendValues(st.polarM), watch: trendValues(st.watchM),
+    events: { polar: ev.polar, watch: ev.watch, polarPct: pct(ev.polar, set.polarA.beats.length), watchPct: pct(ev.watch, set.watchA.beats.length) },
+  };
+}
+
+/**
+ * A tracking's Combined ECG results: the saved ones while its ECGs are the same, else worked out now (from the ECGs on
+ * this device) and saved with the tracking. Null when its ECGs aren't on this device and nothing was saved.
+ */
+export async function ensureCombined(e: SyncTrackingEntry, known?: Strips | null): Promise<CombinedResult | null> {
+  const trace = await store.loadSyncTrace(e.id).catch(() => undefined);
+  const stamp = await combinedStamp(e);
+  const saved = trace?.combined;
+  if (saved && saved.method === COMBINED_METHOD && saved.stamp === stamp) return saved;
+  if (stamp === '|' && saved) return saved; // its ECGs are on another device: keep what that device saved
+  if (!trace) return null;
+  const st = known !== undefined ? known : await gatherStrips(e).catch(() => null);
+  const combined = combinedOf(st, stamp);
+  await store.saveSyncTrace({ ...trace, combined });
+  store.saveSyncEntry(e); // the cloud copy is updated at the next sync
+  return combined;
+}
+
+/** Works out and saves the Combined ECG results of every tracking that doesn't have them yet, one at a time. */
+export async function fillCombined(): Promise<number> {
+  let done = 0;
+  for (const e of store.loadSyncHistory()) {
+    await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+    const trace = await store.loadSyncTrace(e.id).catch(() => undefined);
+    if (trace?.combined?.method === COMBINED_METHOD && trace.combined.stamp === await combinedStamp(e)) continue;
+    if (await ensureCombined(e)) done++;
+  }
+  return done;
 }
 
 /** How long the spliced ECG is: the strips' time together, without the joins. */
@@ -693,6 +735,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       let failed: string | null = null;
       const strips = await gatherStrips(e).catch((err: unknown) => { failed = errorMessage(err); return null; });
       const g: Gathered = { e, trace, v, latest: v === latest, strips, ...(!strips?.set ? { why: await whyNoStrips(e, failed) } : {}) };
+      if (strips && !failed) void ensureCombined(e, strips).catch(() => undefined); // saved for the BP and ECG page
       if (kind === 'ecg') {
         const r = ecgPairReport(g);
         reportRoot.replaceChildren(reportBar(e, kind, v.generatedAt), ...r.body);

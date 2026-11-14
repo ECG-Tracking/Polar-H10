@@ -24,7 +24,7 @@ import type { CloudClient } from './d2/cloud'; // type only: D2 Link's code stay
 import type { D2Api } from './d2/index';
 import { initSyncTracking } from './synctrack';
 import { trackingLine } from './syncreports';
-import { updateTrackingReports } from './syncreports';
+import { fillCombined, updateTrackingReports } from './syncreports';
 import { initBpEcg } from './bpecg';
 import { initTrends, trendValues } from './ecgtrend';
 import { initSyncSleep } from './syncsleepui';
@@ -196,7 +196,9 @@ function updateReports(): Promise<boolean> {
 function scheduleReports(): void {
   if (reportsTimer) clearTimeout(reportsTimer);
   reportsTimer = setTimeout(() => {
-    void updateReports().then((changed) => { if (changed && $('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory(); });
+    void updateReports().then((changed) => { if (changed && $('view-syncHistory').classList.contains('active')) syncUI?.refreshHistory(); })
+      // then each tracking's Combined ECG results are saved (once, and again only when its ECGs change), for BP and ECG
+      .then(() => during('saving Combined ECG results', fillCombined)).catch(() => undefined);
   }, 2000);
 }
 

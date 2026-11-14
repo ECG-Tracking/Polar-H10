@@ -2,6 +2,7 @@
 // "BP and ECG" page and the BP graph above an ECG.
 
 import type { Session, SyncBp, SyncTrackingEntry } from './store';
+import type { CombinedResult } from './synccompare';
 import { syncBps } from './store';
 
 /** A reading belongs with an ECG taken from an hour before it to an hour after (as for a tracking's readings). */
@@ -28,6 +29,8 @@ export interface BpMatch {
   tracking: SyncTrackingEntry | null;
   polar: Session | null;
   watch: Session[];
+  /** The tracking's saved Combined ECG results, when there are any (they are used in place of each recording's own). */
+  combined?: CombinedResult | null;
 }
 
 const endOf = (s: { start: number; durationS: number }): number => s.start + s.durationS * 1000;
@@ -62,6 +65,13 @@ const median = (xs: number[]): number | null => {
  * watch strips' (their events added up). null where there is none.
  */
 export function figure(m: BpMatch, device: 'polar' | 'watch', key: string): number | null {
+  // a tracking's Combined ECG results: both devices from the same heartbeats, events only where both saw one
+  const c = m.tracking ? m.combined : null;
+  if (c?.polar && c.watch && c.events) {
+    if (key === 'eventCount') return c.events[device];
+    if (key === 'eventPct') return device === 'polar' ? c.events.polarPct : c.events.watchPct;
+    return c[device]?.[key] ?? null;
+  }
   if (device === 'polar') return m.polar?.summary?.trend?.[key] ?? null;
   const vals = m.watch.flatMap((s) => { const v = s.summary?.trend?.[key]; return v == null ? [] : [v]; });
   if (!vals.length) return null;

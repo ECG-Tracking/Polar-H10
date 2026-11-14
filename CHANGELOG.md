@@ -4,6 +4,17 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 14 Nov 2026 – v1.45.18 – Combined ECG results saved with each tracking; BP and ECG reads them *(GitHub)*
+- **Each tracking now keeps its Combined ECG results:** both devices' figures from the same heartbeats, with a beat either device flagged left out of both, and the events both saw at the same heartbeat with each device's % of beats.
+  - They are worked out once, in the background after the tracking reports are updated, or when the Combined ECG is opened.
+  - They are worked out again only when the tracking's ECGs change (for example a watch strip downloaded later) or the method does.
+  - They sync to your other devices with the tracking.
+- **The BP and ECG table now reads these saved results** for a reading from a tracking.
+  - The "Counting the events…" wait is gone after the first time.
+  - Every figure (HRV, QRS, T wave, QTc, events) now matches the tracking's Combined ECG. Before, the Watch D2 figures were the median of its separate strips.
+  - A tracking without saved results yet gets them once, the first time the page needs them.
+- A reading without a tracking still uses each recording's own figures from ECG history.
+
 ## 14 Nov 2026 – v1.45.17 – BP and ECG table: events as the Combined ECG counts them *(GitHub)*
 - **BP and ECG table, Events** (now "Events (counted · % of beats)"): for a reading from a synchronised tracking, the count is the events both devices saw at the same heartbeat, with each device's % of beats, as in the Combined ECG's Events box (for example "Polar H10 11 · 3.1 %, Watch D2 11 · 3.1 %").
   - These are worked out in the background for the trackings in the period, a few at a time.
