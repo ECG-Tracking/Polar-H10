@@ -530,7 +530,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     const bp = opts.bp ?? new BpStrip(), trackEnd = g.e.start + g.e.durationS * 1000;
     if (!opts.bp) bp.set(g.v.bps, [g.e.start - NEAR_MS, trackEnd + NEAR_MS], [g.e.start, trackEnd]);
     const bpBox = make('div', 'card viewer bp-card');
-    bpBox.appendChild(bp.el);
+    if (!opts.bp) bpBox.appendChild(bp.el); // another page's graph stays where that page put it
     const wv = new EcgViewer(w.canvas), pv = new EcgViewer(p.canvas);
     const pos = make('input');
     Object.assign(pos, { type: 'range', min: '0', max: '1000', value: '0' });
