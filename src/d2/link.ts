@@ -36,7 +36,7 @@ const ZERO4 = new Uint8Array(4);
 export const HEALTH_APP_ID = 'com.huawei.health';
 
 /** What to do when the watch doesn't answer the first message. */
-export const FIRST_MESSAGE_ADVICE = 'Unpair the watch and try again: press Forget pairing, remove the Watch D2 from this device’s Bluetooth list (on a Mac, also quit and reopen the D2 Bridge app), make sure Bluetooth is off on the phone it is paired with, then pair again.';
+export const FIRST_MESSAGE_ADVICE = 'Press “Forget pairing”, then pair again.';
 
 export class WatchError extends Error {}
 
