@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 20 Nov 2026 – v1.45.23 – One study PDF removed from the site *(GitHub)*
+- **Removed `Public_PSG_to_H10_Transfer_Study_20_Pages.pdf`** from the repository and the site, because it may contain personal data. No change to the app itself.
+
 ## 14 Nov 2026 – v1.45.22 – Blood pressure in trending; choices in alphabetical order; hour periods *(GitHub)*
 - **ECG history and trending:** "Blood pressure" is now one of the trending choices, drawn on the same chart as on the BP and ECG page: systolic and diastolic in their own bands over the chosen period.
 - **The choices are now in alphabetical order** (2–8 Hz energy, Beats, Blood pressure, Effort (TRIMP), Events, …), and their graphs come in the same order.
