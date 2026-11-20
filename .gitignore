@@ -13,3 +13,5 @@ mac-bridge/
 # private notes (Word documents and the temporary copies Word makes while one is open)
 *.docx
 ~$*
+# reports and studies (may hold personal health data): never uploaded
+*.pdf

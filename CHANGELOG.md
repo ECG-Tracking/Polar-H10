@@ -4,6 +4,10 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 20 Nov 2026 – v1.45.25 – PDFs are never uploaded; history cleaned *(GitHub)*
+- **PDF files in the project folder are no longer uploaded** (`*.pdf` added to `.gitignore`), so reports and studies that may hold personal health data stay on this Mac.
+- **The five study PDFs were removed from the repository's whole history**, not only from the latest version. The history was rewritten once to do this, so earlier commit IDs changed. No change to the app itself.
+
 ## 20 Nov 2026 – v1.45.24 – The remaining study PDFs removed from the site *(GitHub)*
 - **Removed four study PDFs** from the repository and the site, because they may contain personal data: `OpenBeat_H10_D2_Sleep_Comparison_8Nov2026.pdf`, `H10_D2_Sleep_Comparison_20_Pages.pdf`, `D2_Only_Sleep_Stage_Reverse_Engineering_10_Pages.pdf` and `H10_D2_Heuristics_Peer_Reviewed_Comparison_10_Pages.pdf`. No change to the app itself.
 
