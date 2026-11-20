@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 20 Nov 2026 – v1.45.24 – The remaining study PDFs removed from the site *(GitHub)*
+- **Removed four study PDFs** from the repository and the site, because they may contain personal data: `OpenBeat_H10_D2_Sleep_Comparison_8Nov2026.pdf`, `H10_D2_Sleep_Comparison_20_Pages.pdf`, `D2_Only_Sleep_Stage_Reverse_Engineering_10_Pages.pdf` and `H10_D2_Heuristics_Peer_Reviewed_Comparison_10_Pages.pdf`. No change to the app itself.
+
 ## 20 Nov 2026 – v1.45.23 – One study PDF removed from the site *(GitHub)*
 - **Removed `Public_PSG_to_H10_Transfer_Study_20_Pages.pdf`** from the repository and the site, because it may contain personal data. No change to the app itself.
 
