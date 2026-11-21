@@ -157,7 +157,7 @@ test('D2 set-up: message formats', () => {
   assert.deepEqual([...(parseCommands(t, asked).get(0x17) ?? [])], [0x01, 0x06]);
   // time: hours + 128 west of UTC, then minutes
   const f = timeFields(new Date(day * 1000));
-  const off = -new Date(day * 1000).getTimezoneOffset();
+  const off = 0 - new Date(day * 1000).getTimezoneOffset(); // 0 - x, not -x: at UTC, -0 would fail strictEqual against 0
   assert.equal(f.offset >> 8, off < 0 ? Math.floor(-off / 60) + 128 : Math.floor(off / 60));
   assert.equal(f.seconds, day);
   // three agreements, each accepted
