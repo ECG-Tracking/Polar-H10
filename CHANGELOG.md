@@ -4,6 +4,16 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 21 Nov 2026 – v1.45.27 – Three event bars under the two ECGs: both, H10 only, D2 only *(GitHub)*
+- **Wherever the watch's ECG is shown above the strap's** (the tracking report's Combined ECG, and the BP and ECG page), there are now three event bars instead of one, each with its own Previous and Next:
+  - **Both H10 and D2:** events both devices saw at the same heartbeat (the ones counted).
+  - **H10 only:** events the strap saw where the watch shows a normal beat.
+  - **D2 only:** events the watch saw where the strap shows a normal beat.
+- **Events seen by only one device are now marked on the ECG** with an outlined triangle; red filled triangles still mean an event both saw. Before, they weren't marked at all.
+- On the BP and ECG page, an event from a stretch where only one device was recording says so ("the watch wasn't recording").
+- "Watch events where the strap shows a normal beat" now counts a premature beat and the pause after it as one event, as the strap's count already did, so the figure matches the D2 only bar. The events table also lists the watch-only events.
+- "Both" is now exactly the counted events (same heartbeat, within 80 ms); before, the bar also took events up to 1.2 s apart.
+
 ## 21 Nov 2026 – v1.45.26 – A test now passes in every time zone *(GitHub)*
 - **Test fix only, no change to the app.** The "D2 set-up: message formats" test failed on computers set to UTC, because its expected time-zone value came out as −0 instead of 0. It now passes in every time zone (checked in UTC, New York and Singapore time).
 

@@ -4,9 +4,10 @@
 // its date and time on the graph; then the choice of columns and a table with one row per reading in the period.
 
 import { BpStrip, EcgViewer, type ReportEvent } from './charts';
-import { EVENT_LABELS, type Analysis } from './dsp';
+import { EVENT_LABELS } from './dsp';
 import { joinSegments, realAt, segmentAt, stripAt, type PeriodEcg, type Segment } from './periodecg';
-import { matchStrips, type StripIn } from './stripmatch';
+import { eventSpots, matchStrips, type StripIn } from './stripmatch';
+import { eventNav } from './eventnav';
 import { ensureCombined } from './syncreports';
 import type { CombinedResult } from './synccompare';
 import { figure, matchReading, readingsBetween, type BpMatch } from './bp';
@@ -141,10 +142,8 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   const time = make('span', 'muted', '');
   const bar = make('div', 'row wrap viewer-bar no-print');
   bar.append(pos, time);
-  const evText = make('span', 'muted', '');
-  const prevBtn = make('button', '', '← Previous event'), nextBtn = make('button', '', 'Next event →');
-  const evBar = make('div', 'row wrap event-nav no-print');
-  evBar.append(prevBtn, evText, nextBtn);
+  // events in three bars: both devices at the same heartbeat, the strap only, the watch only
+  const nav = eventNav((t) => wv.center(t), (t) => (pe ? clockText(realAt(pe, t)) : '--')), evBar = nav.el;
   const ecgNote = make('p', 'note', '');
   // the piece of ECG on the strips now: when it began and ended, and how long it is
   const pieceLine = make('p', 'pair-duration', '');
@@ -176,7 +175,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   });
 
   // ---- the period's ECGs on two strips, one slider ----
-  let pe: PeriodEcg | null = null, spots: { t: number; label: string }[] = [], idx = -1, linking = false, periodRun = 0, loadedFor = '';
+  let pe: PeriodEcg | null = null, linking = false, periodRun = 0, loadedFor = '';
 
   /** Every ECG of the period as pieces: a tracking's strips with the strap's ECG of the same moments; other ECGs alone. */
   async function gather(a: number, b: number): Promise<Segment[]> {
@@ -218,7 +217,6 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   }
 
   const clockText = (ms: number | null): string => (ms == null ? '--' : new Date(ms).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
-  const events = (an: Analysis, who: string): ReportEvent[] => an.events.map((e) => ({ t: e.t, type: e.type, label: `${EVENT_LABELS[e.type]} (${who})` }));
 
   /** Gathers the period's ECGs again when the period changed. */
   async function loadPeriod(): Promise<void> {
@@ -237,11 +235,16 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     if (!pe) { ecgNote.textContent = 'No ECG was recorded in this period.'; return; }
     const n = pe.segments.length, both = pe.segments.filter((s) => s.watch && s.polar).length;
     ecgNote.textContent = `${n} ECG piece${n > 1 ? 's' : ''} from ${clockText(pe.segments[0]!.start)} to ${clockText(pe.segments[n - 1]!.start)}, in time order (${both} with both devices). The slider runs through all of them; the hours between recordings are left out, and the time shown and the mark on the graph give the real date and time. A strip is flat where its device didn’t record.`;
-    const we = events(pe.watchA, 'Watch D2'), ppe = events(pe.polarA, 'Polar H10');
-    wv.load(pe.watchA, we); pv.load(pe.polarA, ppe);
-    spots = [...we, ...ppe].sort((x, y) => x.t - y.t).map((e) => ({ t: e.t, label: e.label }));
-    idx = -1;
-    evText.textContent = spots.length ? `${spots.length} event${spots.length > 1 ? 's' : ''} in the period` : 'No events in the period';
+    const spots = eventSpots(pe.watchA.events, pe.polarA.events);
+    const kindText = { both: 'both', polar: 'Polar H10 only', watch: 'Watch D2 only' } as const;
+    const shown = (who: 'watch' | 'polar'): ReportEvent[] => spots.flatMap((s) => s[who].map((e) => ({ t: e.t, type: e.type, label: `${EVENT_LABELS[e.type]} (${kindText[s.kind]})`, oneDevice: s.kind !== 'both' })));
+    wv.load(pe.watchA, shown('watch')); pv.load(pe.polarA, shown('polar'));
+    const p0 = pe;
+    // an event one device saw where the other wasn't recording can't be compared: said so
+    nav.set(spots, (s) => {
+      const seg = segmentAt(p0, s.t);
+      return s.kind === 'polar' && !seg?.watch ? 'the watch wasn’t recording' : s.kind === 'watch' && !seg?.polar ? 'the strap wasn’t recording' : '';
+    });
     const m = matches.find((x) => x.bp.at === pickedAt);
     if (m) jumpTo(m.bp.at); else wv.goTo(Math.max(0, pe.durationS - wv.span)); // the latest
   }
@@ -272,15 +275,6 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   });
   link(wv, pv); link(pv, wv);
   pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
-  const goEvent = (i: number): void => {
-    const sp = spots[i];
-    if (!sp || !pe) return;
-    idx = i;
-    wv.center(sp.t);
-    evText.textContent = `Event ${i + 1} of ${spots.length} at ${clockText(realAt(pe, sp.t))} · ${sp.label}`;
-  };
-  prevBtn.addEventListener('click', () => goEvent(Math.max(0, idx - 1)));
-  nextBtn.addEventListener('click', () => goEvent(Math.min(spots.length - 1, idx + 1)));
 
   function showPicked(m: BpMatch | null): void {
     shownTitle.textContent = m ? `Blood pressure ${bpText(m.bp)} mmHg at ${dateTime(m.bp.at)}` : 'Blood pressure with the ECGs';

@@ -5,8 +5,9 @@
 import { during } from './diagnostics';
 import { analyze, cleanInterval, sessionMetrics, EVENT_LABELS, type Analysis, type SessionMetrics } from './dsp';
 import { BpStrip, EcgViewer, type ReportEvent } from './charts';
+import { eventNav } from './eventnav';
 import { referenceRanges, checkRange, fmtRange, type Range, type ReferenceRanges } from './ranges';
-import { agreedEvents, beatAgreement, flaggedOnEither, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
+import { agreedEvents, beatAgreement, eventSpots, flaggedOnEither, joinStrips, matchStrips, ONE_EVENT_S, SAME_BEAT_MS, type MatchedStrip, type StripIn, type StripSet } from './stripmatch';
 import { historyChanged } from './account';
 import { retireVersion } from './oldversions';
 import * as store from './store';
@@ -543,8 +544,8 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
   function stripCombined(g: Gathered): HTMLElement[] {
     const st = g.strips, set = st?.set;
     if (!st || !set || !st.polarM) return [];
-    const ev = agreedEvents(set), both = ev.filter((x) => x.agreed), strapOnly = ev.filter((x) => !x.agreed);
-    const watchOnly = set.watchA.events.length - bothEvents(set).watch;
+    const ev = eventSpots(set.watchA.events, set.polarA.events);
+    const both = ev.filter((x) => x.kind === 'both'), strapOnly = ev.filter((x) => x.kind === 'polar'), watchOnly = ev.filter((x) => x.kind === 'watch').length;
     // the figures are in the boxes at the top; here only what they don't show: which beats and events both saw
     return [card('Heartbeats and events both devices saw',
       make('p', 'note', 'Only the moments the watch recorded, beat for beat with the strap. An event counts only if both devices show one at the same heartbeat.'),
@@ -553,7 +554,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         ['Events both agree on', String(both.length)], ['Strap events where the watch shows a normal beat (not counted)', String(strapOnly.length)],
         ['Watch events where the strap shows a normal beat (not counted)', String(Math.max(0, watchOnly))],
       ]),
-      ...(ev.length ? [table(['Time', 'Event', 'Counted'], ev.map((x) => [clockAt(set.strips, x.t), EVENT_LABELS[x.type], x.agreed ? 'Yes: both' : 'No: strap only']))] : []))];
+      ...(ev.length ? [table(['Time', 'Event', 'Counted'], ev.map((x) => [clockAt(set.strips, x.t), EVENT_LABELS[x.type], x.kind === 'both' ? 'Yes: both' : x.kind === 'polar' ? 'No: strap only' : 'No: watch only']))] : []))];
   }
 
   /** Both ECGs one above the other, moving together; with the comparison and combined figures. */
@@ -569,9 +570,11 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       return { body: [...heading('Combined ECG: watch strips and Polar H10', g), make('p', 'muted', g.why ?? 'The watch’s strips don’t overlap the strap’s ECG, so they can’t be shown together.'),
         ...(ecgId ? [button('Open the Polar H10 ECG', 'primary', () => deps.openEcg(ecgId))] : [])], after: () => undefined };
     }
-    const agreed = agreedEvents(set);
-    const wEvents: ReportEvent[] = set.watchA.events.map((e) => ({ t: e.t, type: e.type, label: EVENT_LABELS[e.type] }));
-    const pEvents: ReportEvent[] = agreed.map((e) => ({ t: e.t, type: e.type, label: `${EVENT_LABELS[e.type]}${e.agreed ? ' (both)' : ' (strap only)'}` }));
+    // every event, each heartbeat once, by which device saw it: both (counted), or only one of them (not counted)
+    const spots = eventSpots(set.watchA.events, set.polarA.events);
+    const kindText = { both: 'both', polar: 'strap only', watch: 'watch only' } as const;
+    const shown = (who: 'watch' | 'polar'): ReportEvent[] => spots.flatMap((s) => s[who].map((e) => ({ t: e.t, type: e.type, label: `${EVENT_LABELS[e.type]} (${kindText[s.kind]})`, oneDevice: s.kind !== 'both' })));
+    const shownW = shown('watch'), shownP = shown('polar');
     const mk = (title: string, label: string): { box: HTMLElement; canvas: HTMLCanvasElement } => {
       const canvas = make('canvas');
       canvas.setAttribute('aria-label', label);
@@ -590,37 +593,10 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     Object.assign(pos, { type: 'range', min: '0', max: '1000', value: '0' });
     pos.setAttribute('aria-label', 'Position in both ECGs');
     const time = make('span', 'muted', '');
-    // one entry per heartbeat: the strap's and the watch's marks of the same beat (a few tens of ms apart on the two
-    // leads), and a premature beat with the pause right after it, are one event
-    type Spot = { t: number; watch: ReportEvent[]; polar: ReportEvent[] };
-    const spots: Spot[] = [];
-    for (const [who, e] of [...wEvents.map((x) => ['watch', x] as const), ...pEvents.map((x) => ['polar', x] as const)].sort((a, b) => a[1].t - b[1].t)) {
-      const last = spots[spots.length - 1];
-      const spot = last && e.t - last.t <= ONE_EVENT_S ? last : (spots[spots.length] = { t: e.t, watch: [], polar: [] });
-      spot[who].push(e);
-      if (who === 'polar' && spot.polar.length === 1) spot.t = e.t; // centred on the strap's beat
-    }
-    // as for counting: an event only where both devices saw it; one seen by just one of them is no event
-    const counted = spots.filter((s) => s.watch.length && s.polar.length);
-    spots.length = 0;
-    spots.push(...counted);
-    const both = spots.length;
-    const all = spots.map((s) => s.t);
-    const shownW = spots.flatMap((s) => s.watch), shownP = spots.flatMap((s) => s.polar);
-    let idx = -1;
-    const evText = make('span', 'muted', both ? `${both} event${both > 1 ? 's' : ''}, each seen by both devices` : 'No events seen by both devices');
-    const goEvent = (i: number): void => {
-      const s = spots[i];
-      if (!s) return;
-      idx = i;
-      wv.center(s.t);
-      const what = (s.polar[0] ?? s.watch[0])?.label.replace(/ \((both|strap only)\)$/, '') ?? 'Event';
-      evText.textContent = `Event ${i + 1} of ${spots.length} at ${clockAt(set.strips, s.t)} · ${what} · seen by both`;
-    };
     const bar = make('div', 'row wrap viewer-bar no-print');
     bar.append(pos, time);
-    const evBar = make('div', 'row wrap event-nav no-print');
-    evBar.append(button('← Previous event', '', () => goEvent(Math.max(0, idx - 1))), evText, button('Next event →', '', () => goEvent(Math.min(all.length - 1, idx + 1))));
+    const nav = eventNav((t) => wv.center(t), (t) => clockAt(set.strips, t)), evBar = nav.el;
+    nav.set(spots);
     // move one and the other follows, so a heartbeat is at the same place in both
     let linking = false;
     const link = (a: EcgViewer, b: EcgViewer): void => a.addEventListener('move', () => {
@@ -637,7 +613,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
     return {
       body: opts.compact ? [w.box, p.box, bar, evBar] : [
         ...heading('Combined ECG: watch strips and Polar H10', g, set.strips.reduce((a, x) => a + x.durationS, 0)), // the spliced strips' combined duration
-        make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events: only those both devices saw at the same heartbeat, as they are counted.`),
+        make('p', 'note', `The ${set.strips.length} strip${set.strips.length === 1 ? '' : 's'} from the watch, joined, above the strap’s ECG of exactly the same moments. Drag, scroll or use the bar to move: both move together. Flat stretches are the joins between strips. Red triangles mark events both devices saw at the same heartbeat, as they are counted; outlined triangles mark those only one device saw (not counted). The three event bars step through each kind.`),
         make('p', 'pair-duration', `${splicedText(set.strips)} · Polar H10 cut to the same moments${set.skipped.length ? ` · ${set.skipped.length} strip${set.skipped.length > 1 ? 's' : ''} left out (no clear heartbeats)` : ''}${st.damaged ? ` · ${st.damaged} damaged strip${st.damaged > 1 ? 's' : ''} left out (cut off in v1.39.0)` : ''}`),
         ...(st.polarM && st.watchM ? [pairBoxes(st.polarM, st.watchM, bothEvents(set), g.e.user)] : []), ...(g.v.bps.length ? [bpBox] : []), w.box, p.box, bar, evBar,
         ...stripComparison(g), ...stripCombined(g),

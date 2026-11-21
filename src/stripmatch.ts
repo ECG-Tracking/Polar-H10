@@ -287,3 +287,37 @@ export function joinStrips(strips: readonly StripIn[], fs: number, opts: Opts = 
     strips: use.map((s, i) => ({ id: s.id, start: s.start, offsetMs: 0, stretch: 1, durationS: s.samples.length / fs, watchBeats: 0, matched: 0, at: j.at[i] ?? 0 })),
   };
 }
+
+/** Which device saw an event: both at the same heartbeat, the Polar H10 only, or the Watch D2 only. */
+export type EventKind = 'both' | 'polar' | 'watch';
+export interface EventSpot { t: number; kind: EventKind; type: BeatFlag; polar: { t: number; type: BeatFlag }[]; watch: { t: number; type: BeatFlag }[] }
+
+/**
+ * Every event of two ECGs on the same timeline (t in s), each heartbeat once, sorted by which device saw it. As for
+ * counting: a strap event is "both" when the watch has one at the same heartbeat (as `agreedEvents`); a premature beat
+ * and the pause right after it are one event. The rest are the strap's alone, and the watch's not at any strap event.
+ */
+export function eventSpots(watch: readonly { t: number; type: BeatFlag }[], polar: readonly { t: number; type: BeatFlag }[]): EventSpot[] {
+  const same = (a: number, b: number): boolean => Math.abs(a - b) <= SAME_BEAT_MS / 1000;
+  const groups = (ev: readonly { t: number; type: BeatFlag }[]): { t: number; type: BeatFlag }[][] => {
+    const out: { t: number; type: BeatFlag }[][] = [];
+    for (const e of [...ev].sort((a, b) => a.t - b.t)) {
+      const g = out[out.length - 1];
+      if (g && e.t - (g[0]?.t ?? -Infinity) <= ONE_EVENT_S) g.push({ t: e.t, type: e.type });
+      else out.push([{ t: e.t, type: e.type }]);
+    }
+    return out;
+  };
+  const spots: EventSpot[] = [];
+  for (const g of groups(polar)) {
+    const w = watch.filter((x) => g.some((p) => same(p.t, x.t)));
+    const first = g[0]!;
+    spots.push({ t: first.t, kind: w.length ? 'both' : 'polar', type: first.type, polar: g, watch: w.map((x) => ({ t: x.t, type: x.type })) });
+  }
+  for (const g of groups(watch)) {
+    if (g.some((x) => polar.some((p) => same(p.t, x.t)))) continue; // already there, as "both"
+    const first = g[0]!;
+    spots.push({ t: first.t, kind: 'watch', type: first.type, polar: [], watch: g });
+  }
+  return spots.sort((a, b) => a.t - b.t);
+}

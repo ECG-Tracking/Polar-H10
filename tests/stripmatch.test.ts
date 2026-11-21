@@ -72,3 +72,17 @@ test('the same ECG saved twice is used once, so its events aren’t counted twic
   assert.deepEqual(twice.skipped, ['a2']);
   assert.equal(agreedEvents(twice).length, agreedEvents(once).length);
 });
+
+import { eventSpots } from '../src/stripmatch';
+
+test('events are sorted by device: both at the same heartbeat, strap only, watch only', () => {
+  const polar = [{ t: 10, type: 'premature' as const }, { t: 10.9, type: 'pause' as const }, { t: 30, type: 'shape' as const }];
+  const watch = [{ t: 10.05, type: 'premature' as const }, { t: 50, type: 'premature' as const }, { t: 50.8, type: 'pause' as const }, { t: 30.5, type: 'shape' as const }];
+  const s = eventSpots(watch, polar);
+  assert.deepEqual(s.map((x) => [x.t, x.kind]), [[10, 'both'], [30, 'polar'], [30.5, 'watch'], [50, 'watch']]);
+  assert.equal(s[0]!.polar.length, 2); // a premature beat and its pause are one event
+  assert.equal(s[3]!.watch.length, 2);
+  // a watch event at a strap event already counted is not counted again on its own
+  assert.equal(eventSpots([{ t: 10.9, type: 'pause' }], polar).filter((x) => x.kind === 'watch').length, 0);
+  assert.equal(eventSpots([], []).length, 0);
+});

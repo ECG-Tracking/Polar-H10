@@ -385,7 +385,8 @@ export function drawEventStrip(canvas: HTMLCanvasElement, x: Samples, fs: number
   ctx.beginPath(); ctx.moveTo(mark - 5, 2); ctx.lineTo(mark + 5, 2); ctx.lineTo(mark, 11); ctx.fill();
 }
 
-export interface ReportEvent { t: number; type: EventType; label: string }
+/** `oneDevice`: seen by only one of two devices compared, so not counted: drawn as an outline, not a red triangle. */
+export interface ReportEvent { t: number; type: EventType; label: string; oneDevice?: boolean }
 
 /**
  * Full-session ECG viewer at the calibrated scale (25 mm/s, 10 mm/mV, the screen calibration and the ECG size setting,
@@ -478,6 +479,7 @@ export class EcgViewer extends EventTarget {
     ctx.font = '11px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     const showDetail = this.span <= 12;
     const critical = css('--critical'), muted = css('--muted'), series = css('--series-1');
+    const oneDevice = this.events.filter((e) => e.oneDevice).map((e) => e.t), warn = css('--warn');
     for (const b of a.beats) {
       if (b.t < this.t0 - 1 || b.t > this.t0 + this.span + 1) continue;
       const bx = X(b.t * fs);
@@ -485,7 +487,9 @@ export class EcgViewer extends EventTarget {
       ctx.fillStyle = flagged ? critical : muted;
       if (b.rr && showDetail) ctx.fillText(`${Math.round(b.rr)}`, bx, 4);
       if (flagged) {
-        ctx.beginPath(); ctx.moveTo(bx - 5, 20); ctx.lineTo(bx + 5, 20); ctx.lineTo(bx, 27); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(bx - 5, 20); ctx.lineTo(bx + 5, 20); ctx.lineTo(bx, 27); ctx.closePath();
+        // an event only one of the two devices saw: an outline, as it isn't counted
+        if (oneDevice.some((t) => Math.abs(t - b.t) < 0.01)) { ctx.strokeStyle = warn; ctx.lineWidth = 1.5; ctx.stroke(); } else ctx.fill();
       }
       if (showDetail && b.m && this.span <= 6) {
         ctx.fillStyle = series;

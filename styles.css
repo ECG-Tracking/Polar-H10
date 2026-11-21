@@ -670,6 +670,9 @@ details > summary { list-style-position: inside; }
 /* ECG history: step through the events under the strip */
 .event-nav { justify-content: center; gap: 12px; margin-top: 10px; }
 .event-nav span { min-width: 16ch; text-align: center; font-variant-numeric: tabular-nums; }
+.event-navs .event-nav { margin-top: 6px; }
+.event-navs .event-nav:first-child { margin-top: 10px; }
+.event-kind { min-width: 14ch; text-align: right; font-weight: 600; }
 #btnSaveNoShape { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 /* ECG from the Watch D2 */
 .watch-ecg-results { font-weight: 600; font-variant-numeric: tabular-nums; margin: 10px 0 0; }
