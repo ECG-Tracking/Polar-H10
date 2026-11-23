@@ -4,7 +4,7 @@
 
 import { CloudSetupError, syncNights, syncRecords, type CloudClient } from './cloud';
 import { renderAllData } from './dataui';
-import { renderGraphs, RANGES, type CustomDates, type Range } from './graphsui';
+import { renderGraphs, RANGES, type CustomDates, type Range, type WatchEcg } from './graphsui';
 import { dateInput, downloadPeriod } from './period';
 import { downloadActivity, downloadReadings, downloadTotals, downloadWorkouts, parseEcgFile, parseStressFile, READING_CLASSES, type EcgRecording } from './extra';
 import { D2Link, WatchError } from './link';
@@ -43,6 +43,8 @@ export interface D2Deps {
   openEcg?: (id: string) => void;
   /** Saves the watch's 30-second ECGs in ECG history; without it, Download all data leaves them on the watch. */
   saveEcgs?: (recordings: readonly EcgRecording[]) => Promise<{ saved: number; same: number; short: number }>;
+  /** The watch's ECG recordings saved in ECG history, for All data and Graphs. */
+  watchEcgs?: () => Promise<WatchEcg[]>;
 }
 
 // ---------- what a night shows ----------
@@ -411,14 +413,21 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     trendsBox.hidden = view === 'nights' || view === 'data' || view === 'graphs';
     dataBox.hidden = view !== 'data';
     graphsBox.hidden = view !== 'graphs';
-    if (view === 'data') { void store.listRecords(deps.user()).then((rs) => renderAllData(dataBox, rs, () => { showView(); void sync(); })); return; }
+    // All data and Graphs: everything downloaded, over the same chosen period ("Show")
+    const onRange = (r: Range, d?: CustomDates): void => {
+      range = r;
+      if (d) dates = d;
+      try { localStorage.setItem(RANGE_KEY, r); localStorage.setItem(DATES_KEY, JSON.stringify(dates)); } catch { /* not kept */ }
+      showView();
+    };
+    const everything = (): Promise<[D2Night[], Awaited<ReturnType<typeof store.listRecords>>, WatchEcg[]]> =>
+      Promise.all([store.listNights(deps.user()), store.listRecords(deps.user()), deps.watchEcgs?.().catch(() => []) ?? Promise.resolve([])]);
+    if (view === 'data') {
+      void everything().then(([ns, rs, es]) => renderAllData(dataBox, rs, () => { showView(); void sync(); }, { nights: ns, ecgs: es, range, dates, onRange, ...(deps.openEcg ? { openEcg: deps.openEcg } : {}) }));
+      return;
+    }
     if (view === 'graphs') {
-      void Promise.all([store.listNights(deps.user()), store.listRecords(deps.user())]).then(([ns, rs]) => renderGraphs(graphsBox, ns, rs, range, (r, d) => {
-        range = r;
-        if (d) dates = d;
-        try { localStorage.setItem(RANGE_KEY, r); localStorage.setItem(DATES_KEY, JSON.stringify(dates)); } catch { /* not kept */ }
-        showView();
-      }, Date.now(), dates));
+      void everything().then(([ns, rs, es]) => renderGraphs(graphsBox, ns, rs, range, onRange, Date.now(), dates, es));
       return;
     }
     if (view === 'nights') return;

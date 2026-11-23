@@ -4,6 +4,13 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 23 Nov 2026 – v1.45.28 – D2 Link History: All data shows everything downloaded, with a period; 12 hours *(GitHub)*
+- **All data now shows every kind of data "Download all data" brings in.** New: **Sleep** (each night and nap: asleep, deep, light, REM, awake, awakenings, score), **Daily totals** (now its own table, not only a note), and **ECG recordings** (the watch's 30-second ECGs saved in ECG history, with heart rate and events; click one to open it). Activity, blood pressure, HRV, emotion, stress and workouts were already there.
+- **Each category is a heading that opens when clicked**, showing how many rows it has. Only one opens at a time: opening another closes the one before. A **Display all** button above them opens every category; press it again to go back to one at a time.
+- **All data has a "Show" period, as Graphs has** (with custom dates). The two tabs share the setting.
+- **12 hours** is now one of the periods, in both.
+- **Graphs adds the ECG recordings** (heart rate of each, how many per day, and their events) and **Emotion status** (the watch's status and original status numbers, next to valence and arousal).
+
 ## 21 Nov 2026 – v1.45.27 – Three event bars under the two ECGs: both, H10 only, D2 only *(GitHub)*
 - **Wherever the watch's ECG is shown above the strap's** (the tracking report's Combined ECG, and the BP and ECG page), there are now three event bars instead of one, each with its own Previous and Next:
   - **Both H10 and D2:** events both devices saw at the same heartbeat (the ones counted).

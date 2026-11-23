@@ -9,9 +9,9 @@ import { figures, isNap } from './night';
 import { minutesOf } from './records';
 import type { D2Night, D2Record } from './store';
 
-export type Range = '1d' | '7d' | '1m' | '3m' | '6m' | '9m' | '1y' | '3y' | '5y' | 'all' | 'custom';
+export type Range = '12h' | '1d' | '7d' | '1m' | '3m' | '6m' | '9m' | '1y' | '3y' | '5y' | 'all' | 'custom';
 export const RANGES: readonly (readonly [Range, string])[] = [
-  ['1d', '1 day'], ['7d', '7 days'], ['1m', '1 month'], ['3m', '3 months'], ['6m', '6 months'], ['9m', '9 months'],
+  ['12h', '12 hours'], ['1d', '1 day'], ['7d', '7 days'], ['1m', '1 month'], ['3m', '3 months'], ['6m', '6 months'], ['9m', '9 months'],
   ['1y', '1 year'], ['3y', '3 years'], ['5y', '5 years'], ['all', 'All'], ['custom', 'Custom'],
 ];
 
@@ -37,6 +37,7 @@ export function rangeStart(range: Range, now: number, earliest: number | null): 
   const d = new Date(now);
   const back = (months: number): number => new Date(d.getFullYear(), d.getMonth() - months, d.getDate(), d.getHours(), d.getMinutes()).getTime();
   switch (range) {
+    case '12h': return now - DAY / 2;
     case '1d': return now - DAY;
     case '7d': return now - 7 * DAY;
     case '1m': return back(1);
@@ -215,14 +216,20 @@ const mean = (xs: number[]): number | null => (xs.length ? xs.reduce((s, x) => s
 
 // ---------- the view ----------
 
-const COLORS = { blue: 'var(--series-1)', red: 'var(--accent)', green: 'var(--good)', amber: 'var(--warn)', deep: 'var(--stage-deep)', light: 'var(--stage-light)', rem: 'var(--stage-rem)' };
+/** A Watch D2 ECG recording saved in ECG history: when, how long, and its heart rate and events (null when not worked out). */
+export interface WatchEcg { id: string; start: number; durationS: number; hr: number | null; events: number | null }
 
-export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], records: readonly D2Record[], range: Range, onRange: (r: Range, dates?: CustomDates) => void, now = Date.now(), dates: CustomDates = { from: '', to: '' }): void {
-  box.replaceChildren();
+/** The period shown, in ms: a chosen span ending now, or the custom dates; "All" starts at the earliest of `times`. */
+export function spanOf(range: Range, dates: CustomDates, now: number, times: readonly number[]): [number, number] {
+  const ts = times.filter((t) => t > 0);
+  return range === 'custom' ? customSpan(dates, now) : [rangeStart(range, now, ts.length ? Math.min(...ts) : null), now];
+}
+
+/** "Show [period]", with From and To dates for a custom period; the same in All data and Graphs. */
+export function rangePicker(range: Range, dates: CustomDates, onRange: (r: Range, dates?: CustomDates) => void): HTMLElement {
   const pick = el('label', 'd2-days', 'Show ');
   const sel = el('select');
   for (const [v, t] of RANGES) { const o = el('option', '', t); o.value = v; if (v === range) o.selected = true; sel.appendChild(o); }
-  // custom: a start and an end date
   const dateIn = (v: string, name: string): HTMLInputElement => { const i = el('input'); i.type = 'date'; i.value = v; i.setAttribute('aria-label', name); return i; };
   const fromIn = dateIn(dates.from, 'From'), toIn = dateIn(dates.to, 'To');
   const customRow = el('span', 'row wrap');
@@ -233,11 +240,16 @@ export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], recor
   pick.appendChild(sel);
   const top = el('div', 'row wrap');
   top.append(pick, customRow);
-  box.appendChild(top);
+  return top;
+}
+
+const COLORS = { blue: 'var(--series-1)', red: 'var(--accent)', green: 'var(--good)', amber: 'var(--warn)', deep: 'var(--stage-deep)', light: 'var(--stage-light)', rem: 'var(--stage-rem)' };
+
+export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], records: readonly D2Record[], range: Range, onRange: (r: Range, dates?: CustomDates) => void, now = Date.now(), dates: CustomDates = { from: '', to: '' }, ecgs: readonly WatchEcg[] = []): void {
+  box.replaceChildren(rangePicker(range, dates, onRange));
 
   const sleeps = nights.filter((n) => !isNap(n));
-  const times = [...sleeps.map((n) => n.start), ...records.map((r) => r.start)].filter((t) => t > 0);
-  const [from, to] = range === 'custom' ? customSpan(dates, now) : [rangeStart(range, now, times.length ? Math.min(...times) : null), now];
+  const [from, to] = spanOf(range, dates, now, [...sleeps.map((n) => n.start), ...records.map((r) => r.start), ...ecgs.map((e) => e.start)]);
   const mode = modeFor(from, to), sumMode: Mode = mode === 'raw' ? 'hour' : mode;
   const inRange = (t: number): boolean => t >= from && t <= to;
   const cards: HTMLElement[] = [];
@@ -293,6 +305,9 @@ export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], recor
   const stressPts = records.flatMap((r) => (r.kind === 'stress' && inRange(r.start) && typeof r.data['score'] === 'number' && (r.data['score'] as number) > 0 ? [{ t: r.start, v: r.data['score'] as number }] : []));
   add('Stress', avgText(stressPts, r0, ''), [{ name: 'Stress', color: COLORS.amber, points: aggregate(stressPts, mode, 'mean'), kind: mode === 'raw' ? 'dots' : 'line', band: true }], '', r0);
   const val = aggregate(reading(500031, 500031347), mode, 'mean'), aro = aggregate(reading(500031, 500031842), mode, 'mean');
+  // the watch's status numbers, as it sends them (their meaning isn't published), next to the original status
+  const st = aggregate(reading(500031, 500031195), mode, 'mean'), st0 = aggregate(reading(500031, 500031160), mode, 'mean');
+  add('Emotion status', `${reading(500031, 500031195).length} readings · the watch’s status numbers`, [{ name: 'Status', color: COLORS.blue, points: st, kind: 'dots' }, { name: 'Original status', color: COLORS.deep, points: st0, kind: 'dots' }], '', r0);
   add('Emotion', 'valence and arousal, 0–100', [{ name: 'Valence', color: COLORS.green, points: val, kind: mode === 'raw' ? 'dots' : 'line' }, { name: 'Arousal', color: COLORS.amber, points: aro, kind: mode === 'raw' ? 'dots' : 'line' }], '', r0);
 
   // workouts
@@ -301,6 +316,15 @@ export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], recor
   add('Workouts', `${wk.length} workout${wk.length === 1 ? '' : 's'}`, [{ name: 'Workout time', color: COLORS.green, points: wkMin, kind: 'bars' }], ' min', r0, true);
   const wkKcal = aggregate(wk.flatMap((r) => { const k = (r.data['totals'] as Record<string, number> | undefined)?.['kcal']; return typeof k === 'number' ? [{ t: r.start, v: k }] : []; }), stageMode, 'sum');
   add('Workout calories', avgText(wkKcal, r0, ' kcal'), [{ name: 'Workout calories', color: COLORS.amber, points: wkKcal, kind: 'bars' }], ' kcal', r0, true);
+
+  // the watch's 30-second ECG recordings: each one's heart rate, and how many per day
+  const ecgIn = ecgs.filter((e) => inRange(e.start));
+  const ecgHr = ecgIn.flatMap((e) => (e.hr != null && Number.isFinite(e.hr) ? [{ t: e.start, v: e.hr }] : []));
+  add('ECG recordings: heart rate', `${ecgIn.length} recording${ecgIn.length === 1 ? '' : 's'}${ecgHr.length ? ` · ${avgText(ecgHr, r0, ' bpm')}` : ''}`, [{ name: 'Heart rate', color: COLORS.red, points: aggregate(ecgHr, mode, 'mean'), kind: mode === 'raw' ? 'dots' : 'line', band: true }], ' bpm', r0);
+  const ecgCount = aggregate(ecgIn.map((e) => ({ t: e.start, v: 1 })), stageMode, 'sum');
+  add('ECG recordings', `${ecgIn.length} in the period`, [{ name: 'Recordings', color: COLORS.blue, points: ecgCount, kind: 'bars' }], '', r0, true);
+  const ecgEv = aggregate(ecgIn.flatMap((e) => (e.events != null ? [{ t: e.start, v: e.events }] : [])), stageMode, 'sum');
+  if (ecgEv.some((p) => p.v > 0)) add('ECG recordings: events', `${ecgEv.reduce((a, p) => a + p.v, 0)} events`, [{ name: 'Events', color: COLORS.amber, points: ecgEv, kind: 'bars' }], '', r0, true);
 
   const period = RANGES.find(([v]) => v === range)?.[1] ?? '';
   box.appendChild(el('p', 'note', `${new Date(from).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })} – ${new Date(to).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })}${mode === 'day' ? ' · one value per day' : mode === 'week' ? ' · one value per week' : ''}. Hover or tap a point for its value.`));

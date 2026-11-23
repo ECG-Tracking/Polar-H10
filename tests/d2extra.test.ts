@@ -351,3 +351,13 @@ test('D2 Link graphs: a custom period runs from the start of its first date to t
   assert.equal(customSpan({ from: '2026-11-10', to: '2026-11-30' }, now)[1], now, 'not after now');
   assert.equal(customSpan({ from: '', to: '' }, now)[0], now - 7 * 86400000, 'no dates: the last 7 days');
 });
+
+import { spanOf, RANGES } from '../src/d2/graphsui';
+
+test('All data and Graphs: 12 hours is one of the periods; the period shown is the same in both', () => {
+  const now = new Date(2026, 10, 23, 12, 0).getTime();
+  assert.ok(RANGES.some(([v, t]) => v === '12h' && t === '12 hours'));
+  assert.equal(rangeStart('12h', now, null), now - 12 * 3600000);
+  assert.deepEqual(spanOf('12h', { from: '', to: '' }, now, []), [now - 12 * 3600000, now]);
+  assert.deepEqual(spanOf('all', { from: '', to: '' }, now, [0, now - 3 * 86400000]), [now - 3 * 86400000, now]); // 0 = no time
+});

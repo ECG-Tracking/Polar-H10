@@ -255,6 +255,8 @@ async function openD2(): Promise<void> {
       sleepChanged: () => { syncSleepUI?.schedule(); scheduleReports(); },
       openEcg: (id) => void openReport(id),
       // the watch's 30-second ECGs, saved in ECG history as from ECG live; during a tracking, as part of it
+      watchEcgs: async () => (await store.listSessions(currentUser)).filter((s) => s.source === 'watch')
+        .map((s) => ({ id: s.id, start: s.start, durationS: s.durationS, hr: s.summary?.meanHR ?? null, events: s.summary?.eventCount ?? null })),
       saveEcgs: async (recs) => {
         const n = { saved: 0, same: 0, short: 0 };
         const trackings = store.loadSyncHistory().filter((e) => e.user === currentUser);
