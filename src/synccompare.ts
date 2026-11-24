@@ -352,7 +352,7 @@ export function trackingSuggestions(p: BeatFigures | null, w: BeatFigures | null
   if (w && watchPoor > 0.1 * (w.rawBeats + watchPoor)) out.push('The watch marked many beats as unusable. Clean the sensor and tighten the strap.');
   if (p && p.leftOutPct > 5) out.push('Many strap beats were left out as irregular. These can be real extra beats, or poor contact: moisten the strap’s electrodes and check the ECG.');
   if (durationS < 300) out.push('HRV is usually measured over 5 minutes. Shorter trackings give less reliable HRV, and LF and HF need at least 2 minutes.');
-  if (!hasBp) out.push('No blood pressure reading was found near this tracking. Take one on the watch within the hour.');
+  if (!hasBp) out.push('No D2 BP reading was found near this tracking. Take one on the watch within the hour.');
   if (!out.length) out.push('The two devices agree well in this tracking.');
   return out;
 }

@@ -279,7 +279,7 @@ export function trackingLine(e: SyncTrackingEntry, bp: boolean, polar: boolean, 
   return [
     polar || e.polar || e.ecgId ? 'Polar H10' : null,
     watch || (e.watch && e.watch.beats > 0) ? 'Watch D2' : null, // a watch that sent no beats (an old stale heart rate) isn't listed
-    bp || e.bps?.length || e.bp ? 'BP recorded' : null,
+    bp || e.bps?.length || e.bp ? 'D2 BP recorded' : null,
     `Duration ${mmss(durationS)}`,
   ].filter(Boolean).join(' · ');
 }
@@ -305,7 +305,7 @@ const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(Math.floor(s
 const n = (v: number | null | undefined, digits = 0): string => (v == null || !Number.isFinite(v) ? '--' : fmt(v, digits));
 const madeText = (v: TrackVersion): string => (v.changed === 'new'
   ? `Generated ${dateTime(v.generatedAt)}`
-  : `Generated again ${dateTime(v.generatedAt)}, because ${v.changed === 'bp' ? 'the blood pressure readings' : v.changed === 'watch' ? 'the watch’s data' : 'the blood pressure readings and the watch’s data'} changed`);
+  : `Generated again ${dateTime(v.generatedAt)}, because ${v.changed === 'bp' ? 'the D2 BP readings' : v.changed === 'watch' ? 'the watch’s data' : 'the D2 BP readings and the watch’s data'} changed`);
 const signed = (v: number, digits: number): string => { const s = Math.abs(v).toFixed(digits); return `${v < 0 && Number(s) !== 0 ? '-' : '+'}${s}`; };
 
 function button(text: string, cls: string, onClick: () => void): HTMLButtonElement {
@@ -416,8 +416,8 @@ const figureRows = (rows: readonly CompareRow[], which: 'polar' | 'watch'): stri
   rows.flatMap((r) => (r[which] == null ? [] : [[r.name, n(r[which], r.digits)]]));
 
 function bpCard(bps: readonly SyncBp[]): HTMLElement {
-  return card('Blood pressure (watch)', bps.length
-    ? table(['Time', 'Blood pressure (mmHg)', 'Pulse (bpm)'], bps.map((b) => [clock(b.at), `${n(b.systolic)}/${n(b.diastolic)}`, n(b.pulse)]))
+  return card('D2 BP', bps.length
+    ? table(['Time', 'D2 BP (mmHg)', 'Pulse (bpm)'], bps.map((b) => [clock(b.at), `${n(b.systolic)}/${n(b.diastolic)}`, n(b.pulse)]))
     : make('p', 'muted', 'No reading within one hour before or after the start.'));
 }
 
@@ -659,7 +659,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
       if (m.hr != null) line(`Stored heart rate, ${clock(m.t * 1000)} (bpm)`, m.hr, avgAround(m.t - g.e.start / 1000 + 30, 30));
     }
     for (const b of g.v.bps) {
-      if (b.pulse != null) line(`Blood pressure pulse, ${clock(b.at)} (bpm)`, b.pulse, avgAround((b.at - g.e.start) / 1000, 30) ?? g.v.p?.meanHr ?? null);
+      if (b.pulse != null) line(`D2 BP pulse, ${clock(b.at)} (bpm)`, b.pulse, avgAround((b.at - g.e.start) / 1000, 30) ?? g.v.p?.meanHr ?? null);
     }
     for (const h of g.v.stored?.hrv ?? []) line(`Stored HRV reading, ${clock(h.at)} (ms)`, h.rmssd, g.v.p?.rmssd ?? null, 1);
     return out;
@@ -773,7 +773,7 @@ export function initSyncReports(box: HTMLElement, reportRoot: HTMLElement, deps:
         list.appendChild(li);
       }
     }
-    box.replaceChildren(make('p', 'note', 'Each tracking has its Polar H10 report and its Combined ECG: the watch’s 30-second strips and the strap’s ECG of the same moments, together, compared beat for beat. When its blood pressure or the watch’s data changes, new reports are generated and the earlier ones stay as a version. Blood pressure: every reading taken on the watch within one hour before or after the start.'), list);
+    box.replaceChildren(make('p', 'note', 'Each tracking has its Polar H10 report and its Combined ECG: the watch’s 30-second strips and the strap’s ECG of the same moments, together, compared beat for beat. When its D2 BP or the watch’s data changes, new reports are generated and the earlier ones stay as a version. D2 BP: every blood pressure reading taken on the watch within one hour before or after the start.'), list);
   }
 
   /** Shows the list now, then again if new versions were generated. */

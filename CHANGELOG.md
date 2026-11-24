@@ -4,6 +4,14 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 24 Nov 2026 – v1.45.29 – Manual BP on the BP and ECG page; the watch's readings are "D2 BP" *(GitHub)*
+- **Manual BP entry:** a one-line entry at the top of BP and ECG for readings from any blood pressure monitor. The date and time start at now, SBP at 120 and DBP at 80; all can be changed before pressing **Add Manual BP**. Values are checked (whole numbers, DBP lower than SBP, not in the future).
+- **Manual BP readings sync** to your other devices through your account, as other app data does. A deleted one is deleted on the other devices too.
+- **The blood pressure graph** shows Manual BP with dashed lines and open squares, and D2 BP with solid lines and dots, in the same colours for systolic and diastolic. The caption counts each ("· 5 D2 BP · 2 Manual BP readings"), and pointing at a reading says which it is. This is the same graph in BP and ECG, ECG history and trending, and above an ECG.
+- **The "Blood pressure readings" table** lists Manual BP readings with the D2 BP ones, each tagged "D2 BP" or "Manual BP". A Manual BP reading has a × to delete it. Its ECG figures come from the ECGs taken around it, as for D2 BP.
+- **Readings from the Watch D2 are now called "D2 BP"** everywhere: D2 Link (Download D2 BP, download history and messages, All data and Graphs), the tracking reports, Synchronised ECG Tracking and the Recovery centre.
+- Synchronised trackings still take only D2 BP readings, as before.
+
 ## 23 Nov 2026 – v1.45.28 – D2 Link History: All data shows everything downloaded, with a period; 12 hours *(GitHub)*
 - **All data now shows every kind of data "Download all data" brings in.** New: **Sleep** (each night and nap: asleep, deep, light, REM, awake, awakenings, score), **Daily totals** (now its own table, not only a note), and **ECG recordings** (the watch's 30-second ECGs saved in ECG history, with heart rate and events; click one to open it). Activity, blood pressure, HRV, emotion, stress and workouts were already there.
 - **Each category is a heading that opens when clicked**, showing how many rows it has. Only one opens at a time: opening another closes the one before. A **Display all** button above them opens every category; press it again to go back to one at a time.

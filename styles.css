@@ -768,3 +768,12 @@ td.col-collapsed { width: 30px; min-width: 30px; max-width: 30px; padding: 0 !im
 .d2-fold > summary h3 { margin: 0; }
 .d2-fold:not([open]) { padding-bottom: 12px; }
 .d2-fold-all { margin: 0 0 10px; }
+/* Manual BP: the entry line on BP and ECG, and the D2 BP / Manual BP tag in the readings table */
+.manual-bp-row { align-items: center; gap: 10px; }
+.manual-bp-row .manual-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.manual-bp-row .bp-num { width: 5.5em; }
+.manual-bp-row .warn-text { color: var(--warn); }
+.bp-cell { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.bp-cell .bp-tag { font-size: 0.72rem; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.bp-cell.manual .bp-tag { border-style: dashed; color: var(--ink-2); }
+.bp-cell .del-x { padding: 0 6px; min-height: 0; line-height: 1.4; background: none; border: none; color: var(--critical); cursor: pointer; font-size: 1rem; }

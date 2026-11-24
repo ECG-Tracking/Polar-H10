@@ -188,8 +188,8 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
   const btnGo = button('Pair & download sleep', 'primary big');
   const btnEcg = button('Pair & download ECG', 'primary big');
   btnEcg.title = 'The watch’s 30-second ECG recordings, saved in ECG history';
-  const btnBp = button('Pair & download BP', 'primary big');
-  btnBp.title = 'The blood pressure readings taken on the watch (with its other measurements: HRV and emotion)';
+  const btnBp = button('Pair & download D2 BP', 'primary big');
+  btnBp.title = 'The blood pressure readings taken on the watch (D2 BP), with its other measurements: HRV and emotion';
   const btnAll = button('Pair & download all data', 'primary big');
   btnAll.title = 'Sleep, activity per minute, heart rate, SpO₂, blood pressure, HRV, emotion, stress, workouts and the 30-second ECG recordings';
   const goButtons = el('div', 'd2-go');
@@ -275,7 +275,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       const frontTd = el('td', 'del-col del-front');
       frontTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.appendChild(frontTd);
-      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : e.button === 'ecg' ? 'ECG' : e.button === 'bp' ? 'Blood pressure' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
+      for (const c of [dateTime(e.at), `${e.button === 'all' ? 'All data' : e.button === 'ecg' ? 'ECG' : e.button === 'bp' ? 'D2 BP' : 'Sleep'} · ${e.via}`, `${day(e.from)} – ${day(e.to)}`, e.result]) tr.appendChild(el('td', '', c));
       const delTd = el('td', 'del-col');
       delTd.appendChild(deleteButton('this download from the history', remove, 'Remove this download from the history? (The data it downloaded is kept.)'));
       tr.append(delTd);
@@ -339,7 +339,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     btnGo.textContent = paired ? 'Download sleep' : 'Pair & download sleep';
     btnAll.textContent = paired ? 'Download all data' : 'Pair & download all data';
     btnEcg.textContent = paired ? 'Download ECG' : 'Pair & download ECG';
-    btnBp.textContent = paired ? 'Download BP' : 'Pair & download BP';
+    btnBp.textContent = paired ? 'Download D2 BP' : 'Pair & download D2 BP';
     btnEcg.hidden = !deps.saveEcgs;
     const reachable = via.value === 'mac' || serialAvailable();
     btnGo.disabled = busy || !reachable;
@@ -525,7 +525,7 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
       if (days.value === 'custom') log(`Period: ${new Date(start * 1000).toLocaleDateString()} – ${new Date(end * 1000).toLocaleDateString()}.`);
       if (bpOnly) {
         const n = await downloadBp(link, start, name, entry.items);
-        progress.textContent = n.total ? `${n.total} blood pressure reading${n.total === 1 ? '' : 's'}${nilText(n.total, n.same)}.` : 'The watch has no blood pressure readings for this period.';
+        progress.textContent = n.total ? `${n.total} D2 BP reading${n.total === 1 ? '' : 's'}${nilText(n.total, n.same)}.` : 'The watch has no D2 BP readings for this period.';
         setStatus(`${name} – done`, 'on');
         void sync();
         entry.ok = true;
@@ -625,13 +625,13 @@ export function mount(root: HTMLElement, deps: D2Deps): { refresh: () => void; o
     progress.textContent = 'Setting up the watch…';
     const w = openedWatch();
     if (w) await ensureSetUp(w, deps.profile?.() ?? null);
-    progress.textContent = 'Downloading blood pressure…';
+    progress.textContent = 'Downloading D2 BP…';
     const rs = readingRecords(await downloadReadings(link, start * 1000, log), deps.user(), name);
     const { changed, same } = onlyChanged(rs, await store.listAllRecords(), (r) => r.key, recordContent);
     if (changed.length) await store.saveRecords(changed);
     const bp = (l: readonly store.D2Record[]): number => l.filter((r) => r.data['cls'] === 10002).length;
-    items.push({ what: 'Blood pressure', count: bp(rs), nil: bp(same) });
-    log(`Blood pressure: ${bp(changed)} new or changed, saved; ${bp(same)} unchanged (with ${rs.length - bp(rs)} other measurements).`);
+    items.push({ what: 'D2 BP', count: bp(rs), nil: bp(same) });
+    log(`D2 BP: ${bp(changed)} new or changed, saved; ${bp(same)} unchanged (with ${rs.length - bp(rs)} other measurements).`);
     return { total: bp(rs), same: bp(same) };
   }
 

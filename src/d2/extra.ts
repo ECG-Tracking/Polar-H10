@@ -116,7 +116,7 @@ export async function downloadTotals(link: D2Link, log: Log): Promise<ActivityTo
 /** Kinds of measurement read from the watch's data dictionary, with the meaning of the fields that are known. */
 export const READING_CLASSES: Readonly<Record<number, { name: string; fields: Readonly<Record<number, string>> }>> = {
   // blood pressure fields aren't described by Gadgetbridge; these three were identified from 127 readings of a Watch D2
-  10002: { name: 'Blood pressure', fields: { 2006: 'Systolic (mmHg)', 2007: 'Diastolic (mmHg)', 10002537: 'Pulse (bpm)' } },
+  10002: { name: 'D2 BP', fields: { 2006: 'Systolic (mmHg)', 2007: 'Diastolic (mmHg)', 10002537: 'Pulse (bpm)' } },
   500044: { name: 'HRV', fields: { 500044831: 'RMSSD (ms)' } },
   500031: { name: 'Emotion', fields: { 500031195: 'Status', 500031347: 'Valence', 500031160: 'Original status', 500031842: 'Arousal' } },
 };

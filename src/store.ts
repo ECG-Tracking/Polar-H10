@@ -629,7 +629,8 @@ export function saveSettings(user: UserNumber, s: Settings, savedAt = Date.now()
 // ---------- Synchronised ECG tracking history (this device) ----------
 
 /** One synchronised ECG tracking: when, how long, both devices' results, the blood pressure taken and the saved ECG. */
-export interface SyncBp { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
+/** A blood pressure reading: from the Watch D2 ("D2 BP"), or typed in (`source: 'manual'`, "Manual BP", with its `id`). */
+export interface SyncBp { at: number; systolic: number | null; diastolic: number | null; pulse: number | null; source?: 'manual'; id?: string }
 
 /** Blood pressure readings of an entry (older entries kept only the first). */
 export const syncBps = (e: SyncTrackingEntry): SyncBp[] => e.bps ?? (e.bp ? [e.bp] : []);

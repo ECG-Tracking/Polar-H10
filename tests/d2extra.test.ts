@@ -49,7 +49,7 @@ test('D2 link: activity, totals and the data dictionary are read from the watch'
   assert.deepEqual(bp?.values, { 10002001: 128, 10002002: 82 });
   assert.equal(readings.find((r) => r.cls === 500044)?.values['500044831'], 41);
   assert.ok(w.acks.length >= 2, 'each data message from the watch is acknowledged');
-  assert.ok(log.some((l) => /Blood pressure: 1 record/.test(l)));
+  assert.ok(log.some((l) => /D2 BP: 1 record/.test(l)));
 });
 
 test('D2 link: an answer without totals gives none, and its layout is logged', async () => {

@@ -65,3 +65,24 @@ test('BP: a tracking’s saved Combined ECG results are used in place of each re
   assert.equal(merged.combined?.polar?.['qtc'], 380, 'the newer saved results win at a sync');
   assert.ok(mergeTrace({ ...base, combined }, base).combined, 'kept when the other device has none');
 });
+
+import { addManual, checkManual, deleteManual, manualReadings, mergeManual, parseManual } from '../src/manualbp';
+
+test('Manual BP: added, checked, marked apart from D2 BP, deleted, and merged with another device’s copy', () => {
+  const t = new Date(2026, 10, 24, 9, 30).getTime();
+  assert.equal(checkManual(120, 80, t, t), null);
+  assert.match(checkManual(80, 120, t, t) ?? '', /lower than SBP/);
+  assert.match(checkManual(120.5, 80, t, t) ?? '', /whole number/);
+  assert.match(checkManual(120, 80, t + 3600000, t) ?? '', /future/);
+  const list = addManual([], 1, t, 120, 80, t);
+  const rs = manualReadings(list, 1);
+  assert.deepEqual(rs.map((r) => [r.at, r.systolic, r.diastolic, r.source]), [[t, 120, 80, 'manual']]);
+  assert.equal(manualReadings(list, 2).length, 0, 'each user has their own');
+  const gone = deleteManual(list, list[0]!.id, t + 1000);
+  assert.equal(manualReadings(gone, 1).length, 0);
+  // the deletion is newer, so it wins over the other device's older copy, and that copy over this one's older one
+  assert.equal(manualReadings(mergeManual(list, gone), 1).length, 0);
+  assert.equal(manualReadings(mergeManual(gone, list), 1).length, 0);
+  assert.equal(parseManual({ ...list[0], systolic: 'x' }), null);
+  assert.deepEqual(parseManual(JSON.parse(JSON.stringify(gone[0]))), gone[0]);
+});

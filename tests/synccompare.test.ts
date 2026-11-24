@@ -81,7 +81,7 @@ test('suggestions follow what differs', () => {
   const worse = { ...f, rmssd: f.rmssd! * 1.5, rawBeats: 100 };
   const a = { bins: 20, bias: 6, low: -2, high: 14, mae: 6, within5Pct: 40, r: 0.5 };
   const tips = trackingSuggestions(f, worse, a, 120, 30, false).join(' ');
-  for (const w of ['6.0 bpm higher', 'moved apart', 'over 20 %', 'fewer beats', '5 minutes', 'blood pressure']) assert.ok(tips.includes(w), w);
+  for (const w of ['6.0 bpm higher', 'moved apart', 'over 20 %', 'fewer beats', '5 minutes', 'D2 BP']) assert.ok(tips.includes(w), w);
   assert.deepEqual(trackingSuggestions(f, f, { ...a, bias: 0.5, low: -2, high: 2 }, 300, 0, true), ['The two devices agree well in this tracking.']);
 });
 

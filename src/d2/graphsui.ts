@@ -295,11 +295,11 @@ export function renderGraphs(box: HTMLElement, nights: readonly D2Night[], recor
   const bpMode: Mode = mode === 'raw' || reading(10002, 2006).length <= 120 ? 'raw' : mode;
   const sys = aggregate(reading(10002, 2006), bpMode, 'mean'), dia = aggregate(reading(10002, 2007), bpMode, 'mean');
   const ms = mean(sys.map((p) => p.v)), md = mean(dia.map((p) => p.v));
-  add('Blood pressure', ms != null && md != null ? `average ${r0(ms)}/${r0(md)} mmHg` : '', [
+  add('D2 BP', ms != null && md != null ? `average ${r0(ms)}/${r0(md)} mmHg` : '', [
     { name: 'Systolic', color: COLORS.red, points: sys, kind: 'line' }, { name: 'Diastolic', color: COLORS.blue, points: dia, kind: 'line' },
   ], ' mmHg', r0);
   const pulse = aggregate(reading(10002, 10002537), bpMode, 'mean');
-  add('Pulse (blood pressure readings)', avgText(pulse, r0, ' bpm'), [{ name: 'Pulse', color: COLORS.amber, points: pulse, kind: 'line' }], ' bpm', r0);
+  add('Pulse (D2 BP readings)', avgText(pulse, r0, ' bpm'), [{ name: 'Pulse', color: COLORS.amber, points: pulse, kind: 'line' }], ' bpm', r0);
   const hrv = aggregate(reading(500044, 500044831), mode, 'mean');
   add('HRV (RMSSD)', avgText(reading(500044, 500044831), r0, ' ms'), [{ name: 'HRV', color: COLORS.green, points: hrv, kind: mode === 'raw' ? 'dots' : 'line', band: true }], ' ms', r0);
   const stressPts = records.flatMap((r) => (r.kind === 'stress' && inRange(r.start) && typeof r.data['score'] === 'number' && (r.data['score'] as number) > 0 ? [{ t: r.start, v: r.data['score'] as number }] : []));

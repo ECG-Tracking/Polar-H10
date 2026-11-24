@@ -521,7 +521,7 @@ export interface ChestStripData {
  * follow the ECG viewer's position, and dragging one of them moves the ECG too (one slider for all).
  */
 /** A blood pressure reading for the BP graph: when (ms), systolic and diastolic (mmHg), and pulse (bpm). */
-export interface BpPoint { at: number; systolic: number | null; diastolic: number | null; pulse: number | null }
+export interface BpPoint { at: number; systolic: number | null; diastolic: number | null; pulse: number | null; source?: 'manual' }
 
 /**
  * Blood pressure as a line chart: systolic and diastolic as two lines over time, each reading's value written at its
@@ -553,7 +553,7 @@ export class BpStrip {
     this.value.className = 'muted';
     cap.append(name, this.value);
     this.canvas = document.createElement('canvas');
-    this.canvas.setAttribute('aria-label', 'Blood pressure readings: systolic and diastolic over time');
+    this.canvas.setAttribute('aria-label', 'Blood pressure readings, D2 BP and Manual BP: systolic and diastolic over time');
     this.tip = document.createElement('div');
     this.tip.className = 'tip';
     this.el.append(cap, this.canvas, this.tip);
@@ -570,8 +570,9 @@ export class BpStrip {
     this.span = span;
     this.recordings = recording == null ? [] : typeof recording[0] === 'number' ? [recording as [number, number]] : (recording as readonly (readonly [number, number])[]);
     this.el.hidden = !this.readings.length && !this.alwaysShown;
-    const n = this.readings.length;
-    this.value.textContent = n ? ` · ${n} reading${n > 1 ? 's' : ''}` : '';
+    // how many of each: the Watch D2's (D2 BP) and those typed in (Manual BP)
+    const man = this.readings.filter((r) => r.source === 'manual').length, d2 = this.readings.length - man;
+    this.value.textContent = [d2 ? `${d2} D2 BP` : '', man ? `${man} Manual BP` : ''].filter(Boolean).map((t) => ` · ${t}`).join('') + (this.readings.length ? ` reading${this.readings.length > 1 ? 's' : ''}` : '');
     this.draw();
   }
 
@@ -589,7 +590,7 @@ export class BpStrip {
     if (best) {
       const r = best.r;
       const when = new Date(r.at).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-      this.tip.innerHTML = `${when}<br><b>${r.systolic ?? '--'}/${r.diastolic ?? '--'} mmHg</b>${r.pulse != null ? ` · pulse ${r.pulse} bpm` : ''}`;
+      this.tip.innerHTML = `${r.source === 'manual' ? 'Manual BP' : 'D2 BP'} · ${when}<br><b>${r.systolic ?? '--'}/${r.diastolic ?? '--'} mmHg</b>${r.pulse != null ? ` · pulse ${r.pulse} bpm` : ''}`;
       place(best.x, best.y);
       return;
     }
@@ -677,24 +678,34 @@ export class BpStrip {
       ctx.fillText('No readings in this time', L.l + pw / 2, L.t + ph / 2);
       return;
     }
-    // systolic and diastolic: a line each, every value written at its point (systolic above, diastolic below)
+    // systolic and diastolic: a line each, every value written at its point (systolic above, diastolic below); D2 BP
+    // with solid lines and round dots, Manual BP with dashed lines and open squares, in the same two colours
     const series = [['systolic', 'Systolic', css('--series-1'), -1], ['diastolic', 'Diastolic', css('--critical'), 1]] as const;
     const inside = (x: number): boolean => x >= L.l - 0.5 && x <= L.l + pw + 0.5;
     ctx.save();
     ctx.beginPath(); ctx.rect(L.l, 0, pw, h); ctx.clip(); // readings outside the time shown only carry the line on
     type P = readonly [number, number, number];
-    const lines = series.map(([key]) => this.readings.flatMap((r): P[] => (r[key] == null ? [] : [[X(r.at), (key === 'systolic' ? Ys : Yd)(r[key]!), r[key]!]])));
+    const groups = series.flatMap(([key, , color, side]) => ([false, true] as const).map((manual) => ({
+      color, side, manual,
+      pts: this.readings.filter((r) => (r.source === 'manual') === manual).flatMap((r): P[] => (r[key] == null ? [] : [[X(r.at), (key === 'systolic' ? Ys : Yd)(r[key]!), r[key]!]])),
+    })));
+    const lines = groups.map((g) => g.pts);
     const shownCount = lines.reduce((n, pts) => n + pts.filter(([x]) => inside(x)).length, 0);
     const dot = shownCount > 80 ? 2 : 3.5;
-    series.forEach(([, , color], k) => {
-      const pts = lines[k]!;
-      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    for (const g of groups) {
+      ctx.strokeStyle = g.color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+      ctx.setLineDash(g.manual ? [6, 4] : []);
       ctx.beginPath();
-      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      g.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.stroke();
-      ctx.fillStyle = color;
-      for (const [x, y] of pts) if (inside(x)) { ctx.beginPath(); ctx.arc(x, y, dot, 0, 2 * Math.PI); ctx.fill(); }
-    });
+      ctx.setLineDash([]);
+      ctx.fillStyle = g.color;
+      for (const [x, y] of g.pts) {
+        if (!inside(x)) continue;
+        if (g.manual) { ctx.fillStyle = css('--surface') || '#fff'; ctx.fillRect(x - dot - 0.5, y - dot - 0.5, 2 * dot + 1, 2 * dot + 1); ctx.lineWidth = 1.5; ctx.strokeRect(x - dot - 0.5, y - dot - 0.5, 2 * dot + 1, 2 * dot + 1); }
+        else { ctx.beginPath(); ctx.arc(x, y, dot, 0, 2 * Math.PI); ctx.fill(); }
+      }
+    }
     // each value is written where its label touches neither another label nor either line nor a dot: first on its own
     // side (systolic above, diastolic below), else on the other side; the readings that stand out most are placed first,
     // and one with no room is left out (pointing at it still shows it)
@@ -713,8 +724,7 @@ export class BpStrip {
       return q != null && segHits(x, y, q[0], q[1], bx);
     }));
     const written: Box[] = [];
-    const candidates = series.flatMap(([, , , side], k) => {
-      const pts = lines[k]!;
+    const candidates = groups.flatMap(({ side, pts }) => {
       return pts.map(([x, y, v], i) => {
         const before = pts[i - 1]?.[2] ?? v, after = pts[i + 1]?.[2] ?? v;
         return { x, y, v, side, stand: Math.abs(v - (before + after) / 2) };
@@ -737,11 +747,16 @@ export class BpStrip {
     // legend, top right
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     let lx = L.l + pw;
-    for (const [, name, color] of [...series].reverse()) {
+    const hasManual = groups.some((g) => g.manual && g.pts.length), hasD2 = groups.some((g) => !g.manual && g.pts.length);
+    const legend: [string, string, boolean][] = [['Systolic', series[0][2], false], ['Diastolic', series[1][2], false],
+      ...(hasManual && hasD2 ? [['D2 BP', css('--ink-2'), false], ['Manual BP', css('--ink-2'), true]] as [string, string, boolean][] : hasManual ? [['Manual BP', css('--ink-2'), true]] as [string, string, boolean][] : [])];
+    for (const [name, color, dashed] of [...legend].reverse()) {
       const tw = ctx.measureText(name).width;
       lx -= tw + 30;
       ctx.strokeStyle = color; ctx.lineWidth = 2;
+      ctx.setLineDash(dashed ? [5, 3] : []);
       ctx.beginPath(); ctx.moveTo(lx, 10); ctx.lineTo(lx + 16, 10); ctx.stroke();
+      ctx.setLineDash([]);
       ctx.fillStyle = css('--ink-2');
       ctx.fillText(name, lx + 21, 10);
     }

@@ -76,7 +76,7 @@ const clockOf = (ms: number): string => new Date(ms).toLocaleTimeString([], { ho
 export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, reportRoot: HTMLElement, deps: SyncDeps): { stop: () => void; refreshHistory: () => void; openPair: (id: string, back: { label: string; go: () => void }) => void; pairInto: (root: HTMLElement, id: string, opts?: { compact?: boolean; bp?: import('./charts').BpStrip }) => Promise<void> } {
   root.replaceChildren();
   root.append(make('h2', '', 'Synchronised ECG Tracking'), make('p', 'note',
-    'The Polar H10’s ECG, with the Watch D2’s 30-second ECGs taken meanwhile: they are downloaded after Stop. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once, within one hour before or after the start; it is added to the tracking once D2 Link has downloaded it.'));
+    'The Polar H10’s ECG, with the Watch D2’s 30-second ECGs taken meanwhile: they are downloaded after Stop. Wear both and connect both: the ECG shows as soon as the strap is connected. Choose how long to track, then start. Measure your blood pressure on the watch once (D2 BP), within one hour before or after the start; it is added to the tracking once D2 Link has downloaded it.'));
 
   // --- 1. Polar H10 ---
   const polarCard = make('div', 'card connect');
@@ -321,7 +321,7 @@ export function initSyncTracking(root: HTMLElement, historyRoot: HTMLElement, re
     polarRr = []; watchRr = []; polarBeats = []; watchBeats = []; watchPoor = 0; polarSeries.length = 0; watchSeries.length = 0;
     summary.hidden = true;
     btnStart.hidden = true; btnStop.hidden = false;
-    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. A blood pressure reading taken on the watch from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)} is added to this tracking once D2 Link has downloaded it.`;
+    runNote.textContent = `Tracking since ${clock(t0)}${length == null ? ' until you stop' : ` for ${mmss(length)}`}. A D2 BP reading taken on the watch from ${clock(t0 - BP_WINDOW_MS)} to ${clock(t0 + BP_WINDOW_MS)} is added to this tracking once D2 Link has downloaded it.`;
     timerId = setInterval(() => undefined, 1 << 30); // marks tracking as running; the live timer does the work
     ready();
     tick();

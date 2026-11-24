@@ -32,6 +32,7 @@ import { overlapMs, type Minute } from './syncsleep';
 import { analyzeSleep, EPOCH_S } from './sleep';
 import { sleepData } from './sleepecg';
 import { BP_NEAR_MS, mergeReadings, readingsBetween } from './bp';
+import { loadManual, manualReadings } from './manualbp';
 import type { SyncBp } from './store';
 import { initBackups } from './backups';
 import { initLocate } from './locate';
@@ -183,6 +184,7 @@ function openBpEcg(): ReturnType<typeof initBpEcg> {
     user: () => currentUser,
     readings: allReadings,
     fill: fillTrend,
+    changed: historyChanged, // a Manual BP reading added or deleted: synced
   });
   return bpEcgUI;
 }
@@ -801,12 +803,14 @@ let bpFor: Session | null = null, bpCache: { at: number; all: SyncBp[] } | null 
 
 /** Every blood pressure reading on this device (D2 Link's and the trackings'), kept for a minute. */
 async function allReadings(): Promise<SyncBp[]> {
-  if (bpCache && Date.now() - bpCache.at < 60000) return bpCache.all;
+  if (bpCache && Date.now() - bpCache.at < 60000) return withManual(bpCache.all);
   const stored = await loadD2().then((api) => api.backup.storedBloodPressure(account.account?.id ?? 'local')).catch(() => []);
   const all = mergeReadings(stored, store.loadSyncHistory().filter((e) => e.user === currentUser));
   bpCache = { at: Date.now(), all };
-  return all;
+  return withManual(all);
 }
+/** D2 BP and the user's Manual BP readings together, in time order (Manual BP read fresh each time: it changes here). */
+const withManual = (d2: readonly SyncBp[]): SyncBp[] => [...d2, ...manualReadings(loadManual(), currentUser)].sort((a, b) => a.at - b.at);
 
 /** Shows the readings from an hour before the recording to an hour after it (none: no graph). */
 async function showBp(session: Session | null): Promise<void> {

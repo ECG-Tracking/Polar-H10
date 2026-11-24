@@ -6,6 +6,8 @@
 //     Kind 'settings': each user's biodata and settings, id = user number; the most recently saved copy wins.
 //     Kind 'tracking': each synchronised ECG tracking with its beats and report versions, id = its id; the same rule.
 //     Kind 'sleep-reports': each synchronised sleep's four reports with every version, id = its id; the same rule.
+//     Kind 'manual-bp': each Manual BP reading typed in on the BP and ECG page, id = its id; the later saved copy wins
+//     (a deleted reading stays as a deletion, so it is deleted on the other devices too).
 // Other devices get summary copies; the full ECG and raw sleep data stay on the device that recorded them.
 
 import { during } from './diagnostics';
@@ -18,6 +20,7 @@ import { sleepData } from './sleepecg';
 import { mergeTrace, parseTrackingRow, planCloudCopies } from './synccompare';
 import { forCloud, mergeSleepReports, parseSleepReportsRow } from './syncsleep';
 import { errorMessage } from './util';
+import { loadManual, mergeManual, parseManual, saveManual } from './manualbp';
 
 const ECG_TABLE = 'ecg_sessions';
 const SLEEP_TABLE = 'sleep_nights';
@@ -136,6 +139,7 @@ export class CloudSync extends EventTarget {
       await this.syncTracking(result);
       await this.syncSleepReports(result);
       await this.syncSleepLabels(result);
+      await this.syncManualBp(result);
     } catch (err) {
       result.ok = false;
       result.reason = describe(err);
@@ -225,6 +229,27 @@ export class CloudSync extends EventTarget {
       const ins = await this.client.from(DATA_TABLE).upsert({ kind: 'tracking', id, data: { entry: { ...sent, savedAt }, trace }, saved_at: savedAt });
       if (ins.error) throw new Error(ins.error.message);
       store.saveSyncEntry({ ...entry, savedAt }, { fromCloud: true });
+      result.uploaded++;
+    }
+  }
+
+  // ---------- Manual BP readings (table user_data, kind 'manual-bp') ----------
+
+  private async syncManualBp(result: SyncResult): Promise<void> {
+    const kind = 'manual-bp';
+    const { data, error } = await this.client.from(DATA_TABLE).select('id, data, saved_at').eq('kind', kind);
+    if (error) throw new Error(error.message);
+    const there = ((data as unknown[] | null) ?? []).flatMap((row) => { const m = parseManual((row as Obj)['data']); return m ? [m] : []; });
+    const here = loadManual();
+    const merged = mergeManual(here, there);
+    const cloudAt = new Map(there.map((m) => [m.id, m.savedAt]));
+    const hereAt = new Map(here.map((m) => [m.id, m.savedAt]));
+    result.downloaded += merged.filter((m) => (hereAt.get(m.id) ?? -1) < m.savedAt).length;
+    saveManual(merged);
+    for (const m of merged) {
+      if ((cloudAt.get(m.id) ?? -1) >= m.savedAt) continue;
+      const ins = await this.client.from(DATA_TABLE).upsert({ kind, id: m.id, data: m, saved_at: m.savedAt });
+      if (ins.error) throw new Error(ins.error.message);
       result.uploaded++;
     }
   }

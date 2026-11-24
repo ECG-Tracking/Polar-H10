@@ -16,6 +16,7 @@ import { PERIODS, periodRange, type Period } from './ecgtrend';
 import * as store from './store';
 import type { Session, SyncBp, SyncTrackingEntry, UserNumber } from './store';
 import { fmt, make } from './ui';
+import { addManual, bpSource, checkManual, DEFAULT_DIA, DEFAULT_SYS, deleteManual, loadManual, saveManual } from './manualbp';
 
 export interface BpEcgDeps {
   user: () => number;
@@ -23,6 +24,8 @@ export interface BpEcgDeps {
   readings: () => Promise<SyncBp[]>;
   /** Works out the figures of a recording that doesn't have them yet (as for trending). */
   fill: (s: Session) => Promise<Session | null>;
+  /** A Manual BP reading was added or deleted (to sync it). */
+  changed?: () => void;
 }
 
 const FS = 130;
@@ -42,12 +45,30 @@ const DEFAULT_COLS = ['when', 'bp', 'hrvScore', 'qrs', 'tPositive', 'tAmp', 'trR
 const withUnit = (name: string, unit: string): string => (unit ? `${name} (${unit})` : name);
 const dateTime = (ms: number): string => new Date(ms).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const bpText = (b: SyncBp): string => `${b.systolic ?? '--'}/${b.diastolic ?? '--'}`;
+/** A time for a date-and-time input (local time, to the minute). */
+const localInput = (ms: number): string => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000); return d.toISOString().slice(0, 16); };
 
-/** Every column the table can show. */
-function columns(): Column<BpMatch>[] {
+/** Every column the table can show; `del` deletes a Manual BP reading. */
+function columns(del: (m: BpMatch) => void): Column<BpMatch>[] {
   const cols: Column<BpMatch>[] = [
     { id: 'when', label: 'Date and time', value: (m) => m.bp.at, text: (m) => dateTime(m.bp.at) },
-    { id: 'bp', label: 'BP reading (mmHg)', value: (m) => m.bp.systolic, text: (m) => bpText(m.bp) },
+    {
+      // D2 BP (from the watch) or Manual BP (typed in), with the reading; a Manual BP reading can be deleted here
+      id: 'bp', label: 'BP reading (mmHg): D2 BP or Manual BP', value: (m) => m.bp.systolic, text: (m) => `${bpSource(m.bp)} ${bpText(m.bp)}`,
+      cell: (m) => {
+        const box = make('div', `bp-cell${m.bp.source === 'manual' ? ' manual' : ''}`);
+        box.append(make('span', 'bp-tag', bpSource(m.bp)), make('span', 'v', bpText(m.bp)));
+        if (m.bp.source === 'manual') {
+          const x = make('button', 'del-x', '×');
+          x.type = 'button';
+          x.title = 'Delete this Manual BP reading';
+          x.setAttribute('aria-label', 'Delete this Manual BP reading');
+          x.addEventListener('click', (e) => { e.stopPropagation(); if (confirm(`Delete the Manual BP reading ${bpText(m.bp)} mmHg of ${dateTime(m.bp.at)}? It is also deleted on your other devices.`)) del(m); });
+          box.appendChild(x);
+        }
+        return box;
+      },
+    },
     { id: 'pulse', label: 'Pulse (bpm)', value: (m) => m.bp.pulse, text: (m) => (m.bp.pulse == null ? '--' : String(m.bp.pulse)) },
   ];
   // each figure in one column, the Polar H10's value above the Watch D2's (as in the ECG figure boxes); it sorts by the
@@ -80,6 +101,9 @@ function columns(): Column<BpMatch>[] {
   return cols;
 }
 
+/** A row's key: D2 BP by its time, Manual BP by its id. */
+function keyOf(m: BpMatch): string { return `${m.bp.source ?? 'd2'}-${m.bp.id ?? m.bp.at}`; }
+
 function sourceText(m: BpMatch): string {
   if (m.tracking) return 'Synchronised tracking';
   const parts = [m.polar ? 'Polar H10 ECG' : '', m.watch.length ? `${m.watch.length} watch strip${m.watch.length > 1 ? 's' : ''}` : ''].filter(Boolean);
@@ -107,6 +131,39 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   let pickedAt: number | null = null, run = 0;
   /** Each tracking's saved Combined ECG results (its figures and the events both devices saw). */
   const combined = new Map<string, CombinedResult | null>();
+
+  // ---- Manual BP: one line to type in a reading (date and time now, 120/80 to start with; all can be changed) ----
+  const manualCard = make('section', 'card manual-bp');
+  const mWhen = make('input'); mWhen.type = 'datetime-local'; mWhen.setAttribute('aria-label', 'Date and time of the Manual BP reading');
+  const num = (v: number, name: string): HTMLInputElement => { const i = make('input'); Object.assign(i, { type: 'number', min: '20', max: '300', step: '1', value: String(v), inputMode: 'numeric' }); i.setAttribute('aria-label', name); i.className = 'bp-num'; return i; };
+  const mSys = num(DEFAULT_SYS, 'SBP (systolic, mmHg)'), mDia = num(DEFAULT_DIA, 'DBP (diastolic, mmHg)');
+  const mAdd = make('button', 'primary', 'Add Manual BP');
+  mAdd.type = 'button';
+  const mMsg = make('span', 'muted', '');
+  const labelled = (text: string, input: HTMLElement): HTMLElement => { const l = make('label', 'manual-field', text); l.appendChild(input); return l; };
+  const mRow = make('div', 'row wrap manual-bp-row');
+  mRow.append(make('strong', '', 'Manual BP'), labelled('Date and time ', mWhen), labelled('SBP ', mSys), labelled('DBP ', mDia), make('span', 'muted', 'mmHg'), mAdd, mMsg);
+  manualCard.appendChild(mRow);
+  const resetWhen = (): void => { mWhen.value = localInput(Date.now()); };
+  resetWhen();
+  mAdd.addEventListener('click', () => {
+    const at = mWhen.value ? new Date(mWhen.value).getTime() : NaN, sys = Number(mSys.value), dia = Number(mDia.value);
+    const why = checkManual(sys, dia, at);
+    if (why) { mMsg.textContent = why; mMsg.className = 'warn-text'; return; }
+    saveManual(addManual(loadManual(), deps.user(), at, sys, dia));
+    mMsg.textContent = `Added ${sys}/${dia} mmHg at ${dateTime(at)}.`;
+    mMsg.className = 'muted';
+    pickedAt = at;
+    resetWhen(); mSys.value = String(DEFAULT_SYS); mDia.value = String(DEFAULT_DIA);
+    deps.changed?.();
+    void refresh();
+  });
+  const deleteReading = (m: BpMatch): void => {
+    if (!m.bp.id) return;
+    saveManual(deleteManual(loadManual(), m.bp.id));
+    deps.changed?.();
+    void refresh();
+  };
 
   // ---- top: the period, then the blood pressure graph over it and the picked reading's two ECGs, with one slider ----
   const period = make('select');
@@ -151,17 +208,18 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
 
   // ---- the table, with the choice of columns just above it ----
   const table = colTable<BpMatch>({
-    columns: columns(), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table2`, // v1.45.3: a column per figure
-    rowKey: (m) => String(m.bp.at), baseOrder: (a, b) => b.bp.at - a.bp.at, // latest on top
-    onPick: (m) => { pickedAt = m.bp.at; table.set(visible(), String(pickedAt)); showPicked(m); },
-    empty: 'No blood pressure readings in this period. Readings come from the Watch D2 through D2 Link.',
+    columns: columns((m) => deleteReading(m)), defaults: { cols: [...DEFAULT_COLS], sort: null, folded: [] }, storageKey: `${KEY}-table2`, // v1.45.3: a column per figure
+    rowKey: keyOf, baseOrder: (a, b) => b.bp.at - a.bp.at, // latest on top
+    onPick: (m) => { pickedAt = m.bp.at; table.set(visible(), keyOf(m)); showPicked(m); },
+    empty: 'No blood pressure readings in this period. D2 BP readings come from the Watch D2 through D2 Link; add a Manual BP reading above.',
   });
   const tableCard = make('section', 'card');
   tableCard.append(make('h3', 'sync-h', 'Blood pressure readings'),
-    make('p', 'note', 'One row for each blood pressure reading in the period. The ECG figures are from the synchronised tracking the reading belongs to, or else from the Polar H10 ECG and the watch strips taken within an hour of it (the median of the strips; their events added up). -- where there is none. Click a row to move the strips at the top to its ECG.'),
+    make('p', 'note', 'One row for each blood pressure reading in the period: D2 BP from the Watch D2, Manual BP typed in above (× deletes a Manual BP reading). The ECG figures are from the synchronised tracking the reading belongs to, or else from the Polar H10 ECG and the watch strips taken within an hour of it (the median of the strips; their events added up). -- where there is none. Click a row to move the strips at the top to its ECG.'),
     table.el);
-  root.replaceChildren(shown, tableCard);
+  root.replaceChildren(manualCard, shown, tableCard);
 
+  const pickedKey = (): string | null => { const m = matches.find((x) => x.bp.at === pickedAt); return m ? keyOf(m) : null; };
   const range = (): [number, number] => {
     const first = all.reduce((a, r) => Math.min(a, r.at), Date.now());
     return periodRange(state.period, Date.now(), first, state.from, state.to);
@@ -277,14 +335,14 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   pos.addEventListener('input', () => wv.goTo((Number(pos.value) / 1000) * (wv.duration - wv.span)));
 
   function showPicked(m: BpMatch | null): void {
-    shownTitle.textContent = m ? `Blood pressure ${bpText(m.bp)} mmHg at ${dateTime(m.bp.at)}` : 'Blood pressure with the ECGs';
+    shownTitle.textContent = m ? `${bpSource(m.bp)} ${bpText(m.bp)} mmHg at ${dateTime(m.bp.at)}` : 'Blood pressure with the ECGs';
     if (m) jumpTo(m.bp.at);
   }
 
   function draw(): void {
     const rows = visible();
     if (pickedAt == null || !rows.some((m) => m.bp.at === pickedAt)) pickedAt = rows.reduce<number | null>((a, m) => (a == null || m.bp.at > a ? m.bp.at : a), null);
-    table.set(rows, pickedAt == null ? null : String(pickedAt));
+    table.set(rows, pickedKey());
     showPicked(rows.find((m) => m.bp.at === pickedAt) ?? null);
     void loadPeriod();
   }
@@ -310,10 +368,10 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
       status.textContent = `Saving the Combined ECG results of tracking ${++j} of ${tracks.length} (once only)…`;
       await new Promise((r) => setTimeout(r, 0));
       combined.set(t.id, await ensureCombined(t).catch(() => null));
-      if (j % 3 === 0) { rematch(); table.set(visible(), pickedAt == null ? null : String(pickedAt)); }
+      if (j % 3 === 0) { rematch(); table.set(visible(), pickedKey()); }
     }
     status.textContent = '';
-    if (need.size || tracks.length) { rematch(); table.set(visible(), pickedAt == null ? null : String(pickedAt)); }
+    if (need.size || tracks.length) { rematch(); table.set(visible(), pickedKey()); }
   }
 
   function rematch(): void {
@@ -330,7 +388,7 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
     entries = store.loadSyncHistory().filter((e) => e.user === user);
     for (const e of entries) combined.set(e.id, (await store.loadSyncTrace(e.id).catch(() => undefined))?.combined ?? null); // saved with each tracking
     if (mine !== run) return;
-    status.textContent = all.length ? '' : 'No blood pressure readings yet. Take one on the Watch D2 and download it with D2 Link.';
+    status.textContent = all.length ? '' : 'No blood pressure readings yet. Take one on the Watch D2 and download it with D2 Link (D2 BP), or add a Manual BP reading above.';
     rematch();
     draw();
     void fillIn(mine);
