@@ -4,6 +4,9 @@ Newest first; from v1.1.0 each heading shows the version. Live site: https://ecg
 Entries marked *(GitHub)* appear under **Commits** in that repository; the oldest ones were published to a previous site that is no longer used.
 An exact copy of every upload is kept in the `GitHub uploads` folder (on this Mac only).
 
+## 27 Nov 2026 – v1.45.30 – "Refresh date and time" for Manual BP *(GitHub)*
+- **BP and ECG:** a **Refresh date and time** button next to "Add Manual BP" sets the reading's date and time back to now, for when the page has been open a while.
+
 ## 24 Nov 2026 – v1.45.29 – Manual BP on the BP and ECG page; the watch's readings are "D2 BP" *(GitHub)*
 - **Manual BP entry:** a one-line entry at the top of BP and ECG for readings from any blood pressure monitor. The date and time start at now, SBP at 120 and DBP at 80; all can be changed before pressing **Add Manual BP**. Values are checked (whole numbers, DBP lower than SBP, not in the future).
 - **Manual BP readings sync** to your other devices through your account, as other app data does. A deleted one is deleted on the other devices too.

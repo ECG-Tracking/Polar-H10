@@ -139,13 +139,18 @@ export function initBpEcg(root: HTMLElement, deps: BpEcgDeps): { refresh: () => 
   const mSys = num(DEFAULT_SYS, 'SBP (systolic, mmHg)'), mDia = num(DEFAULT_DIA, 'DBP (diastolic, mmHg)');
   const mAdd = make('button', 'primary', 'Add Manual BP');
   mAdd.type = 'button';
+  // puts the date and time back to now (the page may have been open a while)
+  const mNow = make('button', '', 'Refresh date and time');
+  mNow.type = 'button';
+  mNow.title = 'Set the date and time to now';
   const mMsg = make('span', 'muted', '');
   const labelled = (text: string, input: HTMLElement): HTMLElement => { const l = make('label', 'manual-field', text); l.appendChild(input); return l; };
   const mRow = make('div', 'row wrap manual-bp-row');
-  mRow.append(make('strong', '', 'Manual BP'), labelled('Date and time ', mWhen), labelled('SBP ', mSys), labelled('DBP ', mDia), make('span', 'muted', 'mmHg'), mAdd, mMsg);
+  mRow.append(make('strong', '', 'Manual BP'), labelled('Date and time ', mWhen), labelled('SBP ', mSys), labelled('DBP ', mDia), make('span', 'muted', 'mmHg'), mAdd, mNow, mMsg);
   manualCard.appendChild(mRow);
   const resetWhen = (): void => { mWhen.value = localInput(Date.now()); };
   resetWhen();
+  mNow.addEventListener('click', () => { resetWhen(); mMsg.textContent = ''; });
   mAdd.addEventListener('click', () => {
     const at = mWhen.value ? new Date(mWhen.value).getTime() : NaN, sys = Number(mSys.value), dia = Number(mDia.value);
     const why = checkManual(sys, dia, at);
